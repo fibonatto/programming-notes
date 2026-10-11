@@ -1,0 +1,69 @@
+* Programming Notes
+:PROPERTIES:
+:CUSTOM_ID: programming-notes
+:END:
+A collection of personal notes on programming languages and computer
+science fundamentals.
+
+These notes are working material maintained while studying and
+revisiting technical topics. They are incomplete and will change over
+time. They are not official language documentation, a complete
+curriculum, or a definitive reference.
+
+** Contents
+:PROPERTIES:
+:CUSTOM_ID: contents
+:END:
+| Directory      | Topics                                                                                                                                                                                                                                                                                    |
+|----------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| [[file:C/][=C/=]]           | Language semantics, types, functions, memory, data structures, the standard library, I/O and errors, macros, the preprocessor, the toolchain, and concurrency. See [[file:C/README.org][=C/README.org=]] for the current reading guide.                                                                          |
+| [[file:Common%20Lisp/][=Common Lisp/=]] | General notes, functions, data structures, and macros.                                                                                                                                                                                                                                    |
+| [[file:Cpp/][=Cpp/=]]         | General notes, functions, data structures, and templates.                                                                                                                                                                                                                                 |
+| [[file:Foundations/][=Foundations/=]] | Discrete mathematics, logic and proofs, data representation, complexity, data structures, algorithms, theory of computation, programming paradigms, functional programming, type systems, memory management, and concurrency. See [[file:Foundations/README.org][=Foundations/README.org=]] for the current reading guide. |
+| [[file:Haskell/][=Haskell/=]]     | General notes, functions, data structures, and type classes.                                                                                                                                                                                                                              |
+| [[file:Rust/][=Rust/=]]        | Language semantics, types, ownership, functions, data structures, traits and generics, iterators, I/O and errors, the standard library, modules, macros, concurrency, unsafe code and FFI, and the toolchain. See [[file:Rust/README.org][=Rust/README.org=]] for the current reading guide.                        |
+
+The amount of material and level of detail vary between directories. Not
+every directory has a README or a complete sequence of notes.
+
+** Format
+:PROPERTIES:
+:CUSTOM_ID: format
+:END:
+The notes are primarily written in [[https://orgmode.org/][Org mode]] as
+=.org= files. They are plain text; Emacs with Org mode provides support
+for navigating outlines, internal links, and source blocks.
+
+** Status and accuracy
+:PROPERTIES:
+:CUSTOM_ID: status-and-accuracy
+:END:
+The material is revised and expanded as the project develops. Topics may
+be missing, incomplete, or awaiting review. Examples may depend on a
+particular compiler, runtime, platform, or language version. Check
+individual notes for any stated verification details, and consult
+authoritative references when correctness or version-specific behavior
+matters.
+
+** Contributions
+:PROPERTIES:
+:CUSTOM_ID: contributions
+:END:
+Corrections, clarifications, examples, references, and additions are
+welcome. Contributions should be technically focused and consistent with
+the repository's use of English and its existing file format. See
+[[file:CONTRIBUTING.md][=CONTRIBUTING.md=]] for guidelines.
+
+** License
+:PROPERTIES:
+:CUSTOM_ID: license
+:END:
+Unless a file states otherwise, original notes and examples in this
+repository are licensed under
+[[https://creativecommons.org/licenses/by-nc/4.0/][Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0)]].
+You may share and adapt this material for noncommercial purposes with
+appropriate attribution. Commercial use is not permitted under this
+license. See [[file:LICENSE][=LICENSE=]] for details.
+
+Third-party material may be subject to separate terms, which take
+precedence where applicable.

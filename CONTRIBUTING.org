@@ -1,0 +1,76 @@
+* Contributing
+:PROPERTIES:
+:CUSTOM_ID: contributing
+:END:
+This repository contains evolving personal notes on programming
+languages and computer science. Contributions can correct errors,
+clarify explanations, improve examples, add references, or extend the
+existing notes. They do not need to make a topic or directory
+comprehensive.
+
+** What to contribute
+:PROPERTIES:
+:CUSTOM_ID: what-to-contribute
+:END:
+- Technical corrections and precise explanations.
+- Small, focused examples that clarify a concept or edge case.
+- References to relevant specifications, official documentation, papers,
+  or other primary sources.
+- Additional topics that fit the repository's scope.
+- Reports of mistakes, broken links, or unclear passages.
+
+** Guidelines
+:PROPERTIES:
+:CUSTOM_ID: guidelines
+:END:
+- Write contributions in English to match the repository.
+- Keep changes focused on the topic being addressed.
+- Follow the formatting and organization of the relevant directory. The
+  structure and depth of the notes may differ between languages; do not
+  reorganize unrelated material merely to make the directories uniform.
+- Preserve Org mode syntax, including source blocks, inline code, and
+  links. Check that internal file links point to existing files.
+- Prefer precise statements over broad claims. Distinguish language
+  guarantees from compiler-specific behavior, implementation details,
+  and personal recommendations.
+- Include references for claims that benefit from checking against a
+  specification or authoritative source. Attribute third-party material
+  and verify that its terms permit the proposed use.
+- For code examples, state whether they were tested when that
+  information is relevant. If tested, include the relevant compiler or
+  runtime and version when known. Clearly identify pseudocode or
+  untested examples.
+- Do not present a partial set of notes as an exhaustive treatment of a
+  topic.
+
+** Submitting a change
+:PROPERTIES:
+:CUSTOM_ID: submitting-a-change
+:END:
+1. Identify the relevant file and section.
+2. Make the smallest change that addresses the issue.
+3. Review the result for technical accuracy, formatting, links, and
+   unintended changes to surrounding material.
+4. Describe what changed and why. For code examples, include any
+   verification steps and their results, or state that the example was
+   not tested.
+
+For a correction, include a source or a reproducible example when
+practical. For a proposed new topic, explain where it fits and what it
+adds.
+
+** Licensing contributions
+:PROPERTIES:
+:CUSTOM_ID: licensing-contributions
+:END:
+Unless a contribution is explicitly marked otherwise and its terms are
+agreed upon before inclusion, contributions must be available under
+[[https://creativecommons.org/licenses/by-nc/4.0/][CC BY-NC 4.0]],
+consistent with the repository's license.
+
+By submitting a contribution, you confirm that you have the right to
+submit it under those terms and agree that it may be redistributed and
+adapted for noncommercial purposes under CC BY-NC 4.0. You retain
+copyright to your contribution. Do not submit material copied from a
+third party unless its license permits inclusion under these terms and
+the required attribution is provided.
