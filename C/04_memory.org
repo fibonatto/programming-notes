@@ -3,11 +3,11 @@
 
 * C Memory
 ** 1. Where objects live
-| Region  | Holds                                           | Lifetime                          |
-|---------+-------------------------------------------------+-----------------------------------|
-| Stack   | Automatic variables, call frames                | Until the block or function exits |
-| Static  | Globals and =static= variables, string literals | Whole program                     |
-| Heap    | Memory from =malloc= and friends                | Until =free=                      |
+| Region | Holds                                           | Lifetime                          |
+|--------+-------------------------------------------------+-----------------------------------|
+| Stack  | Automatic variables, call frames                | Until the block or function exits |
+| Static | Globals and =static= variables, string literals | Whole program                     |
+| Heap   | Memory from =malloc= and friends                | Until =free=                      |
 
 The stack is small (commonly 1 to 8 MB per thread) and fast; a large local array or deep recursion can overflow it. Heap memory is limited by the system but must be managed explicitly.
 
