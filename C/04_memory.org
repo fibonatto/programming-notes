@@ -1,0 +1,209 @@
+#+title: C Memory
+#+startup: overview
+
+* C Memory
+** 1. Where objects live
+| Region  | Holds                                           | Lifetime                          |
+|---------+-------------------------------------------------+-----------------------------------|
+| Stack   | Automatic variables, call frames                | Until the block or function exits |
+| Static  | Globals and =static= variables, string literals | Whole program                     |
+| Heap    | Memory from =malloc= and friends                | Until =free=                      |
+
+The stack is small (commonly 1 to 8 MB per thread) and fast; a large local array or deep recursion can overflow it. Heap memory is limited by the system but must be managed explicitly.
+
+#+begin_src c
+int *make(void) {
+    int local = 5;
+    return &local;                   /* BUG: points to dead storage after return */
+}
+#+end_src
+
+** 2. The malloc family
+#+begin_src c
+#include <stdlib.h>
+
+int *a = malloc(n * sizeof *a);       /* uninitialized */
+int *b = calloc(n, sizeof *b);        /* zero-filled; checks n * size overflow */
+a = realloc(a, new_n * sizeof *a);    /* resize; may move; see below */
+free(a);                              /* free(NULL) is a no-op */
+void *p = aligned_alloc(64, 4096);    /* C11: size must be a multiple of alignment */
+#+end_src
+
+Rules:
+- Check for =NULL=. =malloc= fails when memory is exhausted (on Linux, overcommit can delay the failure to first use).
+- Write =sizeof *p= instead of =sizeof(int)=, so the size follows the pointer's type.
+- ~malloc(n * size)~ can overflow =size_t=. =calloc(n, size)= checks it; otherwise check manually (=n > SIZE_MAX / size=).
+- =malloc(0)= may return =NULL= or a unique pointer; either way, do not dereference it.
+- A pointer returned by the allocator must be passed to =free= exactly once, unmodified.
+- Casting the result of =malloc= is unnecessary in C and can hide a missing =<stdlib.h>=.
+
+The safe =realloc= pattern keeps the old block valid if resizing fails:
+
+#+begin_src c
+int *tmp = realloc(a, new_n * sizeof *a);
+if (tmp == NULL) { /* a is still valid and still yours */ return -1; }
+a = tmp;
+#+end_src
+
+Memory from =malloc= is not zeroed. All-bits-zero is a valid null pointer and 0.0 on mainstream platforms, but the standard does not promise it, so for pointers and floats set values explicitly when portability matters.
+
+** 3. Typical memory bugs
+| Bug                | Example                                                       | Effect                        |
+|--------------------+---------------------------------------------------------------+-------------------------------|
+| Leak               | return without =free=                                         | memory grows                  |
+| Use after free     | read =p= after =free(p)=                                      | undefined; often exploitable  |
+| Double free        | =free(p); free(p);=                                           | heap corruption               |
+| Buffer overflow    | write =a[n]= on an =n=-element array                          | undefined; corrupts neighbors |
+| Off-by-one         | =strcpy= into a buffer without room for ='\0'=                | overflow                      |
+| Uninitialized read | read =malloc= memory or an uninitialized local                | undefined, nondeterministic   |
+| Invalid free       | =free= of stack memory or an interior pointer                 | crash or corruption           |
+| Dangling pointer   | pointer to a local that returned, or into a =realloc='d block | undefined                     |
+
+Habit: set a pointer to =NULL= after =free= (limits the damage of a second use), and design ownership so every allocation has one clear owner.
+
+** 4. Ownership conventions
+C does not track who owns memory; you must. Make the rules explicit in names and documentation:
+
+- A function named =*_new= / =*_create= returns an owned object; the caller frees it with =*_free= / =*_destroy=.
+- A =const T *= parameter is borrowed; the function does not keep or free it.
+- A function that stores a pointer says so (and who frees it).
+- Initialize into caller-owned storage when you can: ~int thing_init(Thing *t)~ avoids an allocation and a pointer.
+- Release in reverse order of acquisition; use the =goto cleanup= pattern (see =01_language.org=).
+
+#+begin_src c
+typedef struct Buffer Buffer;
+Buffer *buffer_new(size_t cap);          /* caller owns the result */
+void    buffer_free(Buffer *b);          /* accepts NULL */
+int     buffer_append(Buffer *b, const void *data, size_t n);   /* borrows data */
+#+end_src
+
+** 5. Pointers and pointer arithmetic
+#+begin_src c
+int a[4] = {10, 20, 30, 40};
+int *p = a;
+*(p + 2);                          /* 30: arithmetic scales by sizeof(int) */
+p[2];                              /* same: p[i] is *(p + i) */
+&a[4] - &a[0];                     /* 4 (ptrdiff_t): one past the end is allowed */
+#+end_src
+
+- Pointer arithmetic is valid only inside an array object (or one past its last element). Forming any other pointer, even without dereferencing it, is undefined.
+- Subtracting or comparing (~<~) pointers is valid only within the same array. Equality comparison is allowed for any two pointers.
+- =void *= has no size, so arithmetic on it is not standard (GCC allows it as an extension). Cast to =unsigned char *= to step by bytes.
+- Dereferencing =NULL= is undefined, not necessarily a crash.
+
+** 6. Copying and filling memory
+#+begin_src c
+#include <string.h>
+
+memcpy(dst, src, n);               /* regions must NOT overlap */
+memmove(dst, src, n);              /* overlap allowed */
+memset(buf, 0, n);                 /* set bytes to a value */
+memcmp(a, b, n);                   /* compare bytes; sign of the result only */
+#+end_src
+
+- Overlapping =memcpy= is undefined; use =memmove=.
+- Do not compare structs with =memcmp=: padding bytes are indeterminate.
+- The compiler may remove a =memset= on a buffer that is never read again (dead-store elimination), so wiping secrets needs =memset_explicit= (C23), =explicit_bzero= (glibc/BSD), or =SecureZeroMemory= (Windows).
+
+** 7. Strict aliasing and effective type
+An object may be accessed only through an lvalue of a compatible type, a qualified/signed/unsigned variant of it, an aggregate or union containing it, or =char=-family types. Otherwise the behavior is undefined, and the optimizer relies on this.
+
+#+begin_src c
+float f = 1.0f;
+uint32_t u = *(uint32_t *)&f;      /* UB: float object accessed as uint32_t */
+
+uint32_t v;
+memcpy(&v, &f, sizeof v);          /* correct */
+#+end_src
+
+Memory returned by =malloc= has no declared type; its effective type becomes the type of the last store. GCC's =-fno-strict-aliasing= disables the assumption, but fixing the code with =memcpy= is better.
+
+** 8. Alignment and padding
+Return values of =malloc= are aligned for any standard type. For a stricter alignment (cache line, SIMD), use =aligned_alloc= or =_Alignas=. Misaligned access through a typed pointer is undefined and can trap on some architectures; read unaligned data with =memcpy=.
+
+#+begin_src c
+uint32_t read_u32(const unsigned char *p) {
+    uint32_t v;
+    memcpy(&v, p, sizeof v);       /* safe for any alignment */
+    return v;
+}
+#+end_src
+
+** 9. Flexible array members and VLAs
+A struct may end with an array of unspecified length (C99):
+
+#+begin_src c
+struct message {
+    size_t len;
+    char data[];                   /* flexible array member */
+};
+
+struct message *m = malloc(sizeof *m + n);
+m->len = n;
+memcpy(m->data, src, n);
+free(m);                           /* one allocation, one free */
+#+end_src
+
+Such a struct cannot be copied by assignment in a meaningful way, nor stored in an array.
+
+Variable-length arrays (=int a[n];= with runtime =n=) allocate on the stack. They are optional since C11, cannot be checked for failure, and a large or attacker-controlled =n= overflows the stack. Prefer =malloc=. =alloca= has the same problem and is non-standard.
+
+** 10. An arena (bump) allocator
+Many small objects with the same lifetime can share one block, and be released together.
+
+#+begin_src c
+#include <stdint.h>
+#include <stdlib.h>
+
+typedef struct {
+    unsigned char *base;
+    size_t cap, used;
+} Arena;
+
+int arena_init(Arena *a, size_t cap) {
+    a->base = malloc(cap);
+    a->cap = cap;
+    a->used = 0;
+    return a->base ? 0 : -1;
+}
+
+/* align must be a power of two */
+void *arena_alloc(Arena *a, size_t size, size_t align) {
+    uintptr_t cur = (uintptr_t)(a->base + a->used);
+    uintptr_t aligned = (cur + (align - 1)) & ~(uintptr_t)(align - 1);
+    size_t pad = (size_t)(aligned - cur);
+    if (pad > a->cap - a->used) return NULL;
+    if (size > a->cap - a->used - pad) return NULL;
+    a->used += pad + size;
+    return (void *)aligned;
+}
+
+void arena_reset(Arena *a)   { a->used = 0; }          /* free everything at once */
+void arena_destroy(Arena *a) { free(a->base); a->base = NULL; }
+#+end_src
+
+Allocation is a pointer bump, and there is no per-object =free=, which removes whole classes of leak and double-free bugs. It does not run destructors, so it suits plain data.
+
+** 11. Finding memory bugs
+#+begin_src sh
+cc -g -fsanitize=address,undefined -fno-omit-frame-pointer prog.c -o prog
+./prog                                  # reports overflow, use-after-free, leaks, UB with a stack trace
+
+valgrind --leak-check=full ./prog       # no recompile needed; slower
+#+end_src
+
+- AddressSanitizer: out-of-bounds, use after free/return, double free, leaks (on Linux).
+- UndefinedBehaviorSanitizer: signed overflow, bad shifts, misaligned access, null dereference.
+- MemorySanitizer (Clang): uninitialized reads.
+- Valgrind: leaks, invalid accesses, uninitialized reads.
+
+Use them in tests and CI; they find bugs that "it works on my machine" hides.
+
+** What to remember
+- Know where an object lives and when it dies. Never return a pointer to a local.
+- Check allocation results, size computations, and the =realloc= result.
+- Decide ownership for each pointer; pair every allocation with one release.
+- =memcpy= forbids overlap; =memmove= allows it. Neither compares structs reliably.
+- Do not access memory through an incompatible type; use =memcpy= to reinterpret.
+- Arenas and cleanup labels simplify lifetimes.
+- Run sanitizers routinely.

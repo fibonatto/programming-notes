@@ -1,0 +1,204 @@
+#+title: C++ Functions
+#+startup: overview
+
+* C++ Functions
+** 1. Declare and define
+#+begin_src cpp
+int add(int a, int b);              // declaration (usually in a header)
+
+int add(int a, int b) {             // definition
+    return a + b;
+}
+
+inline int twice(int x) { return 2 * x; }   // may be defined in a header
+#+end_src
+
+A function must be declared before use. =inline= allows the same definition to appear in several translation units; it is not mainly an optimization request. Unlike C, =int f()= means "no parameters".
+
+** 2. Passing parameters
+The signature states the intent.
+
+| Intent                              | Parameter type            |
+|-------------------------------------+---------------------------|
+| Read a small, cheap value           | =int=, =double= (by value)|
+| Read a large object                 | =const T &=               |
+| Modify the caller's object          | =T &=                     |
+| Take ownership (sink) or keep a copy| =T= by value, then =std::move= |
+| Maybe no object                     | =T *= or =std::optional<T>= |
+| Read a contiguous range             | =std::span<const T>= (C++20) |
+| Read text without copying           | =std::string_view=        |
+
+#+begin_src cpp
+void print(const std::string &s);        // no copy, read-only
+void fill(std::vector<int> &v);          // modifies caller's vector
+
+struct Person {
+    std::string name_;
+    explicit Person(std::string name) : name_(std::move(name)) {}   // sink
+};
+#+end_src
+
+Passing by value and moving costs one move when the caller passes an rvalue and one copy plus one move when it passes an lvalue; that is usually fine for constructors and setters.
+
+** 3. Return values
+#+begin_src cpp
+std::vector<int> make() {
+    std::vector<int> v = {1, 2, 3};
+    return v;                       // moved or elided; do not write std::move(v)
+}
+
+std::pair<int, int> divmod(int a, int b) { return {a / b, a % b}; }
+
+auto [q, r] = divmod(17, 5);        // structured bindings: q == 3, r == 2
+#+end_src
+
+- For a few results, return a =std::pair=, =std::tuple=, or (better, for named fields) a small =struct=.
+- For "maybe a value", return =std::optional<T>=. For value-or-error, =std::expected<T, E>= (C++23).
+- Never return a reference or pointer to a local variable; it dangles.
+
+** 4. Overloading and default arguments
+#+begin_src cpp
+void log(int x);
+void log(double x);
+void log(const std::string &s);
+
+void connect(const std::string &host, int port = 80, bool tls = false);
+
+connect("example.com");
+connect("example.com", 443, true);
+#+end_src
+
+Overload resolution is done at compile time from the argument types. Default arguments are filled in at the call site and only trailing parameters can have them. C++ has no named arguments; the usual substitute is a parameter struct (with C++20 designated initializers):
+
+#+begin_src cpp
+struct Options { int port = 80; bool tls = false; };
+void connect(const std::string &host, Options opts = {});
+
+connect("example.com", {.port = 443, .tls = true});
+#+end_src
+
+** 5. Lambdas
+#+begin_src cpp
+auto add = [](int a, int b) { return a + b; };
+add(2, 3);                                  // 5
+
+int k = 10;
+auto by_val = [k](int x) { return x + k; };     // copy of k
+auto by_ref = [&k](int x) { return x + k; };    // reference to k
+auto all    = [=] { return k; };                // copy everything used
+auto counter = [n = 0]() mutable { return ++n; };   // init capture; mutable lets it modify its copy
+#+end_src
+
+A lambda is an object of an unnamed class with =operator()=. By default =operator()= is =const=, so a by-value capture cannot be modified without =mutable=.
+
+Generic lambdas take =auto= parameters:
+
+#+begin_src cpp
+auto plus = [](auto a, auto b) { return a + b; };
+plus(1, 2);          // int
+plus(1.5, 2.5);      // double
+#+end_src
+
+Do not return or store a lambda that captures a local by reference once that local is gone.
+
+** 6. Passing and storing callables
+Several ways to accept "a function":
+
+#+begin_src cpp
+// 1. Template parameter: fastest, the type is the lambda itself
+template <typename F>
+void each(const std::vector<int> &v, F f) { for (int x : v) f(x); }
+
+// 2. Constrained template (C++20)
+template <std::invocable<int> F>
+void each2(const std::vector<int> &v, F f) { for (int x : v) f(x); }
+
+// 3. std::function: type-erased, can be stored, may allocate
+void on_event(std::function<void(int)> cb);
+
+// 4. Plain function pointer: no captures
+void each3(const std::vector<int> &v, void (*f)(int));
+#+end_src
+
+Use a template parameter by default; use =std::function= when you must store callables of different types in one variable or member. =std::function= requires =<functional>=.
+
+** 7. Function objects
+Any object with =operator()= can be called like a function.
+
+#+begin_src cpp
+struct Scale {
+    double k;
+    double operator()(double x) const { return k * x; }
+};
+
+Scale s{2.0};
+s(3.0);                               // 6.0
+std::transform(v.begin(), v.end(), v.begin(), Scale{2.0});
+#+end_src
+
+The standard library also provides =std::plus<>=, =std::less<>=, =std::greater<>=, and adapters such as =std::bind_front= (C++20). Prefer lambdas to =std::bind=.
+
+** 8. Compile-time functions
+#+begin_src cpp
+constexpr int sq(int n) { return n * n; }   // may run at compile time or run time
+consteval int sq2(int n) { return n * n; }  // C++20: must run at compile time
+
+constexpr int a = sq(8);
+int runtime_n = read();
+int b = sq(runtime_n);                      // fine: runs at run time
+// int c = sq2(runtime_n);                  // error
+#+end_src
+
+** 9. Attributes and noexcept
+#+begin_src cpp
+[[nodiscard]] int compute();         // warn if the caller ignores the result
+void swap(Foo &a, Foo &b) noexcept;  // promises not to throw
+#+end_src
+
+Mark move constructors and move assignment =noexcept= where true: =std::vector= only uses them during reallocation if they cannot throw; otherwise it copies. If a =noexcept= function throws, the program calls =std::terminate=.
+
+** 10. Recursion and iteration
+#+begin_src cpp
+long long fact(int n) { return n <= 1 ? 1 : n * fact(n - 1); }
+
+long long sum(const std::vector<int> &v) {
+    return std::accumulate(v.begin(), v.end(), 0LL);   // <numeric>
+}
+#+end_src
+
+The standard does not guarantee tail-call elimination, so deep recursion can overflow the stack. Prefer a standard algorithm (=accumulate=, =transform=, =find_if=) when one fits; it states intent and has no loop bugs.
+
+** 11. Member functions
+#+begin_src cpp
+struct Counter {
+    int n = 0;
+    void inc() { ++n; }              // may modify the object
+    int get() const { return n; }    // promises not to modify it
+    static Counter zero() { return {}; }   // no object needed
+};
+#+end_src
+
+A member function has an implicit =this=. Make every member function that does not modify the object =const=; a =const= object can only call =const= members.
+
+** 12. Evaluation order
+The evaluation order of function arguments is unspecified. Do not depend on it:
+
+#+begin_src cpp
+f(g(), h());      // g and h both run, in unspecified order
+#+end_src
+
+C++17 did fix the order for some operators, notably =<<= and =>>= (left to right) and assignment (right operand first).
+
+** Quick reference
+| Form                    | Purpose                                         |
+|-------------------------+-------------------------------------------------|
+| =const T &=             | Read a large object without copying             |
+| =T &=                   | Modify the caller's object                      |
+| =T= + =std::move=       | Take ownership of an argument                   |
+| =auto f = [..](..){..}= | Lambda                                          |
+| =[x]=, =[&x]=, =[n = 0]=| By-value, by-reference, and init captures       |
+| =template <typename F>= | Accept any callable, no overhead                |
+| =std::function<R(A)>=   | Store a callable of unknown type                |
+| =constexpr=, =consteval=| Compile-time evaluation                         |
+| =noexcept=              | Promise not to throw                            |
+| =[[nodiscard]]=         | Warn when a result is ignored                   |

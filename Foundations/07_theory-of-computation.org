@@ -1,0 +1,216 @@
+#+title: Theory of Computation
+#+startup: overview
+
+* Theory of Computation
+** 0. Staff-level lens
+The theory of computation tells you what is impossible, what is intrinsically expensive, and what the right abstraction for a problem is. At Staff scope it saves months of work:
+- you recognize requests that ask for the impossible ("detect every bug", "prove these two programs equivalent", "tell me if this job will ever finish") and propose the decidable approximation instead;
+- you choose the weakest sufficient language for a format or DSL (regular, context-free, Turing-complete), because power costs analyzability and security;
+- you understand why regex engines, parsers, and static analyzers behave as they do, including their performance cliffs.
+This file is about computability and formal languages; resource-bounded complexity (P, NP) is in =04_complexity.org=.
+
+** 1. Formal languages and automata
+An /alphabet/ is a finite set of symbols; a /string/ is a finite sequence; a /language/ is a set of strings. A computational problem is "decide membership in a language".
+
+*Chomsky hierarchy*:
+| Class                  | Grammar                  | Machine                          | Examples                                  |
+|------------------------+--------------------------+----------------------------------+-------------------------------------------|
+| Regular                | Right-linear             | Finite automaton (DFA / NFA)     | Tokens, identifiers, simple log formats   |
+| Context-free           | Context-free             | Pushdown automaton               | Balanced parentheses, most programming-language syntax |
+| Context-sensitive      | Context-sensitive        | Linear-bounded automaton         | Some natural-language structure; type-checking-like constraints |
+| Recursively enumerable | Unrestricted             | Turing machine                   | Everything computable                     |
+
+More power means less you can decide about the language: emptiness, equivalence, and ambiguity become harder or undecidable as you climb.
+
+** 2. Finite automata and regular languages
+- A *DFA* has finitely many states, a start state, accepting states, and one transition per state and symbol. It runs in O(n) time, O(1) memory, with no backtracking.
+- An *NFA* may have several or no transitions per symbol (and epsilon moves). It accepts if some path accepts. NFAs and DFAs recognize the same class: regular languages. Converting an NFA with n states to a DFA can need 2^n states (the subset construction); the language "the k-th symbol from the end is a" shows this blowup is unavoidable.
+- *Regular expressions* (with union, concatenation, star) denote exactly the regular languages (Kleene's theorem). Thompson's construction turns a regex into an NFA of linear size, which can be simulated in O(n m) time without exponential blowup.
+- *Closure*: regular languages are closed under union, intersection, complement, concatenation, and star; DFA equivalence and emptiness are decidable (equivalence in near-linear time after minimization). NFA/regex equivalence is PSPACE-complete.
+- *Pumping lemma*: any sufficiently long string in a regular language can be pumped (a middle part repeated) and stay in the language. Use it to prove non-regularity (for example a^n b^n, balanced parentheses, "number of a equals number of b").
+- *Minimization*: every regular language has a unique minimal DFA (Myhill-Nerode); Hopcroft's algorithm finds it in O(n log n).
+
+#+begin_src python
+class DFA:
+    def __init__(self, start, accepting, delta):
+        self.start, self.accepting, self.delta = start, set(accepting), delta
+    def accepts(self, word):
+        s = self.start
+        for ch in word:
+            s = self.delta[(s, ch)]
+        return s in self.accepting
+
+even_ones = DFA("e", {"e"}, {("e", "0"): "e", ("e", "1"): "o", ("o", "0"): "o", ("o", "1"): "e"})
+assert even_ones.accepts("1001") and not even_ones.accepts("1011")
+
+def nfa_kth_from_end(k):
+    """NFA for: the k-th symbol from the end is 'a'."""
+    delta = {}
+    def add(s, c, t):
+        delta.setdefault((s, c), set()).add(t)
+    for c in "ab":
+        add(0, c, 0)
+    add(0, "a", 1)
+    for i in range(1, k):
+        for c in "ab":
+            add(i, c, i + 1)
+    return delta, 0, {k}
+
+def subset_construction(delta, start, accepting, alphabet="ab"):
+    start_set = frozenset([start])
+    seen, todo, trans = {start_set}, [start_set], {}
+    while todo:
+        S = todo.pop()
+        for c in alphabet:
+            T = frozenset(t for s in S for t in delta.get((s, c), ()))
+            trans[(S, c)] = T
+            if T not in seen:
+                seen.add(T)
+                todo.append(T)
+    return seen, trans, {S for S in seen if S & accepting}
+
+for k in range(1, 6):
+    d, s0, acc = nfa_kth_from_end(k)
+    states, _, _ = subset_construction(d, s0, acc)
+    assert len(states) == 2 ** k          # exponential blowup: NFA has k+1 states
+#+end_src
+
+*Regex engines in practice.* Backtracking engines (Perl-compatible: Python =re=, Java, JavaScript, PCRE) try alternatives one at a time and can take exponential time on patterns such as =(a+)+$= against a long run of =a= followed by a mismatch (ReDoS, a real denial-of-service vector). Automata-based engines (RE2, Rust's =regex= crate, Go's =regexp=) guarantee linear time but do not support backreferences, which make matching NP-hard. Rule: never run an untrusted regex, or a regex on untrusted input, with a backtracking engine without a time limit.
+
+** 3. Context-free languages and parsing
+- A *context-free grammar* (CFG) has rules A -> alpha with a single nonterminal on the left. A *derivation* or *parse tree* shows how a string arises. A grammar is *ambiguous* if some string has two parse trees (the dangling-else problem, operator precedence); ambiguity is undecidable to detect in general, so languages are designed with unambiguous grammars or explicit precedence declarations.
+- *Pushdown automata* (finite control plus a stack) recognize exactly the context-free languages. The stack is what lets them match nesting; one stack cannot count two things (a^n b^n c^n is not context-free; use the pumping lemma for CFLs).
+- *Parsing algorithms*: general CFG parsing in O(n^3) (CYK on Chomsky normal form, Earley, GLR); deterministic subclasses in linear time: LL(k) (top-down, recursive descent), LR(k) / LALR (bottom-up, used by yacc and bison); PEG and packrat parsers (ordered choice, linear time with memoization); Pratt parsing for expression precedence. Parser combinators (see =09_functional-programming.org=) build recursive-descent parsers compositionally.
+- *Closure*: CFLs are closed under union, concatenation, star, and intersection with a regular language, but not under intersection or complement. Equivalence and universality are undecidable for CFGs.
+- Real languages mix layers: a regular lexer, a context-free parser, then context-sensitive checks (declared-before-use, types) in later phases. Indentation-sensitive syntax and C's typedef ambiguity need lexer/parser feedback.
+
+#+begin_src python
+def cyk(word, rules, start="S"):
+    """CYK recognizer for a grammar in Chomsky normal form: rules are (lhs, (rhs...))."""
+    n = len(word)
+    if n == 0:
+        return False
+    table = [[set() for _ in range(n)] for _ in range(n)]     # table[i][len-1]
+    for i, ch in enumerate(word):
+        for lhs, rhs in rules:
+            if rhs == (ch,):
+                table[i][0].add(lhs)
+    for length in range(2, n + 1):
+        for i in range(n - length + 1):
+            for split in range(1, length):
+                left, right = table[i][split - 1], table[i + split][length - split - 1]
+                for lhs, rhs in rules:
+                    if len(rhs) == 2 and rhs[0] in left and rhs[1] in right:
+                        table[i][length - 1].add(lhs)
+    return start in table[0][n - 1]
+
+# a^n b^n (n >= 1):  S -> A B | A T ;  T -> S B ;  A -> a ;  B -> b
+rules = [("S", ("A", "B")), ("S", ("A", "T")), ("T", ("S", "B")), ("A", ("a",)), ("B", ("b",))]
+assert cyk("ab", rules) and cyk("aabb", rules) and cyk("aaabbb", rules)
+assert not cyk("aab", rules) and not cyk("abab", rules) and not cyk("ba", rules)
+#+end_src
+
+** 4. Turing machines and the Church-Turing thesis
+A *Turing machine* has an infinite tape, a head, a finite set of states, and a transition function (state, symbol) -> (state, symbol, move). It models everything a computer can do:
+- Variants (multiple tapes, nondeterminism, two-way infinite tapes, random access) compute the same functions, with at most polynomial slowdown for deterministic variants (the "extended" Church-Turing thesis is more contested, especially with quantum computing).
+- The *Church-Turing thesis*: the intuitive notion of "effectively computable" equals Turing-computable. It is not a theorem but a well-supported claim; lambda calculus, recursive functions, register machines, and every real programming language define the same class.
+- A *universal Turing machine* takes a description of a machine and an input and simulates it: the theoretical foundation of the stored-program computer, interpreters, and virtual machines.
+- *Decidable* (recursive) languages: a machine always halts with yes or no. *Recognizable* (recursively enumerable): a machine halts on yes-instances and may loop on no-instances. A language is decidable iff both it and its complement are recognizable.
+
+#+begin_src python
+def run_tm(rules, tape, state="q0", blank="_", accept="halt", max_steps=10_000):
+    tape = dict(enumerate(tape))
+    head = 0
+    for _ in range(max_steps):
+        if state == accept:
+            lo, hi = min(tape), max(tape)
+            return "".join(tape.get(i, blank) for i in range(lo, hi + 1)).strip(blank)
+        state, write, move = rules[(state, tape.get(head, blank))]
+        tape[head] = write
+        head += {"L": -1, "R": 1, "S": 0}[move]
+    raise RuntimeError("step limit exceeded")     # we cannot decide in general whether it would halt
+
+# binary increment: scan to the right end, then carry leftwards
+inc = {("q0", "0"): ("q0", "0", "R"), ("q0", "1"): ("q0", "1", "R"), ("q0", "_"): ("q1", "_", "L"),
+       ("q1", "1"): ("q1", "0", "L"), ("q1", "0"): ("halt", "1", "S"), ("q1", "_"): ("halt", "1", "S")}
+assert run_tm(inc, "1011") == "1100" and run_tm(inc, "111") == "1000" and run_tm(inc, "0") == "1"
+#+end_src
+
+** 5. Undecidability
+*The halting problem*: no program H(P, x) correctly decides, for every program P and input x, whether P halts on x. Proof by diagonalization: suppose H exists; build D(P) that runs H(P, P) and does the opposite (loops if H says halts; halts if H says loops). Then D(D) halts iff it does not halt, a contradiction.
+
+#+begin_src text
+def D(P):
+    if halts(P, P):      # assumed decider
+        while True: pass
+    return               # halts
+# D(D) halts  <=>  halts(D, D) says "loops"  <=>  D(D) does not halt
+#+end_src
+
+*Reductions* spread undecidability: to show problem B undecidable, show that a solver for B would solve a known undecidable problem A. Undecidable: A_TM (does machine M accept w), HALT, emptiness of a TM's language, equivalence of two TMs, the Post correspondence problem, tiling the plane, Hilbert's tenth problem (integer solutions of polynomial equations), and equivalence or ambiguity of context-free grammars.
+
+*Rice's theorem*: every non-trivial /semantic/ property of programs (a property of the function the program computes: "returns 0 on all inputs", "never dereferences null", "is equivalent to this other program", "outputs only primes") is undecidable. Only /syntactic/ properties (does it contain the word =goto=? is it well-typed under this finite rule set?) can be decided exactly.
+
+Consequences for tooling:
+- Static analyzers, linters, optimizers, and security scanners cannot be both /sound/ (never miss a bug) and /complete/ (never raise a false alarm) on a Turing-complete language. Real tools pick: over-approximate (false positives) or under-approximate (false negatives). Abstract interpretation formalizes the first choice.
+- Type systems are decidable by design, and so they reject some correct programs. Type inference for System F is undecidable; practical systems restrict it (see =10_type-systems.org=).
+- Perfect test generation, equivalence checking of arbitrary code, "will this migration terminate?" are not solvable in general. Bound the question: timeouts, step budgets, restricted DSLs, fuel parameters, or total functional languages that only permit provably terminating programs (as in Lean).
+- Goedel's incompleteness theorems and the incomputability of Kolmogorov complexity (shortest program for a string) and of the Busy Beaver function are cousins of the same diagonal argument.
+
+** 6. Recursion, self-reference, and programs as data
+- *Kleene's recursion theorem*: a program can obtain its own source and compute with it. Quines, self-replicating programs, and compilers that compile themselves (bootstrapping) are instances.
+- *The s-m-n theorem* and *partial evaluation*: specializing a program on part of its input yields a faster program; the idea behind staged compilation and JIT specialization.
+- *Total versus partial functions*: ordinary programs may diverge. Proof assistants and total languages require termination arguments (structural recursion, well-founded measures), restricting expressiveness to gain guarantees.
+
+** 7. Beyond the basic model
+- *Probabilistic computation* (BPP) and *quantum computation* (BQP) change resources but not computability: a quantum computer decides the same languages as a Turing machine; the question is speed (Shor's algorithm factors in polynomial time; no known quantum speedup solves NP-complete problems in polynomial time).
+- *Cellular automata* (Conway's Game of Life, Rule 110) can be universal; *accidental Turing completeness* appears in templates, macros, configuration languages, and spreadsheets, and it makes termination and resource bounds undecidable for them.
+- *Oracle machines* and the *arithmetical hierarchy* classify degrees of undecidability.
+- *Lambda calculus* (see =09_functional-programming.org=) is the equivalent model behind functional languages.
+
+** 8. From theory to engineering decisions
+| Question                                           | Result                                              | Engineering consequence                                  |
+|----------------------------------------------------+-----------------------------------------------------+----------------------------------------------------------|
+| Will this program halt?                            | Undecidable (halting problem)                       | Timeouts, budgets, termination checkers on restricted forms |
+| Are these two programs equivalent?                 | Undecidable (Rice)                                  | Tests, refinement proofs on small languages, canonical forms |
+| Does this code ever do X (null, race, leak)?       | Undecidable in general                              | Conservative analysis; accept false positives or negatives |
+| Is this regular expression ambiguous or equivalent to that one? | PSPACE-complete                        | Avoid cleverness; test with examples                     |
+| Is this CFG ambiguous?                             | Undecidable                                         | Use parser generators with conflict reports              |
+| Parse this input                                   | Linear for LL/LR/PEG; cubic for general CFG         | Choose a grammar class that gives linear parsing         |
+| Does this regex with backreferences match?         | NP-complete                                         | Use linear-time engines; ban backreferences on untrusted input |
+| Is this SQL query equivalent to that one (full SQL)? | Undecidable                                       | Rely on optimizers' heuristics, not proofs               |
+| Can this DSL express loops?                        | If yes, likely Turing-complete                      | Decide deliberately; unbounded loops forfeit termination guarantees |
+
+*Design rule (principle of least power)*: use the least expressive language that does the job (a regular language for a log format, a CFG for a config grammar, a restricted DSL for policy). Weaker languages can be analyzed, bounded, and secured; each added feature (loops, recursion, eval) forfeits some of that. Many security and reliability incidents come from "configuration" that quietly became a programming language.
+
+** 9. Self-check
+1. Prove that {a^n b^n : n >= 0} is not regular. Is it context-free? Is {a^n b^n c^n} context-free?
+2. Convert the regex =(a|b)*abb= to an NFA, then to a DFA; how many states does the minimal DFA have?
+3. Explain in your own words why Rice's theorem means a perfect "will this PR introduce a null dereference?" checker cannot exist.
+4. Reduce A_TM to "does this program ever print 'hello'?" to show the latter is undecidable.
+5. Why do RE2-style engines forbid backreferences?
+6. A product manager wants a rules language "just flexible enough". What questions do you ask before adding conditionals, variables, and loops?
+
+** 10. Exercises
+- Warm-up: write a DFA that accepts binary strings representing numbers divisible by 3; verify it against Python's =%=.
+- Core: implement Thompson's NFA construction and NFA simulation for a regex subset (concatenation, union, star); test against Python's =re= on random inputs; show your engine is linear where =re= is exponential.
+- Core: implement an LL(1) recursive-descent parser for arithmetic with precedence, and a Pratt parser; compare error handling.
+- Core: write a CYK recognizer and convert a small grammar to Chomsky normal form by hand.
+- Stretch: write a universal Turing machine simulator and a machine that decides palindromes.
+- Stretch: implement Hopcroft's DFA minimization and check it on random DFAs.
+- Stretch: work through the halting-problem reduction chapter of Sipser's book or the MIT 18.404J problem sets.
+
+** 11. Resources
+- MIT 18.404J /Theory of Computation/ (Sipser; lecture notes, videos, problem sets; covers regular and context-free languages, decidability, reducibility, complexity): https://ocw.mit.edu/courses/mathematics/18-404j-theory-of-computation-fall-2020/
+- Sipser, /Introduction to the Theory of Computation/ (the standard text; book).
+- Erickson's notes on models of computation (automata, formal languages, context-free grammars, Turing machines), linked from his algorithms page: https://jeffe.cs.illinois.edu/teaching/algorithms/
+- Arora and Barak, /Computational Complexity: A Modern Approach/ (draft online; assumes essentially no background in the first chapters): https://theory.cs.princeton.edu/complexity
+- Pierce et al., /Software Foundations/ (languages, operational semantics, termination in a proof assistant): https://softwarefoundations.cis.upenn.edu/
+- Nystrom, /Crafting Interpreters/ (lexing, parsing, and executing a full language; free): https://craftinginterpreters.com
+- Russ Cox's articles on regular expression matching (the Thompson NFA versus backtracking) are the clearest account of the engineering side.
+
+** What to remember
+- Power versus analyzability: regular < context-free < Turing-complete; each step loses decision procedures.
+- Backtracking regex engines are exponential in the worst case; automata engines are linear.
+- Rice's theorem: semantic questions about arbitrary programs are undecidable, so tools approximate.
+- Use the least powerful language that solves the problem.

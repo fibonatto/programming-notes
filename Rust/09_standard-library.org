@@ -1,0 +1,232 @@
+#+title: Rust Standard Library: Traits and Utilities
+#+startup: overview
+
+* Rust Standard Library: Traits and Utilities
+Collections are covered in =05_data-structures.org=, iterators in =07_iterators.org=, and I/O in =08_io-and-errors.org=. This file covers the traits and utility modules you meet in every program.
+
+** 1. std, core, alloc, and the prelude
+- =core=: the language-level library with no OS and no heap (=Option=, =Result=, iterators, =fmt=, atomics). Usable in =#![no_std]= code.
+- =alloc=: heap types (=Box=, =Vec=, =String=, =Rc=, =Arc=). Needs an allocator.
+- =std=: everything above plus I/O, threads, files, networking, time, and the process environment. Re-exports =core= and =alloc=.
+
+The /prelude/ is a set of names imported into every file: =Option=, =Some=, =None=, =Result=, =Ok=, =Err=, =Vec=, =String=, =Box=, =ToString=, =Clone=, =Copy=, =Iterator=, =IntoIterator=, =From=, =Into=, =Default=, =Drop=, =Fn=, and others. Anything else needs =use=.
+
+** 2. The derivable traits
+#+begin_src rust
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+struct Point { x: i32, y: i32 }
+#+end_src
+
+| Trait          | Provides                                      | Notes                                                   |
+|----------------+-----------------------------------------------+---------------------------------------------------------|
+| =Debug=        | ={:?}= formatting for programmers             | Derive almost always                                    |
+| =Clone=        | =.clone()=                                    | Explicit duplicate                                      |
+| =Copy=         | Implicit bitwise copy                         | Requires =Clone=; all fields =Copy=                     |
+| =PartialEq=    | ~==~ and ~!=~                                 | Float fields allow only =PartialEq=                     |
+| =Eq=           | Marker: equality is reflexive                 | Needed for =HashMap= keys                               |
+| =PartialOrd=   | =<=, =>=, =partial_cmp=                       | Derived order: field by field, in declaration order     |
+| =Ord=          | =cmp=, =sort=, =BTreeMap= keys                | Total order                                             |
+| =Hash=         | Hashing for =HashMap= / =HashSet=             | Must agree with =Eq=: equal values hash equally         |
+| =Default=      | =T::default()=                                | Zero values; for enums mark a =#[default]= variant      |
+
+When you implement =PartialEq=, =Hash=, and =Ord= by hand, keep them consistent with each other. Enums derive ordering by variant order, then by payload.
+
+** 3. Display, Debug, and formatting
+#+begin_src rust
+use std::fmt;
+
+struct Point { x: f64, y: f64 }
+
+impl fmt::Display for Point {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "({:.1}, {:.1})", self.x, self.y)
+    }
+}
+
+let p = Point { x: 1.0, y: 2.5 };
+println!("{p}");          // Display: for users
+println!("{:?}", p);      // Debug: needs #[derive(Debug)]
+println!("{:#?}", p);     // pretty-printed Debug
+let s = p.to_string();    // ToString comes free with Display
+#+end_src
+
+Format specifiers:
+
+| Spec            | Meaning                                    |
+|-----------------+--------------------------------------------|
+| ={}=, ={:?}=, ={:#?}= | Display, Debug, pretty Debug         |
+| ={0}= ={1}=, ={name}= | Positional and named arguments       |
+| ={x}=           | Inline capture of a variable in scope      |
+| ={:5}=, ={:<5}=, ={:>5}=, ={:^5}= | Width, with alignment    |
+| ={:05}=, ={:+}= | Zero padding, always show the sign         |
+| ={:.2}=         | Precision: decimals for floats, truncation for strings |
+| ={:8.3}=        | Width 8, 3 decimals                        |
+| ={:x}=, ={:X}=, ={:b}=, ={:o}=, ={:#x}= | Hex, binary, octal; =#= adds the prefix |
+| ={:e}=          | Scientific notation                        |
+| ={:>width$}=, ={:.prec$}= | Width or precision taken from a variable |
+
+The format string is checked at compile time: a wrong number or type of arguments is a compile error, unlike C's =printf=. =format!= returns a =String=, =write!= / =writeln!= write into any =fmt::Write= or =io::Write=, and ={{= / =}}= print literal braces.
+
+** 4. Conversion traits
+| Trait             | Purpose                                                    | Example                                  |
+|-------------------+------------------------------------------------------------+------------------------------------------|
+| =From<T>= / =Into<U>= | Infallible conversion; implement =From=, get =Into= free | =String::from("a")=, =let s: String = "a".into()= |
+| =TryFrom<T>= / =TryInto<U>= | Fallible conversion                                  | =u8::try_from(300_i32)=                   |
+| =FromStr=         | Parse from text; powers =str::parse=                       | ="5".parse::<u32>()=                      |
+| =ToString=        | Blanket-implemented for =Display= types                    | =42.to_string()=                          |
+| =AsRef<T>= / =AsMut<T>= | Cheap reference-to-reference conversion              | =fn open<P: AsRef<Path>>(p: P)=           |
+| =Borrow<T>=       | Like =AsRef= with =Eq=/=Hash= consistency                  | =HashMap<String, V>::get("key")=          |
+| =Deref=           | Smart pointer to its target; deref coercion                | =Box<T>=, =String= to =str=               |
+
+#+begin_src rust
+struct Celsius(f64);
+struct Fahrenheit(f64);
+
+impl From<Celsius> for Fahrenheit {
+    fn from(c: Celsius) -> Self { Fahrenheit(c.0 * 9.0 / 5.0 + 32.0) }
+}
+
+let f: Fahrenheit = Celsius(100.0).into();
+
+use std::str::FromStr;
+impl FromStr for Point {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, String> {
+        let (a, b) = s.split_once(',').ok_or("expected x,y")?;
+        Ok(Point {
+            x: a.trim().parse().map_err(|_| "bad x")?,
+            y: b.trim().parse().map_err(|_| "bad y")?,
+        })
+    }
+}
+
+let p: Point = "1.5, 2".parse().unwrap();
+#+end_src
+
+Accept =impl Into<String>= or =impl AsRef<str>= in APIs that should take either owned or borrowed text without forcing a clone.
+
+** 5. Strings: the everyday methods
+#+begin_src rust
+let s = "  Hello, World  ";
+s.trim();  s.trim_start();  s.trim_end();
+s.to_lowercase();  s.to_uppercase();
+s.contains("World");  s.starts_with("  He");  s.ends_with('d');
+s.replace("World", "Rust");
+s.split(',').collect::<Vec<_>>();           // [" Hello", " World "]
+s.split_whitespace();
+s.split_once(',');                           // Option<(&str, &str)>
+s.lines();  s.chars();  s.bytes();
+s.find("o");                                 // Option<usize>: byte offset
+s.parse::<f64>();
+
+let mut owned = String::with_capacity(32);
+owned.push('a');  owned.push_str("bc");
+owned += "def";
+owned.insert(0, '>');
+owned.pop();  owned.clear();
+let joined = ["a", "b", "c"].join("-");      // "a-b-c"
+let t = format!("{}-{}", "a", 1);
+#+end_src
+
+=Cow<'a, str>= (clone on write) lets a function return a borrowed string when nothing changed and an owned one when it did, avoiding an allocation in the common case:
+
+#+begin_src rust
+use std::borrow::Cow;
+
+fn normalize(s: &str) -> Cow<'_, str> {
+    if s.contains('\t') { Cow::Owned(s.replace('\t', "    ")) } else { Cow::Borrowed(s) }
+}
+#+end_src
+
+** 6. std::mem and std::cmp
+#+begin_src rust
+use std::mem;
+use std::cmp::{self, Ordering, Reverse};
+
+mem::swap(&mut a, &mut b);
+let old = mem::replace(&mut x, new);
+let taken = mem::take(&mut v);               // leaves Default::default()
+mem::size_of::<u64>();
+
+cmp::min(3, 5);  cmp::max(3, 5);
+3.clamp(0, 2);                               // 2
+match a.cmp(&b) { Ordering::Less => {}, Ordering::Equal => {}, Ordering::Greater => {} }
+
+people.sort_by(|a, b| a.age.cmp(&b.age).then_with(|| a.name.cmp(&b.name)));
+people.sort_by_key(|p| Reverse(p.age));      // descending
+#+end_src
+
+** 7. Time, processes, and the environment
+#+begin_src rust
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::thread;
+
+let start = Instant::now();                  // monotonic clock: for measuring intervals
+work();
+let elapsed: Duration = start.elapsed();
+println!("{:?} / {} ms", elapsed, elapsed.as_millis());
+
+let secs = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();   // wall clock; can fail
+thread::sleep(Duration::from_millis(100));
+
+use std::process::Command;
+let out = Command::new("ls").arg("-l").output()?;      // run a program and capture output
+println!("{}", String::from_utf8_lossy(&out.stdout));
+let status = Command::new("make").status()?;
+status.success();
+#+end_src
+
+Use =Instant= for elapsed time and =SystemTime= for timestamps (the clock can jump). Dates, time zones, and calendars are not in =std=; use the =chrono= or =time= crates. =Command= does not go through a shell, so there is no shell injection unless you invoke =sh -c= yourself.
+
+** 8. Numbers
+#+begin_src rust
+2_i32.pow(10);  2.0_f64.powi(3);  2.0_f64.powf(0.5);  16.0_f64.sqrt();
+10_u32.leading_zeros();  0b1011_u8.count_ones();  1_u8.rotate_left(3);
+i64::from_str_radix("ff", 16);                    // Ok(255)
+255_u8.to_string();  format!("{:08b}", 5);
+
+let bytes = 0x12345678_u32.to_be_bytes();          // [0x12, 0x34, 0x56, 0x78]
+u32::from_le_bytes([0x78, 0x56, 0x34, 0x12]);      // 0x12345678
+
+i32::MAX;  u8::MIN;  f64::EPSILON;  std::f64::consts::PI;
+#+end_src
+
+Use =to_be_bytes= / =from_le_bytes= and friends to serialize integers with explicit byte order; no struct dumping and no =htonl=.
+
+** 9. Lazy and one-time initialization
+#+begin_src rust
+use std::sync::{LazyLock, OnceLock};
+
+static TABLE: LazyLock<Vec<u32>> = LazyLock::new(|| (0..256).map(|i| i * i).collect());
+static CONFIG: OnceLock<String> = OnceLock::new();
+
+let cfg = CONFIG.get_or_init(|| String::from("default"));
+#+end_src
+
+=OnceLock= (stable since Rust 1.70) and =LazyLock= (1.80) replace the =lazy_static= and =once_cell= crates for most uses.
+
+** 10. Beyond std: crates you will meet
+| Need                          | Crate                                 |
+|-------------------------------+---------------------------------------|
+| Serialization (JSON, TOML, ...) | =serde=, =serde_json=               |
+| Command-line parsing          | =clap=                                |
+| Error handling                | =thiserror=, =anyhow=                 |
+| Async runtime                 | =tokio= (also =async-std=, =smol=)    |
+| Data parallelism              | =rayon=                               |
+| Regular expressions           | =regex=                               |
+| Random numbers                | =rand=                                |
+| Dates and times               | =chrono=, =time=                      |
+| HTTP                          | =reqwest= (client), =axum= (server)   |
+| Logging and tracing           | =tracing=, =log=                      |
+| More iterator tools           | =itertools=                           |
+| Testing: properties, benches  | =proptest=, =criterion=               |
+
+Browse crates.io and docs.rs. Prefer widely used crates with recent releases, and audit dependencies (see =14_toolchain.org=).
+
+** What to remember
+- =derive= the standard traits; keep =PartialEq=, =Hash=, and =Ord= consistent when hand-written.
+- =Display= is for users, =Debug= for programmers; format strings are checked at compile time.
+- Implement =From=, get =Into=; use =TryFrom= when it can fail; accept =impl AsRef<str>= / =impl AsRef<Path>= in APIs.
+- =Instant= measures intervals, =SystemTime= tells the date; calendars need a crate.
+- =OnceLock= / =LazyLock= handle global initialization.
+- Explicit-endian conversion methods replace C's byte-order macros.

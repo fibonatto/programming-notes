@@ -1,0 +1,321 @@
+#+title: Concurrency and Distributed Systems Foundations
+#+startup: overview
+
+* Concurrency and Distributed Systems Foundations
+** 0. Staff-level lens
+Concurrency is where correct-looking code fails rarely, expensively, and irreproducibly. At Staff scope you will:
+- design systems whose correctness rests on stated invariants and failure models, not on "it passed the tests";
+- choose a concurrency model (threads and locks, message passing, async, actors, data parallelism) for each part of a system and defend the trade-off;
+- reason about consistency, ordering, and failure across machines: what a database, queue, or cache actually guarantees, and what your application must add (idempotency, fencing, retries);
+- predict capacity and tail latency with simple queueing models, and design overload behavior (backpressure, shedding, timeouts).
+Companion files: =02_logic-and-proofs.org= (invariants, safety and liveness), =04_complexity.org=, =11_memory-management.org=, =05_data-structures.org=, and the concurrency files in the C and Rust notes for language-level APIs.
+
+** 1. Concepts and costs
+- *Concurrency* is structuring a program as independently progressing activities; *parallelism* is running them simultaneously on multiple processors. Concurrency can exist on one core (interleaving); parallelism needs several.
+- *Units*: processes (isolated address spaces, heavy), OS threads (shared memory, preemptively scheduled), user-level or green threads and coroutines (cheap, scheduled by a runtime), event loops (single thread, cooperative). A context switch costs microseconds and pollutes caches.
+- *Preemptive versus cooperative scheduling*: preemptive can interrupt at any instruction (races possible anywhere); cooperative switches only at explicit points (await, yield), which removes some races but lets one task starve the loop.
+- *Amdahl's law*: if a fraction f of the work parallelizes perfectly across p workers, the speedup is 1 / ((1 - f) + f / p), bounded by 1 / (1 - f). With 90% parallel work, 1000 cores give less than 10x. *Gustafson's law* notes that larger machines usually solve larger problems, so scaled speedup is s + p (1 - s) for serial fraction s of the parallel run.
+- *Universal Scalability Law* (Gunther): throughput C(N) = N / (1 + a (N - 1) + b N (N - 1)), where a models contention and b models coherence (crosstalk) costs; with b > 0 throughput peaks and then /falls/ as workers are added. Fit it to measurements when scaling stalls.
+
+#+begin_src python
+def amdahl(f, p):
+    return 1 / ((1 - f) + f / p)
+
+assert abs(amdahl(0.9, 10) - 5.263) < 1e-3
+assert amdahl(0.9, 1000) < 10                      # capped by 1 / (1 - f) = 10
+
+def usl(n, a, b):
+    return n / (1 + a * (n - 1) + b * n * (n - 1))
+
+peak = max(range(1, 200), key=lambda n: usl(n, 0.05, 0.001))
+assert 1 < peak < 199 and usl(199, 0.05, 0.001) < usl(peak, 0.05, 0.001)   # more workers, less throughput
+#+end_src
+
+** 2. What can go wrong
+- *Data race*: two threads access the same memory location concurrently, at least one writes, with no synchronization. In C, C++, and Rust (unsafe) it is undefined behavior; in Java and Go it yields weakly defined results. Distinguish it from a *race condition*, a logic bug that depends on timing (check-then-act) and can occur even when every access is atomic.
+- *Atomicity violation*: a multi-step update interleaved with another (lost update, write skew).
+- *Deadlock*: threads wait for each other forever. Four necessary conditions (Coffman): mutual exclusion, hold-and-wait, no preemption, circular wait. Break one: lock ordering, try-lock with back-off, acquiring all locks at once, lock-free designs.
+- *Livelock* (threads keep reacting without progress), *starvation* (one thread never gets the resource), *priority inversion* (a low-priority thread holding a lock blocks a high-priority one; mitigated by priority inheritance).
+- *Visibility and reordering*: compilers and CPUs reorder operations; without synchronization one thread may never see another's write, or see writes out of order (section 4).
+
+#+begin_src python
+def find_deadlock(wait_for):
+    """wait_for: {thread: lock_or_thread_it_waits_on}, as a graph; returns a cycle or None."""
+    color, stack = {}, []
+    def dfs(u):
+        color[u] = 1
+        stack.append(u)
+        for v in wait_for.get(u, []):
+            if color.get(v, 0) == 1:
+                return stack[stack.index(v):] + [v]
+            if color.get(v, 0) == 0:
+                cyc = dfs(v)
+                if cyc:
+                    return cyc
+        stack.pop()
+        color[u] = 2
+        return None
+    for u in list(wait_for):
+        if color.get(u, 0) == 0:
+            cyc = dfs(u)
+            if cyc:
+                return cyc
+    return None
+
+# T1 holds A and waits for B's holder T2; T2 holds B and waits for A's holder T1.
+assert find_deadlock({"T1": ["T2"], "T2": ["T1"]}) == ["T1", "T2", "T1"]
+assert find_deadlock({"T1": ["T2"], "T2": ["T3"], "T3": []}) is None
+#+end_src
+
+** 3. Synchronization primitives
+| Primitive              | Purpose                                                           | Caveats                                              |
+|------------------------+-------------------------------------------------------------------+------------------------------------------------------|
+| Mutex (lock)           | Mutual exclusion over a critical section                          | Deadlock, contention, priority inversion             |
+| Spinlock               | Busy-wait lock for very short sections                            | Wastes CPU; dangerous when preempted holder          |
+| Read-write lock        | Many readers or one writer                                        | Writer starvation; overhead often exceeds a mutex    |
+| Semaphore              | Counting permits (resource pools, bounded buffers)                | Easy to misuse; no ownership                         |
+| Condition variable / monitor | Wait for a predicate while releasing a lock                 | Spurious wakeups: always re-check in a loop          |
+| Barrier / latch        | Wait for N parties / for an event                                 | Reuse and cancellation subtleties                    |
+| Atomic operations (CAS, fetch-add) | Lock-free updates of single words                     | ABA problem; memory ordering                         |
+| Futex                  | OS building block: sleep on an address if its value is unchanged  | Used to build the above                              |
+Design points:
+- *Lock granularity*: coarse locks are simple and contend; fine-grained locks scale and deadlock; lock striping and sharding reduce contention.
+- *Lock-free and wait-free*: lock-free guarantees some thread always makes progress; wait-free guarantees every thread does. Built from compare-and-swap, they avoid blocking but are hard to get right: memory reclamation (hazard pointers, epoch-based reclamation, RCU), the ABA problem (a value changes from A to B and back to A, fooling a CAS), and memory-ordering mistakes. Use proven libraries.
+- *Read-copy-update* (RCU) lets readers proceed without locks while writers publish new versions and defer freeing old ones; heavily used in the Linux kernel.
+- Keep critical sections short; never call unknown code or block on I/O while holding a lock; prefer immutable shared data and single-writer designs.
+
+#+begin_src python
+import threading
+
+class BoundedBuffer:
+    """Producer-consumer with a mutex and two condition variables (monitor style)."""
+    def __init__(self, capacity):
+        self.items, self.capacity = [], capacity
+        self.lock = threading.Lock()
+        self.not_empty = threading.Condition(self.lock)
+        self.not_full = threading.Condition(self.lock)
+    def put(self, x):
+        with self.not_full:
+            while len(self.items) == self.capacity:      # loop: re-check after every wakeup
+                self.not_full.wait()
+            self.items.append(x)
+            self.not_empty.notify()
+    def get(self):
+        with self.not_empty:
+            while not self.items:
+                self.not_empty.wait()
+            x = self.items.pop(0)
+            self.not_full.notify()
+            return x
+
+buf, results = BoundedBuffer(4), []
+def producer():
+    for i in range(1000):
+        buf.put(i)
+    buf.put(None)                                         # sentinel: end of stream
+def consumer():
+    while (x := buf.get()) is not None:
+        results.append(x)
+ts = [threading.Thread(target=producer), threading.Thread(target=consumer)]
+for t in ts: t.start()
+for t in ts: t.join()
+assert results == list(range(1000))                       # FIFO order preserved, nothing lost
+#+end_src
+
+** 4. Memory models and ordering
+A *memory model* defines which values a read may return when threads share memory.
+- *Sequential consistency* (SC, Lamport): the result is as if all operations ran in one total order consistent with each thread's program order. It is the easiest to reason about and the slowest to implement.
+- *Total store order* (x86): stores go through a store buffer, so a thread may read before its own earlier store is visible to others (store-to-load reordering). *Weaker models* (ARM, POWER, RISC-V) also reorder loads and stores more aggressively.
+- Compilers reorder and eliminate memory operations too, so the language-level model matters most: *C11/C++11*, *Java* (JSR-133), *Go*, and *Rust* (which adopts the C++ model) all promise *data-race-free programs behave as if sequentially consistent* (the DRF-SC guarantee), while giving atomics with orderings (relaxed, acquire, release, sequentially consistent) for experts.
+- *Happens-before*: a partial order built from program order and synchronization edges (unlock then lock of the same mutex, release store then acquire load that reads it, thread start and join). If a write happens-before a read, the read sees it; two accesses unordered by happens-before and conflicting are a data race.
+
+Litmus tests show the differences:
+#+begin_src text
+Store buffering (SB):    x = y = 0
+  Thread 1: x = 1; r1 = y        Thread 2: y = 1; r2 = x
+  Can r1 == 0 and r2 == 0?   Not under SC. Yes under x86-TSO and weaker models.
+
+Message passing (MP):    data = flag = 0
+  Thread 1: data = 42; flag = 1  Thread 2: while (flag == 0) {}; r = data
+  Is r == 42 guaranteed?   Only if flag is an atomic with release/acquire (or SC), or protected by a lock.
+#+end_src
+Rules of thumb: protect shared mutable data with locks or atomics; =volatile= is not synchronization in C and C++ (it is in Java, with different meaning); default to sequentially consistent atomics; use weaker orderings only with a proof or a model checker. See the C and Rust notes for APIs.
+
+** 5. Concurrency models
+| Model                          | Idea                                                          | Strengths                              | Weaknesses                                    |
+|--------------------------------+---------------------------------------------------------------+----------------------------------------+-----------------------------------------------|
+| Threads with shared memory and locks | Direct, efficient                                       | Fast; ubiquitous                       | Races and deadlocks; hard composition         |
+| Message passing / actors       | Isolated state, communicate by messages (Erlang, Akka)        | Fault isolation; location transparency; supervision | Message ordering and mailbox growth; harder global invariants |
+| CSP / channels                 | Typed channels between sequential processes (Go, Rust)        | Clear ownership transfer               | Deadlock on channels; leaks of blocked goroutines |
+| Software transactional memory  | Atomic blocks with retry                                      | Composable atomicity                   | Overheads; limited to memory (no I/O in transactions) |
+| Async / event loop             | Single thread, non-blocking I/O, tasks yield at await         | Many connections cheaply; no data races within a task | Blocking calls stall everything; function coloring; CPU-bound work needs threads |
+| Fork-join and data parallelism | Split data, process in parallel, combine                      | Scales with cores; determinism possible | Needs independent work and good granularity   |
+| Dataflow / reactive            | Values propagate through a graph                              | Declarative                            | Debugging; glitches and ordering              |
+*Structured concurrency* (task scopes that cannot outlive their parent, as in Kotlin, Swift, Java's structured concurrency, Trio) ties task lifetimes to scopes so that errors propagate and nothing leaks. Prefer *sharing less*: partition data per thread, hand off ownership through queues, keep one writer per piece of state, and treat shared mutable state as a last resort.
+
+** 6. Distributed systems: models and impossibility
+Distributed systems add partial failure, unbounded message delay, and no shared clock.
+- *Failure models*: crash-stop, crash-recovery, omission, timing, and Byzantine (arbitrary, malicious behavior). *Timing models*: synchronous (bounded delay), asynchronous (no bound), partially synchronous (bounded eventually; the realistic model).
+- *The network is unreliable*: messages can be lost, duplicated, delayed, and reordered; a timeout cannot distinguish a slow node from a dead one.
+- *CAP theorem* (Gilbert and Lynch): when a network partition occurs, a system must give up either linearizable consistency or availability. It says nothing about the no-partition case; *PACELC* adds that even without partitions there is a latency versus consistency trade-off.
+- *FLP impossibility* (Fischer, Lynch, Paterson): in a fully asynchronous system no deterministic protocol can guarantee consensus if even one process may crash. Practical protocols stay safe always and guarantee progress only when the system is sufficiently synchronous, using timeouts, leader election, or randomization.
+- *Consensus*: agreeing on one value (or a sequence: a replicated log). *Paxos* (Lamport) and *Raft* (Ongaro and Ousterhout, 2014, designed for understandability) tolerate f crash failures with 2f + 1 replicas using majority quorums; Byzantine tolerance needs 3f + 1 (PBFT and successors). Consensus underlies replicated state machines, leader election, configuration stores (etcd, ZooKeeper), and distributed databases.
+- *Quorums*: with N replicas, reads from R and writes to W replicas always overlap if R + W > N; overlapping alone does not give linearizability without extra mechanisms (versioning, read repair, consensus).
+- *Time and ordering*: wall clocks drift and jump; do not use them to order events across machines unless bounded-error clocks are available. *Lamport clocks* give a total order consistent with causality (if a happened before b, then C(a) < C(b)); *vector clocks* detect whether two events are causally ordered or concurrent; hybrid logical clocks combine physical and logical time.
+
+#+begin_src python
+from itertools import combinations
+
+class LamportProcess:
+    def __init__(self):
+        self.t = 0
+    def local(self):
+        self.t += 1
+        return self.t
+    def send(self):
+        self.t += 1
+        return self.t
+    def recv(self, ts):
+        self.t = max(self.t, ts) + 1
+        return self.t
+
+p, q = LamportProcess(), LamportProcess()
+a = p.local(); m = p.send(); b = q.recv(m)
+assert a < m < b                                   # causality respected
+
+def vc_compare(a, b):
+    if a == b:
+        return "equal"
+    if all(x <= y for x, y in zip(a, b)):
+        return "before"
+    if all(x >= y for x, y in zip(a, b)):
+        return "after"
+    return "concurrent"
+
+assert vc_compare([1, 0], [2, 0]) == "before"
+assert vc_compare([2, 1], [1, 2]) == "concurrent"      # neither event caused the other
+
+def always_overlap(n, r, w):
+    return all(set(x) & set(y) for x in combinations(range(n), r) for y in combinations(range(n), w))
+
+assert always_overlap(5, 3, 3) and always_overlap(5, 1, 5)
+assert not always_overlap(5, 2, 3)                     # R + W = N does not guarantee overlap
+#+end_src
+
+** 7. Consistency models and transactions
+Jepsen's consistency map relates these models; stronger models allow fewer behaviors and cost more latency and availability.
+| Model                     | Guarantee                                                                              |
+|---------------------------+----------------------------------------------------------------------------------------|
+| Linearizable              | Each operation appears to take effect atomically at some instant between its invocation and response; the order respects real time. Gold standard for single objects |
+| Sequentially consistent   | All operations appear in one order consistent with each process's order; no real-time requirement |
+| Serializable              | Transactions behave as if executed one at a time in some order (no real-time requirement) |
+| Strict serializable       | Serializable and consistent with real time (linearizability for transactions)          |
+| Snapshot isolation        | Each transaction reads a consistent snapshot; write-write conflicts abort; allows /write skew/ |
+| Read committed / read uncommitted | Weak isolation levels: anomalies such as non-repeatable reads and phantoms     |
+| Causal consistency        | Causally related operations are seen in order by everyone                              |
+| Eventual consistency      | Replicas converge if updates stop; no ordering guarantee while they run                |
+Practical consequences:
+- Know your database's real default isolation level and the anomalies it permits. Many bugs are write skew or lost updates under snapshot or read-committed isolation.
+- *CRDTs* (conflict-free replicated data types) and *operational transformation* merge concurrent updates deterministically for collaborative and highly available systems.
+- *Distributed transactions*: two-phase commit (blocks if the coordinator fails), consensus-based commit (Spanner-style), and *sagas* (a sequence of local transactions with compensating actions) for long workflows.
+- *Exactly-once* delivery is not achievable in general; the practical form is at-least-once delivery plus *idempotent* handling (idempotency keys, deduplication, upserts).
+- *Fencing tokens* guard against a paused or partitioned leader that still believes it holds a lock or lease: the storage layer rejects writes with stale tokens. Leases without fencing are unsafe.
+
+** 8. Queueing, capacity, and tail latency
+- *Little's law*: for a stable system, the average number in the system L equals the arrival rate times the average time in the system: L = lambda W. It applies to queues, thread pools, connection pools, and whole services, and sizes pools and buffers.
+- *Utilization and latency*: in the simple M/M/1 queue (random arrivals, random service, one server), mean time in system is W = 1 / (mu - lambda), so at 90% utilization latency is 10 times the service time, and at 99% it is 100 times. Plan for headroom: keep average utilization well below saturation.
+- *Tail at scale*: when a request fans out to N services, the chance that at least one is slow is 1 - (1 - q)^N; with q = 1% and N = 100 that is 63%. Mitigations: hedged and tied requests, timeouts, redundancy, reducing fan-out, and measuring percentiles (p99 and above), never only averages.
+- *Overload behavior*: unbounded queues turn overload into huge latency and memory growth. Use bounded queues, *backpressure* (propagate "slow down" upstream), *load shedding* (reject excess work early), *rate limiting* (token bucket), *timeouts* on every remote call with a budget that shrinks along the call chain, *circuit breakers* (stop calling a failing dependency), *bulkheads* (isolate pools per dependency), and *retries* only for idempotent calls with exponential backoff and jitter and a retry budget (otherwise retries multiply load: a retry storm).
+
+#+begin_src python
+import random
+
+def mm1_mean_sojourn(lam, mu, n, seed=1):
+    """Simulate an M/M/1 queue with Lindley's recursion; return the mean time in system."""
+    rng = random.Random(seed)
+    wait, total = 0.0, 0.0
+    for _ in range(n):
+        service = rng.expovariate(mu)
+        total += wait + service
+        interarrival = rng.expovariate(lam)
+        wait = max(0.0, wait + service - interarrival)
+    return total / n
+
+w = mm1_mean_sojourn(0.5, 1.0, 400_000)
+assert abs(w - 1 / (1.0 - 0.5)) < 0.1              # theory: W = 1/(mu - lambda) = 2.0
+assert abs((1 - 0.99 ** 100) - 0.634) < 0.001      # fan-out of 100 with 1% slow calls
+
+class TokenBucket:
+    def __init__(self, rate, capacity, now=0.0):
+        self.rate, self.capacity, self.tokens, self.last = rate, capacity, capacity, now
+    def allow(self, now, cost=1):
+        self.tokens = min(self.capacity, self.tokens + (now - self.last) * self.rate)
+        self.last = now
+        if self.tokens >= cost:
+            self.tokens -= cost
+            return True
+        return False
+
+tb = TokenBucket(rate=1, capacity=3)
+assert [tb.allow(0) for _ in range(4)] == [True, True, True, False]     # burst of 3, then limited
+assert tb.allow(1.0) is True and tb.allow(1.0) is False                 # refills at 1 token/second
+
+def backoff_full_jitter(attempt, base=0.1, cap=10.0, rng=random):
+    return rng.uniform(0, min(cap, base * 2 ** attempt))                # "full jitter" strategy
+
+assert all(0 <= backoff_full_jitter(a) <= min(10.0, 0.1 * 2 ** a) for a in range(12))
+#+end_src
+
+** 9. Testing and debugging concurrent systems
+- *Race detectors*: ThreadSanitizer (C, C++, Go, Rust nightly), Helgrind, Java's race detectors; run tests under them in CI. A clean run does not prove absence of races.
+- *Stress and chaos*: random delays, thread count sweeps, fault injection (kill, partition, slow, clock skew), Jepsen-style tests that record histories and check them against a consistency model.
+- *Model checking*: TLA+ and TLC for protocols; Loom (Rust) and similar tools explore interleavings of small concurrent programs exhaustively.
+- *Deterministic simulation*: run the whole distributed system in a single-threaded simulator with a seeded scheduler and fake network and disk; failures become reproducible by seed. Some database vendors built their testing around this idea.
+- *Observability*: distributed tracing with causal context, structured logs with request ids, metrics for queue depth, saturation, and error budgets. In a hang, capture all thread stacks first (=jstack=, =gdb thread apply all bt=, goroutine dumps).
+- *Make races reproducible*: shrink the program, add sleeps at suspected points, use a deterministic scheduler, and replay recorded executions.
+
+** 10. Design heuristics
+1. State the invariants and the failure model before designing; write them in the design document.
+2. Prefer designs where the hard part is one well-understood primitive (a queue, a database transaction, a consensus service) rather than ad hoc locking.
+3. Share nothing, or share immutable data; transfer ownership; keep a single writer.
+4. Make operations idempotent and retryable; attach ids and versions.
+5. Bound everything: queues, retries, timeouts, concurrency, memory.
+6. Plan for partial failure: what happens when one dependency is slow, one node dies mid-operation, or messages are duplicated and reordered?
+7. Prove or model-check the small, critical protocol; test the rest with faults.
+8. Choose the strongest consistency you can afford for the data that needs it, and the weakest everywhere else.
+
+** 11. Self-check
+1. Give a program with no data race (all accesses atomic) that is still incorrect, and fix it.
+2. Explain why an unlocked double-checked-locking singleton can fail even though it looks safe, and how modern languages fix it.
+3. Your service retries failed calls three times; a dependency slows down. What happens to its load, and how do you design retries so this does not cascade?
+4. A lock-based lease protects a resource. A GC pause makes the holder wake up after the lease expired. Describe how a fencing token prevents corruption.
+5. Why does Raft need a majority, and what happens with an even number of nodes?
+6. An endpoint's average latency is 50 ms but customers complain. What do you measure next?
+7. Under snapshot isolation, construct a write-skew example (two doctors on call).
+8. Estimate how many threads a service needs for 2,000 requests/s with 40 ms mean latency per request (Little's law), and what changes if latency doubles.
+
+** 12. Exercises
+- Warm-up: implement a bounded blocking queue with a mutex and condition variables in your favorite language; write a stress test.
+- Core: demonstrate a lost update and a deadlock deliberately; fix them; add TSan or equivalent to the test run.
+- Core: implement a token-bucket rate limiter and a circuit breaker with injectable time, and test them deterministically.
+- Core: simulate an M/M/1 and an M/M/c queue; compare with theory; observe the knee near saturation.
+- Core: implement Lamport and vector clocks for a simulated message-passing system; write a causal-delivery buffer.
+- Stretch: write a TLA+ (or Python state-explorer) model of two-phase commit and find the blocking scenario; then model a lease with and without fencing.
+- Stretch: implement leader election and log replication from the Raft paper in a simulator with message loss and delays; run property checks (one leader per term, committed entries persist).
+- Stretch: write a history checker for linearizability on a small register (try all orderings consistent with real time) and run it on a deliberately buggy replicated register.
+
+** 13. Resources
+- Arpaci-Dusseau and Arpaci-Dusseau, /Operating Systems: Three Easy Pieces/, the concurrency part (locks, condition variables, semaphores, common concurrency bugs, event-based concurrency; free): https://pages.cs.wisc.edu/~remzi/OSTEP/
+- McKenney, /Is Parallel Programming Hard, And, If So, What Can You Do About It?/ (free; hardware, locking, RCU, memory ordering, validation): https://www.kernel.org/pub/linux/kernel/people/paulmck/perfbook/perfbook.html
+- Jepsen, consistency models map (linearizability, serializability, snapshot isolation, causal, and the hierarchy between them): https://jepsen.io/consistency/models
+- Herlihy and Shavit, /The Art of Multiprocessor Programming/; Goetz et al., /Java Concurrency in Practice/; Williams, /C++ Concurrency in Action/; Kleppmann, /Designing Data-Intensive Applications/ (replication, partitioning, transactions, consensus).
+- Papers: Lamport, /Time, Clocks, and the Ordering of Events in a Distributed System/ (1978); Herlihy and Wing, /Linearizability/ (1990); Fischer, Lynch, Paterson (1985); Ongaro and Ousterhout, /In Search of an Understandable Consensus Algorithm (Raft)/ (2014); Dean and Barroso, /The Tail at Scale/ (2013); Gilbert and Lynch on CAP (2002).
+- Language notes: the C concurrency notes (threads, atomics, memory orders) and the Rust notes (=Send=, =Sync=, channels, async).
+- ACM/IEEE-CS/AAAI /Computer Science Curricula 2023/, Parallel and Distributed Computing knowledge area: https://csed.acm.org/wp-content/uploads/2024/05/The-Report.pdf
+
+** What to remember
+- Data races are undefined or weakly defined; race conditions are logic errors; invariants and a stated failure model make both tractable.
+- Prefer sharing less: ownership transfer, single writers, immutability.
+- Distributed systems have partial failure and no global clock; consensus needs majorities; consistency costs latency or availability.
+- Little's law and M/M/1 explain queues; keep utilization below saturation; bound queues and retries.
+- Test with race detectors, fault injection, model checking, and deterministic simulation.

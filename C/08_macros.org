@@ -1,0 +1,208 @@
+#+title: C Macros and the Preprocessor
+#+startup: overview
+
+* C Macros and the Preprocessor
+** 1. What the preprocessor does
+Before compilation, the preprocessor rewrites the source text: it includes headers, expands macros, and drops code excluded by conditionals. It works on tokens, with no knowledge of types or scopes.
+
+#+begin_src sh
+cc -E file.c        # print the source after preprocessing
+cc -E -P file.c     # same, without line markers
+#+end_src
+
+A macro does not run at run time; it only changes the text that the compiler sees.
+
+** 2. Object-like macros
+#+begin_src c
+#define BUFFER_SIZE 256
+#define VERSION "1.2"
+
+char buf[BUFFER_SIZE];
+#+end_src
+
+For integer constants, an =enum= or =static const= (or =constexpr= in C23) is scoped and visible to the debugger. Use =#define= for values needed by the preprocessor itself or in contexts that require a constant expression.
+
+** 3. Function-like macros
+#+begin_src c
+#define SQUARE(x) ((x) * (x))
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+#+end_src
+
+Parenthesize every parameter and the whole body, because substitution is textual:
+
+#+begin_src c
+#define BAD_SQUARE(x) x * x
+BAD_SQUARE(1 + 2)       /* 1 + 2 * 1 + 2 == 5, not 9 */
+#+end_src
+
+The macro name must be directly followed by =(= in the definition. There is no recursion: a macro does not expand inside its own expansion.
+
+** 4. Avoid evaluating an argument more than once
+#+begin_src c
+int i = 3;
+int r = SQUARE(i++);    /* expands to ((i++) * (i++)): undefined behavior */
+int m = MAX(f(), g());  /* the larger of the two is called twice */
+#+end_src
+
+A function does not have this problem:
+
+#+begin_src c
+static inline int square(int x) { return x * x; }
+#+end_src
+
+When you need type genericity and single evaluation, GCC and Clang provide =__typeof__= and statement expressions (a GNU extension, not standard C); C23 standardizes =typeof=.
+
+** 5. Multi-statement macros: =do { } while (0)=
+#+begin_src c
+#define LOG_AND_COUNT(msg) \
+    do {                   \
+        puts(msg);         \
+        count++;           \
+    } while (0)
+
+if (ok)
+    LOG_AND_COUNT("hit");
+else
+    other();
+#+end_src
+
+Without the =do { } while (0)= wrapper, the macro would expand to two statements and break an unbraced =if= / =else=. The wrapper makes the macro behave as one statement that requires a trailing semicolon.
+
+** 6. Stringification and token pasting
+=#= turns a macro argument into a string literal. =##= joins two tokens.
+
+#+begin_src c
+#define STR(x) #x
+STR(a + b)              /* "a + b" */
+
+#define CHECK(expr)                                              \
+    do {                                                         \
+        if (!(expr)) {                                           \
+            fprintf(stderr, "%s:%d: check failed: %s\n",         \
+                    __FILE__, __LINE__, #expr);                  \
+            abort();                                             \
+        }                                                        \
+    } while (0)
+
+#define MAKE_GETTER(name, type) \
+    type get_##name(const struct obj *o) { return o->name; }
+
+MAKE_GETTER(width, int)         /* defines int get_width(const struct obj *o) */
+#+end_src
+
+To stringify the value of another macro, expand it first through an extra level:
+
+#+begin_src c
+#define XSTR(x) STR(x)
+#define N 10
+STR(N)      /* "N" */
+XSTR(N)     /* "10" */
+#+end_src
+
+** 7. Why a function is not always enough
+A function cannot do these, because it sees values rather than source text:
+
+- Capture the expression text (=#expr=) or the call site (=__FILE__=, =__LINE__=).
+- Generate declarations, such as the getter above.
+- Work over unrelated types without a common signature.
+- Control whether an argument is evaluated at all (=assert=, =CHECK= with =NDEBUG=).
+
+Predefined names: =__FILE__=, =__LINE__=, =__DATE__=, =__TIME__=, =__STDC_VERSION__=. Note that =__func__= is a predefined identifier of the function, not a preprocessor macro.
+
+** 8. Conditional compilation and include guards
+#+begin_src c
+#ifndef MYLIB_H
+#define MYLIB_H
+/* header contents */
+#endif
+
+#if defined(__linux__)
+    /* Linux-only code */
+#elif defined(_WIN32)
+    /* Windows-only code */
+#else
+#   error "unsupported platform"
+#endif
+#+end_src
+
+Include guards prevent a header from being processed twice. =#pragma once= is widely supported but not standard.
+
+** 9. Variadic macros
+#+begin_src c
+#define LOG(...) fprintf(stderr, __VA_ARGS__)
+
+LOG("x = %d\n", x);
+#+end_src
+
+A pattern such as =#define LOG(fmt, ...) fprintf(stderr, fmt, __VA_ARGS__)= fails when no extra arguments are given, because of the trailing comma. C23 adds =__VA_OPT__= to handle this; GCC and Clang also accept =, ##__VA_ARGS__= as an extension.
+
+** 10. X-macros
+Define a list once and generate several things from it.
+
+#+begin_src c
+#define COLORS(X) \
+    X(RED)        \
+    X(GREEN)      \
+    X(BLUE)
+
+enum color {
+#define X(name) COLOR_##name,
+    COLORS(X)
+#undef X
+};
+
+static const char *color_names[] = {
+#define X(name) #name,
+    COLORS(X)
+#undef X
+};
+#+end_src
+
+The enum and the name table cannot get out of sync.
+
+** 11. Hygiene
+C macros are not hygienic: names introduced by a macro can collide with names at the call site.
+
+#+begin_src c
+#define SWAP(a, b) do { int tmp = (a); (a) = (b); (b) = tmp; } while (0)
+
+int tmp = 1, y = 2;
+SWAP(tmp, y);           /* expands to: int tmp = (tmp); ... the inner tmp shadows the outer */
+#+end_src
+
+Mitigations: use unlikely names for temporaries (=_swap_tmp=), or avoid the macro and write a function. Macro arguments are also expanded in the caller's scope, so a macro that mentions a global name depends on what that name means where the macro is used.
+
+** 12. Type-generic selection with =_Generic=
+C11's =_Generic= chooses an expression by the type of its controlling operand, at compile time:
+
+#+begin_src c
+#include <math.h>
+#include <stdlib.h>
+
+#define ABS(x) _Generic((x), \
+    int:    abs,             \
+    long:   labs,            \
+    double: fabs)(x)
+
+ABS(-3);        /* abs(-3) */
+ABS(-2.5);      /* fabs(-2.5) */
+#+end_src
+
+** 13. When to write a macro
+Prefer a function when you need to compute a result from values.
+
+Consider a macro when you need to:
+- capture source text, file, or line (assertions, logging);
+- generate repetitive declarations or tables (X-macros);
+- select code at compile time by platform or configuration;
+- write something no function can express, such as a type-generic wrapper.
+
+Do not write a macro just to avoid the cost of a call: =static inline= functions already give the compiler that freedom.
+
+** 14. Recommended learning sequence
+1. Read the output of =cc -E= for a small file.
+2. Write =SQUARE= wrongly, then correctly, and observe the expansion.
+3. Learn why =do { } while (0)= exists.
+4. Learn =#= and =##=; write =CHECK= and a getter generator.
+5. Learn the X-macro pattern.
+6. Treat variable capture and double evaluation as the standing hazards.

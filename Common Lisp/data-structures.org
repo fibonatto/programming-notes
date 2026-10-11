@@ -1,0 +1,190 @@
+* Common Lisp Data Structures
+** 1. Lists
+A list is built from cons cells and ends in =nil=.
+
+#+begin_src lisp
+'(1 2 3)              ; literal list
+(list 1 2 3)          ; construct a list
+(cons 1 '(2 3))       ; => (1 2 3)
+(car '(1 2 3))        ; => 1
+(cdr '(1 2 3))        ; => (2 3)
+(cadr '(1 2 3))       ; => 2
+#+end_src
+
+=car= returns the first element; =cdr= returns the remainder. Names such as =cadr= combine these operations: =cadr= means =(car (cdr x))=.
+
+An empty list is =nil=:
+
+#+begin_src lisp
+(null nil) ; => T
+(null '(1)) ; => NIL
+#+end_src
+
+Use =cons= to build recursive data:
+
+#+begin_src lisp
+(defun length-of-list (xs)
+  (if (null xs)
+      0
+      (1+ (length-of-list (cdr xs)))))
+#+end_src
+
+** 2. Equality
+Different equality predicates serve different purposes:
+
+#+begin_src lisp
+(eq x y)
+(eql x y)
+(equal x y)
+(equalp x y)
+#+end_src
+
+- =eq= is primarily for identity and symbols; do not use it for arbitrary numeric equality.
+- =eql= compares objects such as numbers of the same type and symbols.
+- =equal= compares structures such as lists and strings recursively.
+- =equalp= is more permissive, including case-insensitive string comparison and numeric comparisons across some types.
+
+For numeric comparisons, use ===, =<=, =>=, =<==, and =>==.
+
+#+begin_src lisp
+(= 3 3.0)       ; => T
+(equal '(a b) '(a b)) ; => T
+#+end_src
+
+** 3. Vectors and arrays
+Vectors provide indexed sequences:
+
+#+begin_src lisp
+(defparameter *numbers* #(10 20 30))
+
+(aref *numbers* 1) ; => 20
+(length *numbers*) ; => 3
+#+end_src
+
+A vector literal written with =#(...)= is a literal object. Do not modify literal constants in place. For mutable vectors, construct one explicitly:
+
+#+begin_src lisp
+(let ((v (make-array 3 :initial-contents '(10 20 30))))
+  (setf (aref v 1) 99)
+  v)
+#+end_src
+
+=make-array= also creates multidimensional arrays.
+
+** 4. Hash tables
+#+begin_src lisp
+(let ((table (make-hash-table :test #'equal)))
+  (setf (gethash "name" table) "Ada")
+  (gethash "name" table))
+; => "Ada", T
+#+end_src
+
+=gethash= returns two values: the value and a presence flag. This distinguishes a missing key from a key mapped to =nil=.
+
+Common hash-table tests include =eq=, =eql=, and =equal=.
+
+** 5. Structures with =defstruct=
+Use =defstruct= for compound data with named fields:
+
+#+begin_src lisp
+(defstruct point
+  x
+  y)
+
+(defparameter p (make-point :x 10 :y 20))
+
+(point-x p) ; => 10
+(point-y p) ; => 20
+#+end_src
+
+It defines a structure type, a default constructor, and field accessors.
+
+You can customize the constructor:
+
+#+begin_src lisp
+(defstruct (pair (:constructor make-pair (fst snd)))
+  fst
+  snd)
+
+(make-pair 1 2)
+#+end_src
+
+=defstruct= does not automatically enforce domain-specific field types. Type declarations and checks can be added when needed.
+
+** 6. Representing variants
+Common Lisp does not have built-in algebraic data types with exhaustive pattern matching. One practical representation uses separate structures:
+
+#+begin_src lisp
+(defstruct (maybe-none (:constructor none ())))
+(defstruct (maybe-some (:constructor some (value)))
+  value)
+
+(none)
+(some 42)
+#+end_src
+
+Dispatch can use predicates:
+
+#+begin_src lisp
+(defun maybe-value-or (m fallback)
+  (typecase m
+    (maybe-none fallback)
+    (maybe-some (maybe-some-value m))
+    (t (error "Not a Maybe value: ~S" m))))
+#+end_src
+
+=typecase= dispatches on the object's type. It does not destructure fields automatically.
+
+Another approach is to use symbols, lists, or Church/Scott encodings when experimenting with functional representations.
+
+** 7. =typecase= and =case=
+=case= compares a value with literal keys:
+
+#+begin_src lisp
+(case status
+  (:ready 'run)
+  (:waiting 'pause)
+  (otherwise 'unknown))
+#+end_src
+
+=typecase= selects a branch based on type:
+
+#+begin_src lisp
+(typecase value
+  (integer 'integer)
+  (string 'string)
+  (cons 'cons-cell)
+  (t 'other))
+#+end_src
+
+Neither is a full structural pattern matcher.
+
+** 8. Strings and symbols
+Strings are character sequences:
+
+#+begin_src lisp
+(concatenate 'string "hello" " " "world")
+(subseq "common lisp" 0 6) ; => "common"
+#+end_src
+
+Symbols are identifiers and can be quoted:
+
+#+begin_src lisp
+'hello
+:hello
+#+end_src
+
+A keyword such as =:hello= is a symbol in the keyword package and evaluates to itself. A quoted ordinary symbol such as ='hello= also evaluates to the symbol rather than looking up a variable named =hello=.
+
+** 9. Choose the structure for the job
+| Need                                       | Common choice         |
+|--------------------------------------------+-----------------------|
+| Recursive sequence or symbolic expression  | List                  |
+| Indexed sequence                           | Vector                |
+| Key-value lookup                           | Hash table            |
+| Fixed fields                               | =defstruct=           |
+| Dispatch by type                           | =typecase=            |
+| Dispatch by literal value                  | =case=                |
+| Functional data representation experiments | Functions and lambdas |
+
+Start with lists and =defstruct=. Add vectors and hash tables when the problem calls for them.

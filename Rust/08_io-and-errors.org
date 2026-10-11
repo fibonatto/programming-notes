@@ -1,0 +1,277 @@
+#+title: Rust I/O and Error Handling
+#+startup: overview
+
+* Rust I/O and Error Handling
+** 1. Panics versus Results
+- A *panic* signals a bug: a violated invariant, an impossible state. It unwinds the stack and ends the thread.
+- A *=Result=* signals an expected failure: bad input, a missing file, a network error. The caller decides what to do.
+
+#+begin_src rust
+let n: i32 = s.parse().unwrap();            // panics on Err: only for "cannot happen" cases
+let n: i32 = s.parse().expect("config port is validated earlier");   // panics with a message
+let n = s.parse::<i32>().unwrap_or(0);      // supply a default
+#+end_src
+
+Use =unwrap= and =expect= in tests, examples, and where the failure would be a bug. In library and application paths, propagate with =?=.
+
+** 2. Option and Result
+#+begin_src rust
+enum Option<T> { None, Some(T) }
+enum Result<T, E> { Ok(T), Err(E) }
+#+end_src
+
+Both are =#[must_use]=: ignoring a =Result= triggers a warning. Common combinators:
+
+| Method                          | What it does                                              |
+|---------------------------------+-----------------------------------------------------------|
+| =map(f)=                        | Transform the success value                               |
+| =map_err(f)=                    | Transform the error                                       |
+| =and_then(f)=                   | Chain a step that can itself fail                         |
+| =unwrap_or(v)=, =unwrap_or_else(f)=, =unwrap_or_default()= | Fallback value                  |
+| =ok_or(e)=, =ok_or_else(f)=     | =Option= to =Result=                                      |
+| =ok()=                          | =Result= to =Option=, discarding the error                |
+| =filter(p)=                     | Keep =Some= only if the predicate holds                   |
+| =take()=, =replace(v)=          | Move the value out of an =Option= in place                |
+| =as_ref()=, =as_mut()=, =as_deref()= | Borrow the contents                                  |
+| =transpose()=                   | Swap =Option<Result<T,E>>= and =Result<Option<T>,E>=      |
+| =is_some()=, =is_ok()=, =matches!= | Tests                                                  |
+
+** 3. The ? operator
+#+begin_src rust
+use std::fs;
+use std::io;
+
+fn read_number(path: &str) -> Result<i32, Box<dyn std::error::Error>> {
+    let text = fs::read_to_string(path)?;       // io::Error converted to Box<dyn Error>
+    let n = text.trim().parse::<i32>()?;        // ParseIntError converted too
+    Ok(n)
+}
+
+fn first_char(s: &str) -> Option<char> {
+    let c = s.chars().next()?;                  // ? works on Option inside functions returning Option
+    Some(c)
+}
+#+end_src
+
+On =Err(e)=, =?= returns early with =Err(From::from(e))=, so the function's error type must implement =From= for each error it propagates. On =None=, it returns =None=. You cannot mix =?= on an =Option= and a =Result= in the same function without converting (=ok_or=, =ok=).
+
+*Entry points* may return =Result=:
+
+#+begin_src rust
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let n = read_number("port.txt")?;
+    println!("{n}");
+    Ok(())
+}
+#+end_src
+
+** 4. Defining error types
+An error type implements =Display= (the message), =Debug=, and =std::error::Error=. For a library, an enum of failure kinds is the usual shape:
+
+#+begin_src rust
+use std::{fmt, io, num::ParseIntError};
+
+#[derive(Debug)]
+enum ConfigError {
+    Io(io::Error),
+    Parse(ParseIntError),
+    OutOfRange(i64),
+}
+
+impl fmt::Display for ConfigError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ConfigError::Io(e) => write!(f, "I/O error: {e}"),
+            ConfigError::Parse(e) => write!(f, "parse error: {e}"),
+            ConfigError::OutOfRange(n) => write!(f, "{n} is out of range"),
+        }
+    }
+}
+
+impl std::error::Error for ConfigError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            ConfigError::Io(e) => Some(e),
+            ConfigError::Parse(e) => Some(e),
+            ConfigError::OutOfRange(_) => None,
+        }
+    }
+}
+
+impl From<io::Error> for ConfigError {
+    fn from(e: io::Error) -> Self { ConfigError::Io(e) }
+}
+
+impl From<ParseIntError> for ConfigError {
+    fn from(e: ParseIntError) -> Self { ConfigError::Parse(e) }
+}
+
+fn read_port(path: &str) -> Result<u16, ConfigError> {
+    let text = std::fs::read_to_string(path)?;           // From<io::Error>
+    let n: i64 = text.trim().parse()?;                   // From<ParseIntError>
+    u16::try_from(n).map_err(|_| ConfigError::OutOfRange(n))
+}
+#+end_src
+
+The boilerplate is mechanical, which is why crates exist for it:
+
+#+begin_src rust
+// thiserror: derive the impls for library errors
+#[derive(Debug, thiserror::Error)]
+enum ConfigError {
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("parse error: {0}")]
+    Parse(#[from] std::num::ParseIntError),
+    #[error("{0} is out of range")]
+    OutOfRange(i64),
+}
+
+// anyhow: one flexible error type for applications, with context
+use anyhow::{Context, Result};
+
+fn run(path: &str) -> Result<()> {
+    let text = std::fs::read_to_string(path)
+        .with_context(|| format!("reading {path}"))?;
+    let n: u16 = text.trim().parse().context("port must be a number")?;
+    println!("{n}");
+    Ok(())
+}
+#+end_src
+
+Guideline: libraries return specific error types (callers can match on them); applications use =anyhow::Result= and print the chain of causes. Neither crate is in the standard library.
+
+** 5. Files and streams
+#+begin_src rust
+use std::fs::{self, File, OpenOptions};
+use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
+
+let text = fs::read_to_string("in.txt")?;            // whole file as String
+let bytes = fs::read("in.bin")?;                     // whole file as Vec<u8>
+fs::write("out.txt", "hello\n")?;                    // create or truncate, write, close
+
+let f = File::open("in.txt")?;
+let reader = BufReader::new(f);
+for line in reader.lines() {
+    let line = line?;                                // each line is io::Result<String>
+    println!("{line}");
+}
+
+let out = File::create("out.txt")?;
+let mut w = BufWriter::new(out);
+writeln!(w, "x = {}", 5)?;
+w.flush()?;                                          // see below
+
+let mut f = OpenOptions::new().append(true).create(true).open("log.txt")?;
+f.write_all(b"entry\n")?;
+#+end_src
+
+- The =Read=, =Write=, =BufRead=, and =Seek= traits are implemented by files, sockets, stdin/stdout, and in-memory buffers (=Cursor<Vec<u8>>=, =&[u8]=), so code written against =impl Read= or =impl Write= works with all of them and is easy to test.
+- Files are closed when dropped. But a =drop= cannot report errors, and a =BufWriter= flushes in its destructor while ignoring failures. *Call =flush()= (and for durability =sync_all()=) and check the result* when the data matters.
+- =BufReader= / =BufWriter= batch syscalls; reading or writing a file byte by byte without them is slow.
+- =read_to_string= and =read= load everything into memory; stream large files.
+
+** 6. Standard input and output
+#+begin_src rust
+use std::io::{self, BufRead, BufWriter, Write};
+
+let mut line = String::new();
+io::stdin().read_line(&mut line)?;                   // includes the trailing newline
+let name = line.trim();
+
+for line in io::stdin().lock().lines() { let line = line?; }   // all lines
+
+print!("Name: ");
+io::stdout().flush()?;                               // stdout is line-buffered: flush before reading
+
+let stdout = io::stdout();
+let mut out = BufWriter::new(stdout.lock());         // fast bulk output
+writeln!(out, "{}", 42)?;
+
+eprintln!("warning: {}", msg);                       // standard error, unbuffered
+#+end_src
+
+=println!= panics if writing to stdout fails (for example a closed pipe); for tools used in pipelines, write with =writeln!= and handle the =BrokenPipe= error.
+
+** 7. io::Error
+#+begin_src rust
+use std::io::{self, ErrorKind};
+
+match File::open(path) {
+    Ok(f) => { /* use f */ }
+    Err(e) if e.kind() == ErrorKind::NotFound => println!("no such file"),
+    Err(e) => return Err(e),
+}
+
+let e = io::Error::new(ErrorKind::InvalidData, "bad header");
+e.raw_os_error();            // Some(errno) for OS errors
+#+end_src
+
+An =io::Error= wraps an OS error code (=errno=) or a custom error, and displays something like "No such file or directory (os error 2)".
+
+** 8. Paths and the file system
+#+begin_src rust
+use std::path::{Path, PathBuf};
+
+let p = Path::new("data/input.txt");
+p.exists();   p.is_file();   p.extension();   p.file_name();   p.parent();
+let full: PathBuf = Path::new("data").join("sub").join("a.txt");
+
+fs::create_dir_all("out/cache")?;
+for entry in fs::read_dir(".")? {
+    let entry = entry?;
+    println!("{:?}", entry.path());
+}
+fs::rename("tmp.txt", "final.txt")?;
+fs::remove_file("old.txt")?;
+#+end_src
+
+=Path= and =PathBuf= are =&str= and =String= for file names: they wrap OS strings, which may not be valid UTF-8, so conversion with =to_str()= returns an =Option=. Take =impl AsRef<Path>= in functions that accept paths.
+
+To update a file atomically, write a temporary file in the same directory, flush and =sync_all()= it, then =fs::rename= it over the original.
+
+** 9. Arguments, environment, exit status
+#+begin_src rust
+use std::env;
+use std::process::ExitCode;
+
+let args: Vec<String> = env::args().collect();        // args[0] is the program name
+let home = env::var("HOME");                          // Result<String, VarError>
+let key = env::var("API_KEY").unwrap_or_default();
+
+fn main() -> ExitCode {
+    match run() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => { eprintln!("error: {e}"); ExitCode::FAILURE }
+    }
+}
+#+end_src
+
+For real command-line parsing use the =clap= crate. =std::env::args()= panics on arguments that are not valid Unicode; =args_os()= does not.
+
+** 10. Patterns and advice
+- Convert at boundaries: =map_err= (or =From=) where one layer's error becomes another's; add context (=anyhow= / =.context=) where a bare "No such file" would not tell the user which file.
+- Do not discard errors silently. =let _ = f();= suppresses the =must_use= warning on purpose: comment why.
+- Collect fallible results with =.collect::<Result<Vec<_>, _>>()?=.
+- Keep the =Ok= path unindented: return early with =?= rather than nesting =match=.
+- Log with =eprintln!= for small tools; use =tracing= or =log= for services.
+- Make error messages lowercase, without trailing punctuation, so they compose in chains ("reading config: no such file").
+
+** 11. Compared to C
+| C                                  | Rust                                                          |
+|------------------------------------+---------------------------------------------------------------|
+| Return code + =errno=              | =Result<T, E>=; the error value travels with the result       |
+| Check each call by hand            | =?=; ignoring a =Result= is a warning                         |
+| =goto cleanup=                     | =Drop= closes files and frees memory on every path            |
+| =fclose= result checked            | =drop= ignores errors; call =flush()= / =sync_all()= yourself |
+| =perror=, =strerror=               | =Display= of =io::Error=                                      |
+| =assert=                           | =assert!=, =debug_assert!=                                    |
+| =setjmp= / =longjmp=               | Panic unwinding (not for control flow)                        |
+
+** What to remember
+- Panics for bugs, =Result= for expected failures.
+- =?= propagates and converts through =From=; combinators handle the rest.
+- Libraries define error enums (use =thiserror=); applications use =anyhow= with context.
+- Wrap files and streams in =BufReader= / =BufWriter=; flush and check the result before you drop a writer.
+- Write against =Read= / =Write= traits so code works with files, sockets, and test buffers.
+- Do not swallow errors; add context where it helps the person reading them.

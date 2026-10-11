@@ -1,0 +1,210 @@
+#+title: Complexity and Analysis of Algorithms
+#+startup: overview
+
+* Complexity and Analysis of Algorithms
+** 0. Staff-level lens
+Complexity is how you predict, before building, whether a design survives 100x growth. At Staff scope you are expected to:
+- state the cost model behind a claim ("O(1) lookups" assumes what about the hash function and memory?);
+- recognize a disguised NP-hard problem early and pick a pragmatic strategy (relax, approximate, restrict, use a solver) instead of promising an exact fast algorithm;
+- know when asymptotics lie: constants, cache behavior, and queueing effects often dominate at realistic sizes;
+- reason about cost across a whole system (network round trips, tail latency, I/O) and not just inside one function.
+
+** 1. Asymptotic notation
+For functions f, g of n:
+- f is O(g): f grows at most as fast as g (an /upper bound/): there are constants c, n0 with f(n) <= c g(n) for n >= n0.
+- f is Omega(g): at least as fast (lower bound). f is Theta(g): both (a tight bound).
+- o(g) and omega(g) mean strictly slower and strictly faster.
+
+Misconceptions to unlearn:
+- O does not mean "worst case". Worst, average, and best case are about /inputs/; O, Omega, Theta are about /functions/. You can say "the worst-case time is Theta(n^2)".
+- Constants and lower-order terms disappear in the notation but not in practice: 100 n is O(n) and slower than n log n for any n you will ever see.
+- log bases only differ by a constant, so O(log n) needs no base.
+- Polynomial is not necessarily practical (n^10), and exponential is not necessarily useless (2^n for n = 30 is fine).
+
+Growth, assuming about 10^9 simple operations per second:
+| Time        | n = 10^3 | n = 10^6          | n = 10^9           | Typical source             |
+|-------------+----------+-------------------+--------------------+----------------------------|
+| log n       | 10       | 20                | 30                 | binary search, tree lookup |
+| n           | 10^3     | 10^6 (1 ms)       | 10^9 (1 s)         | single scan                |
+| n log n     | 10^4     | 2 x 10^7 (20 ms)  | 3 x 10^10 (30 s)   | good sorting               |
+| n^2         | 10^6     | 10^12 (17 min)    | 10^18 (31 years)   | nested loops               |
+| 2^n         | astronomical beyond n = 60  |                   |                    | brute-force subsets        |
+
+The 17-minute and 31-year entries are why "it worked in the test with 1,000 rows" is not evidence.
+
+** 2. Models of computation
+Every bound is relative to a model:
+- *RAM / word-RAM*: constant-time arithmetic and memory access on words of Theta(log n) bits. The default for algorithm courses. It hides cache effects and treats array indexing as O(1).
+- *Comparison model*: only comparisons of keys are allowed; the basis of the Omega(n log n) sorting bound. Non-comparison methods (counting, radix, bucket sort) beat it by using key structure.
+- *External-memory (I/O) model*: cost counts block transfers between slow and fast storage; explains B-trees and merge-based external sorting.
+- *Cache-oblivious model*: algorithms that are efficient for every cache size without knowing it.
+- *Parallel and distributed models*: PRAM (work and span), BSP, message-passing with communication cost. Work W and span (critical path) S bound the running time on p processors from below by max(W/p, S).
+- *Streaming and sublinear models*: one pass, small memory.
+
+Hash tables are "O(1)" only /in expectation/, under assumptions about the hash function and load factor; an adversary who knows the function can force O(n) (see hash-flooding in =05_data-structures.org=).
+
+** 3. Recurrences
+Divide-and-conquer algorithms give recurrences T(n) = a T(n/b) + f(n): a subproblems of size n/b plus f(n) work to split and combine.
+
+*Master theorem* (for f(n) = Theta(n^d)), with c = log_b a:
+- if d < c: T(n) = Theta(n^c) (leaves dominate);
+- if d = c: T(n) = Theta(n^d log n) (every level contributes equally);
+- if d > c: T(n) = Theta(n^d) (the root dominates).
+
+| Algorithm                       | Recurrence                | Result            |
+|---------------------------------+---------------------------+-------------------|
+| Binary search                   | T(n) = T(n/2) + 1         | Theta(log n)      |
+| Merge sort                      | T(n) = 2 T(n/2) + n       | Theta(n log n)    |
+| Karatsuba multiplication        | T(n) = 3 T(n/2) + n       | Theta(n^1.585)    |
+| Strassen matrix multiplication  | T(n) = 7 T(n/2) + n^2     | Theta(n^2.807)    |
+| Naive Fibonacci                 | T(n) = T(n-1) + T(n-2)    | Theta(phi^n)      |
+| Quickselect (expected)          | T(n) = T(n/2) + n         | Theta(n)          |
+
+For recurrences the master theorem does not cover, draw the *recursion tree*: sum the cost per level and the number of levels; or guess and verify by induction; or use the Akra-Bazzi generalization.
+
+#+begin_src python
+import math, random
+
+def master(a, b, d):
+    """T(n) = a T(n/b) + Theta(n^d)"""
+    c = math.log(a, b)
+    if d < c - 1e-12:
+        return f"Theta(n^{c:.3g})"
+    if abs(d - c) < 1e-12:
+        return f"Theta(n^{d:g} log n)"
+    return f"Theta(n^{d:g})"
+
+assert master(2, 2, 1) == "Theta(n^1 log n)"          # merge sort
+assert master(1, 2, 0) == "Theta(n^0 log n)"          # binary search: log n
+assert master(7, 2, 2).startswith("Theta(n^2.81")     # Strassen
+
+def merge_sort_count(xs):
+    if len(xs) <= 1:
+        return xs, 0
+    mid = len(xs) // 2
+    l, cl = merge_sort_count(xs[:mid])
+    r, cr = merge_sort_count(xs[mid:])
+    out, i, j, c = [], 0, 0, 0
+    while i < len(l) and j < len(r):
+        c += 1
+        if l[i] <= r[j]:
+            out.append(l[i]); i += 1
+        else:
+            out.append(r[j]); j += 1
+    out += l[i:] + r[j:]
+    return out, cl + cr + c
+
+random.seed(3)
+xs = random.sample(range(10**6), 4096)
+s, comparisons = merge_sort_count(xs)
+assert s == sorted(xs) and comparisons <= 4096 * math.log2(4096)
+#+end_src
+
+** 4. Amortized analysis
+Amortized cost is the average cost per operation over a worst-case /sequence/ (no probability involved). Three methods: aggregate (total cost over n operations divided by n), accounting (charge credits to cheap operations to pay for expensive ones), and potential (a function of the data-structure state that rises on cheap operations and drops on expensive ones).
+
+Standard results:
+- Dynamic array with doubling: n appends cost O(n) in total, so amortized O(1) each. Growth factors between 1.5 and 2 are common; a smaller factor wastes less memory and may let the allocator reuse freed blocks, a larger one copies less.
+- Union-find with union by rank and path compression: amortized O(alpha(n)) per operation, where alpha is the inverse Ackermann function (at most 4 for any physical n).
+- Splay trees, Fibonacci heaps, and many lock-free structures have amortized bounds, not per-operation ones.
+
+Caveat for latency-sensitive systems: an amortized bound hides the occasional expensive operation (a resize, a rehash, a GC pause). If the tail latency matters, you want worst-case bounds or incremental rehashing.
+
+#+begin_src python
+def append_costs(n, factor=2):
+    cap, size, copies = 1, 0, 0
+    for _ in range(n):
+        if size == cap:
+            copies += size                  # copy everything on resize
+            cap *= factor
+        size += 1
+    return copies
+
+n = 100000
+assert append_costs(n) < 2 * n              # doubling: total copies < 2n
+assert append_costs(n, 1.5) < 3 * n         # growth 1.5: total copies < 3n
+#+end_src
+
+** 5. Randomized and expected-case analysis
+- *Las Vegas* algorithms always return the correct answer, with random running time (randomized quicksort: expected O(n log n) for every input). *Monte Carlo* algorithms run within a fixed time but may err with small probability (Miller-Rabin, Bloom filters, Karger's min-cut).
+- Expected time is over the algorithm's own coin flips, so it holds for adversarial inputs; "average case" assumes a distribution over inputs and may fail in production when real data differs.
+- Failure probabilities can be amplified: repeating a one-sided-error test k times drives the error down exponentially.
+- Concentration bounds (Chernoff) turn expectations into "with high probability" statements.
+
+** 6. Complexity classes
+A /decision problem/ asks a yes/no question. Classes defined by Turing machine resources (see =07_theory-of-computation.org=):
+| Class      | Meaning                                                                       |
+|------------+-------------------------------------------------------------------------------|
+| L, NL      | Logarithmic space (deterministic / nondeterministic)                          |
+| P          | Decidable in polynomial time: the usual notion of "efficiently solvable"      |
+| NP         | A proposed yes-answer can be verified in polynomial time (a certificate exists) |
+| co-NP      | No-answers have short certificates                                            |
+| BPP        | Polynomial time with bounded two-sided randomized error                       |
+| PSPACE     | Polynomial space (includes many two-player game problems)                     |
+| EXP        | Exponential time                                                              |
+
+Known: L is contained in NL, which is contained in P, which is contained in NP, which is contained in PSPACE, which is contained in EXP; P is contained in BPP; P is strictly smaller than EXP (time hierarchy theorem). Whether P = NP is open, as is whether P = PSPACE.
+
+*Reductions*: A reduces to B (polynomial-time many-one, or Karp) if there is a polynomial algorithm converting instances of A into instances of B preserving the answer. If B is easy, A is easy; if A is hard, B is hard. *NP-hard*: at least as hard as everything in NP. *NP-complete*: NP-hard and in NP. *Cook-Levin theorem*: SAT is NP-complete; Karp showed 21 natural problems NP-complete in 1972, and thousands are known.
+
+Frequently met NP-complete decision problems: SAT and 3-SAT; Clique; Vertex Cover; Independent Set; Hamiltonian Cycle; Traveling Salesman (decision form); 3-Coloring; Subset Sum and Partition (weakly NP-complete); Bin Packing; Set Cover; Integer Linear Programming; Job-Shop Scheduling; Longest Path (in a general graph). In contrast, these are in P: shortest path, minimum spanning tree, matching in general graphs, linear programming, 2-SAT, Eulerian circuit, primality (AKS).
+
+*Numbers matter*: a problem solvable in time polynomial in the /numeric value/ of the input (knapsack in O(nW)) is /pseudo-polynomial/, because the value W is exponential in its bit length; /strongly/ NP-hard problems stay hard even with small numbers.
+
+** 7. Coping with hardness
+When the business problem turns out NP-hard, do not give up; choose a strategy deliberately.
+1. *Check the real instance sizes and structure.* Worst-case hardness is about all inputs; actual ones may be tiny, sparse, tree-like, or have small width.
+2. *Exploit special structure.* Planar graphs, trees, bounded treewidth, and bounded degree make many NP-hard problems polynomial.
+3. *Parameterize* (fixed-parameter tractable algorithms): exponential only in a small parameter k, for example vertex cover in O(2^k n).
+4. *Approximate with a guarantee.* Vertex cover: a maximal matching gives a 2-approximation. Metric TSP: Christofides gives 1.5. Set cover: the greedy algorithm gives about ln n. Knapsack has a fully polynomial-time approximation scheme. Some problems resist approximation unless P = NP (general TSP).
+5. *Use a solver.* SAT, SMT, ILP, and constraint-programming solvers solve very large structured instances. Encode your problem and benefit from decades of engineering.
+6. *Heuristics and local search* (simulated annealing, genetic algorithms, greedy plus repair) with measured quality and a fallback.
+7. *Exact exponential algorithms* (dynamic programming over subsets in O(2^n n^2), branch and bound) when n is around 20 to 40.
+8. *Change the requirement.* Ask whether "optimal" is needed, whether the answer may be approximate, or whether the constraint set can be relaxed.
+
+Hardness disguised in engineering: dependency/version resolution (NP-complete in general), bin packing in scheduling and cluster placement, register allocation (graph coloring), timetabling and rostering, optimal query planning, test-suite minimization, minimum-cost network design.
+
+** 8. Lower bounds and hardness assumptions
+- *Information-theoretic bounds*: sorting n items by comparisons needs at least log2(n!) which is about n log2 n comparisons.
+- *Fine-grained complexity* ties improvements to conjectures: the Exponential Time Hypothesis (3-SAT needs exponential time) and its strong form; the 3SUM conjecture; the all-pairs shortest paths conjecture. They justify why no faster algorithm is expected for edit distance, longest common subsequence, and many other problems.
+- *Cryptography* assumes certain problems (factoring, discrete logarithm, lattice problems) are hard on average, which is stronger than worst-case NP-hardness.
+- *Communication complexity* gives lower bounds on distributed protocols (how many bits must machines exchange?).
+
+** 9. When asymptotics mislead
+- *Constants and memory*: a pointer-chasing O(n) linked-list scan can be slower than an O(n^2) array loop for moderate n because of cache misses; a sorted vector often beats a balanced tree for small or read-mostly sets.
+- *Hidden factors*: string concatenation in a loop (O(n^2) in languages with immutable strings), N+1 queries, accidental quadratic behavior in "just a contains() check on a list".
+- *System-level costs*: network round trips (roughly 10^6 to 10^8 CPU cycles), serialization, locks, and GC often dominate algorithmic cost; count them first.
+- *Distribution shapes*: p99 and p999 latencies matter more than means; fan-out multiplies tail probability (a request calling 100 services is slow when any one is slow).
+- *Throughput versus latency*: parallelism improves throughput, rarely single-request latency (Amdahl's law, in =12_concurrency.org=).
+- *Measure*: profile before optimizing; benchmark with representative data; compare against a simple baseline; track growth with input size by plotting, not by guessing.
+
+** 10. Self-check
+1. A teammate says "this is O(n), so it is fast". What follow-up questions do you ask?
+2. Derive the running time of T(n) = 4 T(n/2) + n^2 and T(n) = 2 T(n/2) + n log n (the master theorem does not apply to the second directly).
+3. Prove that a dynamic array with growth factor 1.5 still has amortized O(1) appends.
+4. Show that Independent Set reduces to Vertex Cover, and explain what that tells you about each.
+5. You must schedule 5,000 jobs onto 40 machines minimizing makespan. The problem is NP-hard; list three strategies and what guarantee each gives.
+6. Why is "polynomial" a reasonable but imperfect proxy for "feasible"?
+
+** 11. Exercises
+- Warm-up: measure running time of =sorted= on inputs of size 10^3 through 10^7 and plot against n log n; find the constant.
+- Core: implement merge sort, heap sort, and quicksort; count comparisons and compare with log2(n!).
+- Core: implement a 2-approximation for vertex cover via maximal matching and compare to an exact solution on small graphs.
+- Core: formulate a dependency-resolution toy problem as SAT and solve it with a SAT library; then show how a small instance becomes large.
+- Stretch: prove 3-SAT reduces to Clique (Erickson's NP-hardness chapter is a good guide).
+- Stretch: implement a simple CDCL SAT solver by extending the DPLL in =02_logic-and-proofs.org= with clause learning.
+
+** 12. Resources
+- MIT 6.006 /Introduction to Algorithms/, Spring 2020 (lecture notes, videos, problem sets; Lecture 19 covers complexity): https://ocw.mit.edu/courses/6-006-introduction-to-algorithms-spring-2020/pages/lecture-notes
+- Erickson, /Algorithms/ (free; the final chapter covers NP-hardness and reductions; the book assumes the prerequisite data-structures and discrete-math background): https://jeffe.cs.illinois.edu/teaching/algorithms/
+- MIT 18.404J /Theory of Computation/ (Sipser; time and space complexity, hierarchy theorems, completeness): https://ocw.mit.edu/courses/mathematics/18-404j-theory-of-computation-fall-2020/
+- Arora and Barak, /Computational Complexity: A Modern Approach/ (a draft of the book is available online): https://theory.cs.princeton.edu/complexity
+- Cormen, Leiserson, Rivest, Stein, /Introduction to Algorithms/, 4th edition (MIT Press); Garey and Johnson, /Computers and Intractability/ (the classic catalog of NP-complete problems); Sipser, /Introduction to the Theory of Computation/.
+- Drepper, /What Every Programmer Should Know About Memory/ for the constants behind the asymptotics: http://people.redhat.com/drepper/cpumemory.pdf
+
+** What to remember
+- O, Omega, Theta describe functions; worst/average/best describe inputs.
+- Solve recurrences with the master theorem or a recursion tree; state the model of computation.
+- Amortized bounds hide spikes; hash-table O(1) is expected, not guaranteed.
+- NP-hardness is a signal to change strategy (structure, approximation, solvers), not to stop.
+- Asymptotics rank algorithms; constants, caches, and the network decide real systems.

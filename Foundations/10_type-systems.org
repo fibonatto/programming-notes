@@ -1,0 +1,293 @@
+#+title: Type Systems
+#+startup: overview
+
+* Type Systems
+** 0. Staff-level lens
+A type system is a lightweight, automatic proof system built into the compiler. At Staff scope you will:
+- choose languages and type-system features for a codebase and know what they do and do not guarantee;
+- design APIs so that misuse does not type-check ("parse, don't validate");
+- explain compiler errors and variance rules to others, and judge when a fancier type is worth its complexity;
+- decide how much static checking to add to a dynamic codebase (gradual adoption), and what soundness holes remain.
+Companion files: =02_logic-and-proofs.org= (propositions as types), =09_functional-programming.org=, =08_paradigms.org=, =07_theory-of-computation.org= (decidability limits), =11_memory-management.org= (ownership types).
+
+** 1. What types are for
+- *Prevent errors*: a type error is a program that applies an operation to values it does not support. Checking happens at compile time (static), at run time (dynamic), or in both (gradual).
+- *Document and structure*: signatures are checked documentation; types guide design (modules, interfaces).
+- *Enable tooling and optimization*: autocomplete, refactoring, and compilers that use type information (unboxed representations, devirtualization).
+- *Carry proofs*: richer type systems encode invariants (non-null, units, resource ownership, lengths, protocol states).
+
+Terminology that is often used loosely:
+| Term             | Careful meaning                                                              |
+|------------------+------------------------------------------------------------------------------|
+| Static / dynamic | When checking occurs (before running or while running)                       |
+| Strong / weak    | Informal: how much implicit conversion and unchecked reinterpretation is allowed. Prefer saying which conversions or unsafe operations exist |
+| Sound            | A well-typed program cannot reach a "stuck" state (no type errors at run time)|
+| Nominal / structural | Types equal by declared name (Java, Rust structs) or by shape (TypeScript, Go interfaces) |
+| Inference        | The compiler deduces types the programmer did not write                      |
+
+** 2. Type safety: progress and preservation
+For a formal language with a typing relation and an evaluation relation, *type safety* is usually proved as two lemmas (Wright and Felleisen):
+- *Progress*: a well-typed term is either a value or can take a step.
+- *Preservation* (subject reduction): if a well-typed term takes a step, the result has the same type.
+Together: well-typed programs do not get stuck. Each language feature (references, exceptions, subtyping, generics) adds cases to the proof; unsound features (such as covariant mutable arrays) break it. Safety does not mean correctness: it rules out a class of failures, nothing more. It also depends on the absence of escape hatches (casts, =unsafe=, =any=, FFI).
+
+** 3. The simply typed lambda calculus
+Types: base types and function types T1 -> T2. Terms: variables, abstractions with annotated parameters, applications, constants. Typing rules (Gamma is the typing environment):
+
+#+begin_src text
+ x : T in Gamma                 Gamma, x : T1 |- e : T2
+ ---------------- (Var)         --------------------------- (Abs)
+ Gamma |- x : T                 Gamma |- (lambda x:T1. e) : T1 -> T2
+
+ Gamma |- f : T1 -> T2     Gamma |- a : T1
+ ------------------------------------------ (App)
+ Gamma |- f a : T2
+#+end_src
+
+The type of an expression is computed from the types of its parts (/syntax-directed/), so checking is a simple recursive function. Properties: type safety, *strong normalization* (every well-typed term terminates, so the calculus is not Turing-complete), and decidable type checking. Recursion, polymorphism, and effects are added by extending it.
+
+#+begin_src python
+# A type checker for the simply typed lambda calculus.
+# Types: ("int",), ("bool",), ("fun", T1, T2).  Terms: tagged tuples.
+def typeof(term, env=None):
+    env = env or {}
+    tag = term[0]
+    if tag == "int":
+        return ("int",)
+    if tag == "bool":
+        return ("bool",)
+    if tag == "var":
+        if term[1] not in env:
+            raise TypeError(f"unbound variable {term[1]}")
+        return env[term[1]]
+    if tag == "lam":                              # ("lam", x, T, body)
+        _, x, ty, body = term
+        return ("fun", ty, typeof(body, {**env, x: ty}))
+    if tag == "app":                              # ("app", f, a)
+        tf, ta = typeof(term[1], env), typeof(term[2], env)
+        if tf[0] != "fun" or tf[1] != ta:
+            raise TypeError(f"cannot apply {tf} to {ta}")
+        return tf[2]
+    if tag == "if":                               # ("if", c, t, e)
+        if typeof(term[1], env) != ("bool",):
+            raise TypeError("condition must be bool")
+        t1, t2 = typeof(term[2], env), typeof(term[3], env)
+        if t1 != t2:
+            raise TypeError("branches differ")
+        return t1
+    if tag == "add":                              # ("add", a, b)
+        if typeof(term[1], env) != ("int",) or typeof(term[2], env) != ("int",):
+            raise TypeError("add needs ints")
+        return ("int",)
+    raise ValueError(tag)
+
+INT = ("int",)
+ident = ("lam", "x", INT, ("var", "x"))
+assert typeof(ident) == ("fun", INT, INT)
+assert typeof(("app", ident, ("int", 3))) == INT
+for bad in [("app", ("int", 3), ("int", 4)),                       # applying a non-function
+            ("if", ("int", 1), ("int", 2), ("int", 3)),            # non-bool condition
+            ("if", ("bool", True), ("int", 2), ("bool", False))]:  # branch mismatch
+    try:
+        typeof(bad)
+        raise AssertionError("should not type-check")
+    except TypeError:
+        pass
+#+end_src
+
+** 4. Polymorphism
+Polymorphism lets one piece of code work at many types. Three kinds:
+- *Parametric*: the same code for all types (generics: =fn id<T>(x: T) -> T=). System F formalizes it. Parametricity makes types informative: a function of type =forall a. a -> a= can only be the identity.
+- *Ad hoc* (overloading, type classes, traits): different code per type, chosen by the type. Type classes (Haskell) and traits (Rust) implement it by passing a dictionary of methods; resolution happens at compile time, so there is no run-time type test.
+- *Subtype* (inclusion): a value of a subtype can be used where a supertype is expected (object-oriented languages).
+- *Row polymorphism* and *structural typing* (OCaml objects, PureScript records, TypeScript) abstract over the remaining fields of a record.
+*Bounded* polymorphism combines them: =forall T: Ord. [T] -> [T]=.
+
+** 5. Type inference and unification
+*Hindley-Milner* (HM) inference, in ML, OCaml, Haskell (as a core), and Rust's local inference, finds the most general (/principal/) type of a program with no annotations. Ingredients:
+1. Assign each unknown a fresh /type variable/.
+2. Walk the program generating equations between types (a function applied to an argument forces the function's parameter type to equal the argument's type).
+3. Solve the equations by *unification*: find a substitution making two types identical, failing on a mismatch (int versus bool) or an infinite type (the *occurs check*, which rejects self-application =x x=).
+4. *Let-polymorphism*: generalize the type of a =let=-bound name over variables that do not occur in the environment, so one definition can be used at many types.
+Practical features need more: type classes (constraints solved after unification), higher-rank types (annotations required), GADTs, and local type inference with bidirectional checking in Rust, Scala, TypeScript, Kotlin, and Swift. Inference for full System F is undecidable (Wells), which is why such features demand annotations.
+
+#+begin_src python
+import itertools
+
+# Types: ("var", name) or ("con", name, [args]).  Function type: ("con", "->", [a, b]).
+def walk(t, s):
+    while t[0] == "var" and t[1] in s:
+        t = s[t[1]]
+    return t
+
+def occurs(v, t, s):
+    t = walk(t, s)
+    return t[1] == v if t[0] == "var" else any(occurs(v, a, s) for a in t[2])
+
+def unify(a, b, s):
+    a, b = walk(a, s), walk(b, s)
+    if a == b:
+        return s
+    if a[0] == "var":
+        if occurs(a[1], b, s):
+            raise TypeError("occurs check: infinite type")
+        return {**s, a[1]: b}
+    if b[0] == "var":
+        return unify(b, a, s)
+    if a[1] != b[1] or len(a[2]) != len(b[2]):
+        raise TypeError(f"cannot unify {a[1]} with {b[1]}")
+    for x, y in zip(a[2], b[2]):
+        s = unify(x, y, s)
+    return s
+
+_counter = itertools.count()
+def fresh():
+    return ("var", f"t{next(_counter)}")
+def arrow(a, b):
+    return ("con", "->", [a, b])
+INT = ("con", "int", [])
+
+def infer(term, env, s):
+    tag = term[0]
+    if tag == "int":
+        return INT, s
+    if tag == "var":
+        return env[term[1]], s
+    if tag == "lam":                                   # ("lam", x, body): no annotation needed
+        a = fresh()
+        t, s = infer(term[2], {**env, term[1]: a}, s)
+        return arrow(a, t), s
+    if tag == "app":
+        tf, s = infer(term[1], env, s)
+        ta, s = infer(term[2], env, s)
+        r = fresh()
+        return r, unify(tf, arrow(ta, r), s)
+    raise ValueError(tag)
+
+def resolve(t, s):
+    t = walk(t, s)
+    return t if t[0] == "var" else ("con", t[1], [resolve(x, s) for x in t[2]])
+
+t, s = infer(("lam", "x", ("var", "x")), {}, {})        # \x. x   :  a -> a
+t = resolve(t, s)
+assert t[1] == "->" and t[2][0] == t[2][1]
+
+t, s = infer(("lam", "f", ("lam", "x", ("app", ("var", "f"), ("var", "x")))), {}, {})
+t = resolve(t, s)                                       # \f.\x. f x  :  (a -> b) -> a -> b
+f, rest = t[2]
+assert f[1] == "->" and rest[1] == "->" and f[2][0] == rest[2][0] and f[2][1] == rest[2][1]
+
+t, s = infer(("app", ("lam", "x", ("var", "x")), ("int", 1)), {}, {})
+assert resolve(t, s) == INT
+
+try:                                                    # \x. x x  has no finite type
+    infer(("lam", "x", ("app", ("var", "x"), ("var", "x"))), {}, {})
+    raise AssertionError("expected an occurs-check failure")
+except TypeError:
+    pass
+#+end_src
+
+** 6. Subtyping and variance
+If S is a subtype of T, S values can be used where T is expected. For type constructors, *variance* says how subtyping of the arguments lifts to the constructed types:
+| Constructor                   | Variance                                                              |
+|-------------------------------+-----------------------------------------------------------------------|
+| Function result type          | Covariant: if S <: T then (A -> S) <: (A -> T)                        |
+| Function parameter type       | Contravariant: if S <: T then (T -> R) <: (S -> R)                    |
+| Immutable list / read-only collection | Covariant                                                     |
+| Mutable array / mutable reference | Invariant if sound. Java arrays and some other languages are covariant, which needs a run-time check (=ArrayStoreException=) to stay safe |
+| Write-only sink / consumer    | Contravariant                                                         |
+Practical notes: TypeScript checks method parameters bivariantly for convenience (unsound but pragmatic), and function-type parameters contravariantly under =strictFunctionTypes=; Rust's lifetimes and references have variance (=&'a T= is covariant in both; =&mut T= is invariant in T), which the compiler infers; Java and Kotlin use wildcards or declaration-site variance (=? extends=, =out=, =in=). A subtype must honor behavioral contracts too (Liskov), which types alone rarely express.
+
+** 7. Algebraic and richer data types
+- *Sum and product types* (=enum= with data, tagged unions): exhaustive matching and "illegal states unrepresentable".
+- *Recursive types*: lists and trees; equi- versus iso-recursive.
+- *Generalized algebraic data types (GADTs)*: constructors refine the type index; typed expression evaluators with no ill-typed terms.
+- *Existential types / trait objects*: hide the concrete type behind an interface.
+- *Phantom types and the typestate pattern*: encode a state in a type parameter that has no run-time presence (=File<Open>= versus =File<Closed>=; a builder that cannot be built before required fields are set). The compiler rejects calls that are illegal in the current state.
+- *Newtypes*: distinct types for ids, units, and validated values (=Email=, =UserId=, =Meters=).
+- *Type-level computation*: const generics, type families, C++ templates (Turing-complete at compile time), TypeScript conditional types. Powerful and easy to overuse.
+
+** 8. Dependent and refinement types; Curry-Howard
+In *dependent type theory* types may mention values: =Vec A n= is a list of exactly n elements; a function can return =Sorted xs= as evidence. Type checking then requires evaluating terms and sometimes proof. Languages: Lean, Rocq (Coq), Agda, Idris. *Refinement types* attach logical predicates to base types (={v: Int | v > 0}=) and discharge them with an SMT solver (Liquid Haskell, F*, Dafny's contracts); they fit existing languages better than full dependent types.
+
+The *Curry-Howard correspondence* (Wadler's /Propositions as Types/) identifies logic and programming:
+| Logic                         | Type theory                                   |
+|-------------------------------+-----------------------------------------------|
+| Proposition                   | Type                                          |
+| Proof                         | Program (term) of that type                   |
+| Implication A => B            | Function type A -> B                          |
+| Conjunction A and B           | Product (pair) type                           |
+| Disjunction A or B            | Sum (tagged union) type                       |
+| Truth / falsity               | Unit type / empty type                        |
+| Universal quantifier          | Dependent function type (forall)              |
+| Existential quantifier        | Dependent pair type                           |
+Proof by induction is recursion; a proof assistant is a type checker (=02_logic-and-proofs.org=).
+
+** 9. Resource-sensitive types: linear, affine, ownership, effects
+- *Linear types*: a value must be used exactly once. *Affine types*: at most once. Rust's ownership is an affine discipline plus borrowing: moving consumes a value; references with lifetimes (regions) express temporary access. This statically prevents use-after-free, double free, and data races (=11_memory-management.org=, the ownership file in the Rust notes).
+- *Capabilities and effect systems*: types record which effects a function may perform (I/O, exceptions, allocation) and which resources it may touch (Koka, Haskell's =IO=, Java checked exceptions as a clumsy early attempt).
+- *Session types*: types describe communication protocols between processes; the type checker verifies both ends follow the protocol.
+- *Information-flow types* track data sensitivity (taint) to prevent leaks.
+
+** 10. Gradual typing and real-world type systems
+- *Gradual typing* (Siek and Taha) mixes static and dynamic checking via a dynamic type (=any=, =Any=). Type annotations are added incrementally. The dynamic type is a soundness hole: values flowing through it are checked at run time (sound gradual typing, with performance costs) or not at all (TypeScript, Python's type hints with mypy/pyright).
+- *TypeScript* is structural, unsound by design (bivariance, =any=, unchecked casts, index signatures), with sophisticated flow typing (narrowing by control flow), unions, intersections, mapped and conditional types. It optimizes for productivity on top of JavaScript; types are erased and not checked at run time, so boundary data (JSON, network) needs validation (zod, io-ts).
+- *Python*: annotations are optional and checked by external tools; =Protocol= gives structural typing.
+- *Go*: structural interfaces; generics since 1.18; deliberately limited.
+- *Java and C#*: nominal, with generics (erased in Java, reified in C#) and nullability annotations.
+- *Rust*: nominal, traits and generics, ownership, no null, exhaustive matching; =unsafe= as an explicit escape.
+- *Haskell and OCaml*: inference, type classes or modules and functors, algebraic types.
+- *SQL*: static types per column, with implicit coercions that cause surprises.
+
+** 11. Design trade-offs of type systems
+| Goal                      | Tension                                                                       |
+|---------------------------+-------------------------------------------------------------------------------|
+| Expressiveness vs decidability | Richer types can make checking undecidable or exponential (C++ templates, System F inference) |
+| Soundness vs convenience  | Unsound features (casts, bivariance) ease use and break guarantees           |
+| Inference vs annotations  | More inference means principal types are lost for advanced features         |
+| Error message quality     | Powerful types give long, cryptic errors                                     |
+| Compile time              | Type-level computation and large inference problems slow builds              |
+| Learning curve            | Concepts such as lifetimes or higher-kinded types raise the barrier          |
+By Rice's theorem (=07_theory-of-computation.org=) no sound type checker accepts all and only the correct programs; every type system rejects some good programs and accepts some bad ones. Choose where you want the line.
+
+** 12. Type-driven design in practice
+- *Parse, don't validate*: convert raw input into a type that makes invalid states unrepresentable (=NonEmptyString=, =Percentage=) at the boundary; the rest of the program uses the stronger type and needs no re-checking.
+- *Make wrong code not compile*: separate types for different ids and units; typestate for protocols; non-exhaustive enums marked deliberately.
+- *Totality*: handle every variant; avoid partial functions (=head=, unchecked indexing) in core logic.
+- *Model nullability and errors in types* (Option, Result) instead of exceptions that signatures hide.
+- *Boundaries*: validate untrusted data where it enters; types are not run-time guarantees across serialization or process boundaries.
+- *Migration*: introduce types where bugs cost most (public APIs, money, auth, serialization), start with strict settings on new code, ratchet coverage, and track escape-hatch counts (=any=, =unsafe=, =cast=).
+- *Cost*: every type-level trick must pay for its complexity in prevented bugs and clearer APIs; unreadable types are a maintenance liability.
+
+** 13. Self-check
+1. State progress and preservation. Which feature, added to the simply typed calculus, can make preservation fail if done carelessly?
+2. Infer the type of =fun f g x -> f (g x)= by hand with unification.
+3. Why is Java's covariant array subtyping unsound? Show a program that type-checks and fails at run time.
+4. Explain contravariance of function parameters with a concrete example (a handler for animals used where a handler for cats is expected).
+5. Design a typestate API for a connection (disconnected, authenticated, in transaction) so that calling =commit= outside a transaction fails to compile.
+6. A TypeScript service crashes on a field the type says is always present. List the ways types and runtime data can disagree.
+7. What can the type =forall a. a -> a= tell you, and what can it not?
+
+** 14. Exercises
+- Warm-up: extend the checker above with pairs, sums, and =let=; then add a division-by-zero-free arithmetic fragment.
+- Core: implement Algorithm W with let-polymorphism (generalization and instantiation) for a small ML-like language.
+- Core: implement bidirectional type checking for the simply typed lambda calculus with annotations only where needed.
+- Core: define a typestate API in Rust or TypeScript, and show the illegal sequences fail to compile.
+- Stretch: implement a type checker with subtyping and records; then add parametric polymorphism with bounded quantification.
+- Stretch: do the first chapters of Software Foundations volume 2 (/Programming Language Foundations/): prove progress and preservation for the simply typed lambda calculus.
+- Stretch: write a dependent vector type in Lean with =append= whose type guarantees the length of the result.
+
+** 15. Resources
+- Pierce, /Types and Programming Languages/ (MIT Press, 2002), the standard text; companion site: http://www.cis.upenn.edu/~bcpierce/tapl
+- Pierce et al., /Software Foundations/, volume 2 /Programming Language Foundations/ (machine-checked proofs of type safety; free): https://softwarefoundations.cis.upenn.edu/
+- Harper, /Practical Foundations for Programming Languages/, 2nd edition (Cambridge University Press), for a rigorous treatment of types, dynamics, and safety.
+- /Theorem Proving in Lean 4/ (dependent types and propositions as types): https://lean-lang.org/theorem_proving_in_lean4/
+- Wadler, /Propositions as Types/ (Communications of the ACM, 2015) and /Theorems for Free!/ (1989); Siek and Taha on gradual typing; Wright and Felleisen, /A Syntactic Approach to Type Soundness/.
+- Nystrom, /Crafting Interpreters/ for the front end that feeds a type checker: https://craftinginterpreters.com
+
+** What to remember
+- Type safety means progress plus preservation; it rules out a class of failures only.
+- HM inference is constraint generation plus unification; the occurs check rejects infinite types.
+- Variance: results covariant, parameters contravariant, mutable containers invariant.
+- Types are proofs (Curry-Howard); richer types buy stronger guarantees at a complexity price.
+- Parse at the boundary into types that cannot represent invalid states.

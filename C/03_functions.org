@@ -1,0 +1,173 @@
+#+title: C Functions
+#+startup: overview
+
+* C Functions
+** 1. Declare and define
+A /declaration/ (prototype) states the name and types. A /definition/ provides the body. A function must be declared before it is called.
+
+#+begin_src c
+int add(int a, int b);          /* declaration, usually in a header */
+
+int add(int a, int b) {         /* definition */
+    return a + b;
+}
+#+end_src
+
+Use =(void)= for "no parameters": in C before C23, =int f()= means "unspecified parameters", not "none".
+
+** 2. Parameters are passed by value
+The callee receives copies. Changing a parameter does not change the caller's variable.
+
+#+begin_src c
+void bump(int x) { x++; }          /* caller's variable unchanged */
+void bump_ptr(int *x) { (*x)++; }  /* caller's variable changed */
+
+int n = 0;
+bump(n);        /* n == 0 */
+bump_ptr(&n);   /* n == 1 */
+#+end_src
+
+Arrays cannot be passed by value; an array parameter is really a pointer, so the length must travel separately:
+
+#+begin_src c
+double mean(const double *xs, size_t n);   /* const: the function only reads */
+#+end_src
+
+Passing a struct by value copies the whole struct. For large structs pass =const struct T *=.
+
+** 3. Returning values
+A function returns one value. For several results there are three common patterns.
+
+*Return a struct:*
+
+#+begin_src c
+struct divmod { int quot; int rem; };
+
+struct divmod divide(int a, int b) {
+    return (struct divmod){ a / b, a % b };   /* compound literal */
+}
+
+struct divmod r = divide(17, 5);   /* r.quot == 3, r.rem == 2 */
+#+end_src
+
+*Out-parameters plus a status code:*
+
+#+begin_src c
+#include <errno.h>
+#include <limits.h>
+#include <stdlib.h>
+
+int parse_int(const char *s, int *out) {
+    char *end;
+    errno = 0;
+    long v = strtol(s, &end, 10);
+    if (end == s || *end != '\0' || errno == ERANGE || v < INT_MIN || v > INT_MAX)
+        return -1;
+    *out = (int)v;
+    return 0;
+}
+#+end_src
+
+*A sentinel value* (=NULL=, =-1=) when the result space allows it. Never return a pointer to a local variable: it dies when the function returns.
+
+#+begin_src c
+int *bad(void) {
+    int x = 1;
+    return &x;      /* undefined behavior if the caller uses it */
+}
+#+end_src
+
+** 4. Function pointers and callbacks
+#+begin_src c
+typedef int (*binop)(int, int);
+
+int apply(binop f, int a, int b) { return f(a, b); }
+
+apply(add, 2, 3);   /* 5 */
+#+end_src
+
+C has no closures. The idiom for carrying state is an extra =void *= context argument:
+
+#+begin_src c
+struct counter { int n; };
+
+void each(const int *a, size_t n, void (*fn)(int, void *), void *ctx) {
+    for (size_t i = 0; i < n; i++) fn(a[i], ctx);
+}
+
+static void count_pos(int x, void *ctx) {
+    if (x > 0) ((struct counter *)ctx)->n++;
+}
+
+struct counter c = { 0 };
+each(arr, len, count_pos, &c);
+#+end_src
+
+The =void *= erases the type, so the compiler cannot check that =ctx= is what the callback expects.
+
+** 5. Variadic functions
+#+begin_src c
+#include <stdarg.h>
+
+int sum(int n, ...) {
+    va_list ap;
+    va_start(ap, n);
+    int total = 0;
+    for (int i = 0; i < n; i++)
+        total += va_arg(ap, int);
+    va_end(ap);
+    return total;
+}
+
+sum(3, 1, 2, 3);   /* 6 */
+#+end_src
+
+The compiler does not check the extra arguments. You must know how many there are and what type each has, and reading the wrong type is undefined behavior. Small integer types are promoted to =int= and =float= to =double=, so read =int= and =double=. Functions like =printf= get their type information from the format string; GCC and Clang can check it with =__attribute__((format(printf, 1, 2)))=.
+
+** 6. static, inline, and linkage
+#+begin_src c
+static int helper(int x) { return x + 1; }   /* visible only in this file */
+
+static inline int clamp(int x, int lo, int hi) {
+    return x < lo ? lo : x > hi ? hi : x;
+}
+#+end_src
+
+- A non-=static= function has external linkage: its name is visible to the whole program, so name collisions are a link error.
+- =inline= is a hint plus linkage rules. The portable form for small helpers in headers is =static inline=.
+- Two definitions of the same external function in different files fail at link time.
+
+** 7. Recursion and iteration
+#+begin_src c
+unsigned long long fact(unsigned n) {
+    return n <= 1 ? 1 : n * fact(n - 1);
+}
+#+end_src
+
+Each call uses stack space. Deep recursion overflows the stack, and the standard does not guarantee tail-call elimination (compilers may do it at =-O2=, but do not depend on it). Write loops for linear recursion, and recursion where the structure is recursive (trees, divide and conquer).
+
+** 8. Evaluation order
+The order in which function arguments are evaluated is unspecified.
+
+#+begin_src c
+f(g(), h());      /* g and h both run, in unspecified order */
+f(i++, i++);      /* undefined behavior: unsequenced modification of i */
+#+end_src
+
+Keep side effects out of argument lists when two arguments touch the same object.
+
+** 9. Functions versus macros
+A function evaluates each argument exactly once and has a type-checked signature. A function-like macro is textual substitution (see =08_macros.org=). Prefer =static inline= functions; reach for macros only for what a function cannot do.
+
+** Quick reference
+| Form                | Purpose                                     |
+|---------------------+---------------------------------------------|
+| =int f(void);=      | Declare a function with no parameters       |
+| =T *p= parameter    | Mutate the caller's object or pass an array |
+| =const T *p=        | Read-only access through a pointer          |
+| =T (*fp)(args)=     | Function pointer                            |
+| =void *ctx=         | Manual closure state for callbacks          |
+| =va_list=, =va_arg= | Variadic arguments                          |
+| =static=            | Internal linkage (file-local function)      |
+| =static inline=     | Small function defined in a header          |
+| =struct= return     | Return several values together              |

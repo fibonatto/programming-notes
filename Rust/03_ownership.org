@@ -1,0 +1,217 @@
+#+title: Rust Ownership, Borrowing, and Lifetimes
+#+startup: overview
+
+* Rust Ownership, Borrowing, and Lifetimes
+** 1. The model in one page
+Rust manages memory without a garbage collector and without manual =free= by tracking /ownership/ at compile time:
+
+1. Every value has exactly one owner (a variable, a field, an element of a collection).
+2. When the owner goes out of scope, the value is dropped and its resources are released.
+3. Ownership can be /moved/ to another owner, after which the old one is unusable.
+4. Others may /borrow/ the value through references, under rules that are checked at compile time.
+
+The checks cost nothing at run time. In exchange, a large class of C bugs (use after free, double free, dangling pointers, iterator invalidation, data races) cannot be expressed in safe Rust.
+
+** 2. Moves
+#+begin_src rust
+let s1 = String::from("hello");
+let s2 = s1;                      // ownership moves to s2
+// println!("{s1}");              // error E0382: borrow of moved value
+
+fn take(s: String) { }
+let s3 = String::from("x");
+take(s3);                         // moved into the function
+// s3 is unusable here
+#+end_src
+
+A move is a shallow bit copy of the value (for a =String=: pointer, length, capacity) plus the compiler's decision that the source is dead. No heap data is copied. This is why a function that receives a =String= by value owns it and will free it.
+
+*Copy versus Clone.* Types that are cheap, plain bits implement =Copy= and are duplicated on assignment (integers, floats, =bool=, =char=, shared references, tuples and arrays of =Copy= types). Anything that owns a resource is not =Copy=. =Clone= is an explicit, possibly expensive duplicate:
+
+#+begin_src rust
+let a = 5;
+let b = a;                        // Copy: both usable
+let s = String::from("hi");
+let t = s.clone();                // deep copy of the heap data; both usable
+#+end_src
+
+A type cannot be both =Copy= and have a =Drop= implementation. Moves happen at assignments, function calls, returns, =match= bindings, and closure captures with =move=. Moving out of part of a struct (a /partial move/) is allowed; the remaining fields stay usable until the whole is needed again.
+
+** 3. Drop and RAII
+Resources are released deterministically when their owner goes out of scope, in reverse order of declaration. Struct fields are dropped in declaration order after the struct's own =Drop::drop=.
+
+#+begin_src rust
+struct Guard(&'static str);
+impl Drop for Guard {
+    fn drop(&mut self) { println!("drop {}", self.0); }
+}
+
+fn main() {
+    let _a = Guard("a");
+    let _b = Guard("b");
+    println!("body");
+}   // prints: body, drop b, drop a
+#+end_src
+
+- Files, sockets, locks (=MutexGuard=), and allocations are released this way. This replaces the C =goto cleanup= pattern.
+- =drop(x)= (from the prelude) moves =x= into a function that ends it, releasing it early.
+- =std::mem::forget(x)= skips the destructor. It is safe (leaking is not undefined behavior) but rarely wanted.
+- A =_= binding drops the value immediately; a name starting with an underscore, such as =_a=, lives to the end of the scope.
+- Destructors must not panic during unwinding (that aborts the program).
+
+** 4. Borrowing
+A reference lends access without transferring ownership.
+
+#+begin_src rust
+fn len(s: &String) -> usize { s.len() }        // shared borrow
+fn append(s: &mut String) { s.push('!'); }     // exclusive borrow
+
+let mut s = String::from("hi");
+let n = len(&s);
+append(&mut s);
+#+end_src
+
+The rule: at any moment, a value has *either* any number of shared references (=&T=) *or* exactly one mutable reference (=&mut T=), never both, and no reference outlives the value.
+
+#+begin_src rust
+let mut v = vec![1, 2, 3];
+let first = &v[0];             // shared borrow of v
+v.push(4);                     // error E0502: needs &mut v while `first` is alive
+println!("{first}");
+#+end_src
+
+The push could reallocate and leave =first= dangling; the compiler rejects it, which is exactly the C iterator-invalidation bug.
+
+- A borrow lasts until its /last use/, not to the end of the block (non-lexical lifetimes). Reordering the =println!= above before the =push= makes it compile.
+- =&mut T= is exclusive: while it exists, nothing else may read or write the value, not even through other fields of the same struct borrowed as a whole.
+- Two-phase borrows allow =v.push(v.len())=: the shared read finishes before the mutable borrow activates.
+- A reference is never null and never dangling in safe code.
+
+** 5. Lifetimes
+A /lifetime/ names the span for which a reference is valid. Annotations do not change how long values live; they tell the compiler how the lifetimes of inputs and outputs relate.
+
+#+begin_src rust
+fn longest<'a>(a: &'a str, b: &'a str) -> &'a str {
+    if a.len() >= b.len() { a } else { b }
+}
+#+end_src
+
+The returned reference lives no longer than the shorter of the two inputs. Without the annotation the compiler cannot know which input the result borrows from (error E0106).
+
+*Elision rules* let you omit most annotations:
+1. Each reference parameter gets its own lifetime.
+2. If there is exactly one input lifetime, it is given to all outputs.
+3. If one of the parameters is =&self= or =&mut self=, its lifetime is given to all outputs.
+
+#+begin_src rust
+fn first_word(s: &str) -> &str { s.split(' ').next().unwrap_or("") }   // elided
+#+end_src
+
+Structs that hold references need lifetime parameters, and the struct cannot outlive what it borrows:
+
+#+begin_src rust
+struct Parser<'a> {
+    input: &'a str,
+    pos: usize,
+}
+
+impl<'a> Parser<'a> {
+    fn new(input: &'a str) -> Self { Parser { input, pos: 0 } }
+    fn rest(&self) -> &'a str { &self.input[self.pos..] }
+}
+#+end_src
+
+- ='static= means "valid for the whole program". A string literal is =&'static str=. A bound =T: 'static= means the type contains no short-lived borrows (it may still be an owned heap value); threads spawned with =thread::spawn= require it.
+- Error E0597 ("does not live long enough") means a reference outlives its referent; move the value to an outer scope, or return an owned value.
+- When lifetime annotations become painful, return an owned value (=String=, =Vec<T>=), store indices, or restructure ownership. Fighting the borrow checker usually signals a design that is simpler with owned data.
+
+** 6. Smart pointers
+| Type                | Owns          | Shared | Mutation                  | Threads |
+|---------------------+---------------+--------+---------------------------+---------|
+| =Box<T>=            | Heap value    | no     | via =&mut=                | if =T= is |
+| =Rc<T>=             | Heap value    | yes (counted) | read-only; pair with =RefCell= | no |
+| =Arc<T>=            | Heap value    | yes (atomic count) | read-only; pair with =Mutex= | yes |
+| =Cell<T>=           | Value         | no     | get/set by copy           | no      |
+| =RefCell<T>=        | Value         | no     | borrow rules checked at run time | no |
+| =Weak<T>=           | Nothing (non-owning handle to an =Rc=/=Arc=) | | | |
+| =Cow<'a, T>=        | Borrowed or owned | | clone on write        |         |
+
+#+begin_src rust
+let b = Box::new(5);                          // heap allocation, single owner
+
+use std::rc::Rc;
+let a = Rc::new(String::from("shared"));
+let c = Rc::clone(&a);                        // bumps the reference count, no deep copy
+Rc::strong_count(&a);                         // 2
+
+use std::cell::RefCell;
+let cell = RefCell::new(vec![1]);
+cell.borrow_mut().push(2);                    // checked at run time; panics if already borrowed
+#+end_src
+
+- =Box<T>= is for recursive types, trait objects (=Box<dyn Trait>=), and moving large values cheaply.
+- =Rc<RefCell<T>>= gives shared mutable state in one thread; the borrow rules still apply, enforced by panics instead of compile errors. A reference cycle of =Rc= values leaks; break cycles with =Weak=.
+- =Arc<Mutex<T>>= is the multi-threaded equivalent (see =12_concurrency.org=).
+- Prefer plain ownership and indices over =Rc<RefCell<_>>= graphs.
+
+** 7. Deref coercion
+Smart pointers implement =Deref=, so a reference to one converts automatically where a reference to its target is expected:
+
+#+begin_src rust
+fn hello(name: &str) { println!("hi {name}"); }
+let s = String::from("Ada");
+hello(&s);                    // &String coerces to &str
+let b = Box::new(String::from("Bo"));
+hello(&b);                    // &Box<String> -> &String -> &str
+#+end_src
+
+Method calls auto-reference and auto-dereference: =x.len()= works whether =x= is a =String=, a =&String=, or a =Box<String>=. This is why you take =&str= and =&[T]= in parameters: callers can pass =&String=, =&Vec<T>=, arrays, or literals.
+
+** 8. Working with the borrow checker
+Techniques, in rough order of preference:
+
+- *Shorten the borrow*: use the value, then mutate; or copy out what you need (=let n = v[0];= for =Copy= types).
+- *Return owned data* rather than references into temporary storage.
+- *Split a struct's borrows*: borrowing two different fields independently is allowed (=let a = &mut s.x; let b = &mut s.y;=); borrowing through methods is not.
+- *Use indices* instead of references (store =usize= into a =Vec= rather than =&T= into it).
+- *Mutate through methods that do it atomically*:
+
+#+begin_src rust
+let old = std::mem::replace(&mut self.state, State::Done);
+let taken = std::mem::take(&mut self.buffer);        // leaves Default::default() behind
+let head = self.head.take();                         // Option::take leaves None
+let (left, right) = slice.split_at_mut(mid);         // two disjoint &mut slices
+*map.entry(key).or_insert(0) += 1;                   // lookup and insert in one borrow
+#+end_src
+
+- *Clone* when the data is small or the copy is not on a hot path.
+- *Share* with =Rc= / =Arc= when ownership is genuinely shared.
+
+** 9. Bugs the compiler prevents
+| C bug                      | Rust mechanism                                                     |
+|----------------------------+--------------------------------------------------------------------|
+| Use after free             | Borrow checker: references cannot outlive their owner              |
+| Double free                | Single ownership; a moved value is not dropped twice               |
+| Dangling pointer (local)   | Lifetimes reject returning a reference to a local                  |
+| Iterator invalidation      | Shared and exclusive borrows cannot overlap                        |
+| Buffer overflow            | Bounds-checked indexing; slices carry their length                 |
+| Null dereference           | No null references; =Option<T>= must be handled                    |
+| Uninitialized read         | Variables must be definitely initialized before use                |
+| Data race                  | =Send= / =Sync= and the borrow rules (see =12_concurrency.org=)       |
+| Memory leak                | Not prevented: =Rc= cycles and =mem::forget= leak, and leaks are safe |
+
+Logic errors, deadlocks, and resource exhaustion remain possible. Inside =unsafe= blocks, the guarantees become your responsibility.
+
+** 10. Where values live
+- Locals and function arguments live on the stack; the stack is limited (commonly 8 MB for the main thread, 2 MB for spawned threads), so avoid very large arrays on it and deep unbounded recursion.
+- =Box=, =Vec=, =String=, =Rc=, and =Arc= allocate on the heap. A =Vec<T>= is three words (pointer, capacity, length), so moving it copies 24 bytes, not its elements.
+- =static= items live for the whole program.
+- Use =Vec= (or =vec![0; n]=) for large buffers rather than huge arrays.
+
+** What to remember
+- One owner; assignment and calls move; =Copy= types are the exception; =Clone= is explicit.
+- Many shared borrows or one mutable borrow, and a borrow ends at its last use.
+- =Drop= gives you RAII: no =goto cleanup=.
+- Lifetimes describe relations between references; elision handles most cases; owned data is the escape hatch.
+- =Rc= / =Arc= share ownership; =RefCell= / =Mutex= move the borrow check to run time.
+- Take =&str= and =&[T]= in parameters; deref coercion does the rest.

@@ -1,0 +1,289 @@
+#+title: C I/O and Error Handling
+#+startup: overview
+
+* C I/O and Error Handling
+** 1. Streams
+=<stdio.h>= works on =FILE *= streams. Three are open at program start: =stdin=, =stdout=, =stderr=.
+
+#+begin_src c
+fputs("hello\n", stdout);
+fprintf(stderr, "error: %s\n", msg);     /* diagnostics go to stderr */
+#+end_src
+
+Streams are buffered:
+
+| Mode       | Behavior                    | Default for                         |
+|------------+-----------------------------+-------------------------------------|
+| Full       | Flush when the buffer fills | files, and stdout if not a terminal |
+| Line       | Flush on newline            | stdout when it is a terminal        |
+| Unbuffered | Write immediately           | stderr                              |
+
+#+begin_src c
+fflush(stdout);                            /* push buffered output now */
+setvbuf(stdout, NULL, _IOLBF, 0);          /* change the mode (before any I/O on the stream) */
+#+end_src
+
+Buffering explains output that appears late, or not at all when a program crashes: data still in the buffer is lost. Flush before =fork=, before a prompt you read an answer to, and after writing progress messages that must be seen.
+
+** 2. Writing with printf
+#+begin_src c
+printf("%d items, %.2f%% done, name=%s\n", n, pct, name);
+snprintf(buf, sizeof buf, "%s-%04d", prefix, id);
+fprintf(f, "%zu\n", count);
+#+end_src
+
+- The format string and arguments must agree in number and type; a mismatch is undefined behavior. Never pass user data as the format: =printf(s)= is a vulnerability; write =printf("%s", s)=.
+- Use =snprintf=, not =sprintf=. It returns the length that /would/ have been written; a result >= the buffer size means truncation:
+
+#+begin_src c
+int n = snprintf(buf, sizeof buf, "%s/%s", dir, name);
+if (n < 0 || (size_t)n >= sizeof buf) { /* error or truncated */ }
+#+end_src
+
+- =%%= prints a percent sign; see =02_types.org= for specifiers by type.
+
+** 3. Opening, reading, and closing files
+#+begin_src c
+FILE *f = fopen("data.txt", "r");
+if (f == NULL) {
+    perror("data.txt");                    /* prints "data.txt: No such file or directory" */
+    return -1;
+}
+/* ... */
+if (fclose(f) != 0) { /* a write error may only show up here */ }
+#+end_src
+
+| Mode | Meaning                                                                                  |
+|------+------------------------------------------------------------------------------------------|
+| "r"  | Read; the file must exist                                                                |
+| "w"  | Write; truncate or create                                                                |
+| "a"  | Append; create if missing                                                                |
+| "r+" | Read and write; the file must exist                                                      |
+| "w+" | Read and write; truncate or create                                                       |
+| "b"  | Add to any mode (e.g. ="rb"=) for binary on systems that distinguish; harmless elsewhere |
+| "x"  | C11: with "w", fail if the file exists                                                   |
+
+Check the result of =fclose= on files you wrote: buffered data is written at close and may fail then.
+
+** 4. Reading text
+*** Lines
+#+begin_src c
+char line[256];
+while (fgets(line, sizeof line, f) != NULL) {
+    size_t len = strcspn(line, "\n");
+    line[len] = '\0';                      /* strip the newline, if any */
+    /* a line longer than the buffer arrives in pieces */
+}
+#+end_src
+
+POSIX =getline= handles arbitrary line lengths:
+
+#+begin_src c
+#define _POSIX_C_SOURCE 200809L
+#include <stdio.h>
+
+char *line = NULL;
+size_t cap = 0;
+ssize_t len;
+while ((len = getline(&line, &cap, f)) != -1) {
+    /* line holds the text including the newline; len is its length */
+}
+free(line);
+#+end_src
+
+*** Characters and the EOF loop
+#+begin_src c
+int c;                                     /* int, so EOF (negative) is distinguishable */
+while ((c = fgetc(f)) != EOF) { }
+
+if (ferror(f)) { /* a read error occurred */ }
+else           { /* reached end of file */ }
+#+end_src
+
+Do not write ~while (!feof(f))~: =feof= becomes true only /after/ a read fails, so the loop runs once too often. Test the return value of the read, then use =feof= / =ferror= to tell why it stopped.
+
+*** scanf
+#+begin_src c
+int n;
+char name[32];
+if (scanf("%d %31s", &n, name) != 2) { /* bad input */ }
+#+end_src
+
+Always check the return value (the number of items converted), and always give =%s= a width one less than the buffer. =scanf= leaves unread input in the stream on failure, which is why many programs read a line with =fgets= and parse it with =sscanf= or =strtol= instead.
+
+** 5. Binary I/O
+#+begin_src c
+FILE *f = fopen("out.bin", "wb");
+size_t wrote = fwrite(items, sizeof items[0], n, f);
+if (wrote != n) { /* error */ }
+
+size_t got = fread(items, sizeof items[0], n, f);   /* may be short at EOF or on error */
+#+end_src
+
+Do not dump structs or multi-byte integers with =fwrite= if the file must be portable: padding and byte order differ between systems (encode explicitly; see =02_types.org=).
+
+Reading a whole file:
+
+#+begin_src c
+char *read_file(const char *path, size_t *out_len) {
+    FILE *f = fopen(path, "rb");
+    if (f == NULL) return NULL;
+    if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return NULL; }
+    long n = ftell(f);
+    if (n < 0 || fseek(f, 0, SEEK_SET) != 0) { fclose(f); return NULL; }
+    char *buf = malloc((size_t)n + 1);
+    if (buf == NULL) { fclose(f); return NULL; }
+    size_t got = fread(buf, 1, (size_t)n, f);
+    if (got != (size_t)n && ferror(f)) { free(buf); fclose(f); return NULL; }
+    fclose(f);
+    buf[got] = '\0';
+    if (out_len) *out_len = got;
+    return buf;
+}
+#+end_src
+
+This does not work for pipes or other non-seekable streams: there, read in chunks into a growing buffer. For files over 2 GB on 32-bit =long=, use =fseeko= / =ftello= (POSIX).
+
+** 6. errno
+Many library and system calls set the thread-local variable =errno= on failure.
+
+#+begin_src c
+#include <errno.h>
+#include <string.h>
+
+errno = 0;
+long v = strtol(s, &end, 10);
+if (errno == ERANGE) { /* out of range */ }
+
+fprintf(stderr, "open failed: %s\n", strerror(errno));
+perror("open");                              /* same, with a prefix */
+#+end_src
+
+Rules:
+- =errno= is meaningful only immediately after a call that reported failure. Successful calls may change it.
+- Check the function's return value first; then read =errno=.
+- Functions that can legitimately return any value (=strtol=, =strtod=) need =errno = 0= before the call.
+- Save =errno= in a local variable before calling anything else (even =fprintf=) if you need it later.
+- =strerror= may return a pointer to a shared buffer. In multithreaded code use =strerror_r= (POSIX) or =strerror_s= (Annex K).
+
+** 7. Error-handling patterns
+C has no exceptions. Choose a convention and apply it consistently.
+
+*Return codes with out-parameters:*
+
+#+begin_src c
+typedef enum { OK = 0, ERR_IO, ERR_PARSE, ERR_NOMEM } Status;
+
+Status load_config(const char *path, Config *out);
+#+end_src
+
+*A single exit path (=goto cleanup=)* that releases resources and preserves the error:
+
+#+begin_src c
+int copy_file(const char *src, const char *dst) {
+    int rc = -1;
+    FILE *in = NULL, *out = NULL;
+    char buf[4096];
+    size_t n;
+
+    in = fopen(src, "rb");
+    if (in == NULL) goto done;
+    out = fopen(dst, "wb");
+    if (out == NULL) goto done;
+
+    while ((n = fread(buf, 1, sizeof buf, in)) > 0) {
+        if (fwrite(buf, 1, n, out) != n) goto done;
+    }
+    if (ferror(in)) goto done;
+    rc = 0;
+
+done:
+    if (out != NULL && fclose(out) != 0) rc = -1;
+    if (in != NULL) fclose(in);
+    return rc;
+}
+#+end_src
+
+*Assertions* check programmer errors (broken invariants), not run-time conditions such as a missing file:
+
+#+begin_src c
+#include <assert.h>
+assert(index < len);            /* aborts with file and line; removed if NDEBUG is defined */
+#+end_src
+
+Never put side effects inside =assert=: they vanish in release builds. Validate external input with real checks, not assertions.
+
+*Termination:*
+
+| Call                                | Effect                                             |
+|-------------------------------------+----------------------------------------------------|
+| =return= from =main= / =exit(code)= | Runs =atexit= handlers, flushes and closes streams |
+| =_Exit(code)=                       | Exits immediately; no cleanup                      |
+| =abort()=                           | Raises =SIGABRT=; typically a core dump            |
+| =atexit(fn)=                        | Registers a handler to run at =exit=               |
+
+** 8. setjmp and longjmp
+=setjmp= saves the execution context; =longjmp= jumps back to it, unwinding the stack without running any cleanup.
+
+#+begin_src c
+#include <setjmp.h>
+
+static jmp_buf env;
+
+void fail(void) { longjmp(env, 1); }
+
+int main(void) {
+    if (setjmp(env) == 0) {
+        fail();                       /* does not return */
+    } else {
+        puts("recovered");
+    }
+}
+#+end_src
+
+Restrictions are many: the function containing =setjmp= must still be active; modified non-=volatile= locals have indeterminate values after the jump; resources (memory, files, locks) between the two points leak. Treat it as a tool for rare cases (an error escape from deep recursion, a parser abort), not a general exception mechanism.
+
+** 9. POSIX file descriptors
+Below =FILE *= lies the POSIX system-call layer: =open=, =read=, =write=, =close= on integer descriptors (=<fcntl.h>=, =<unistd.h>=). Those calls may transfer fewer bytes than requested and may fail with =EINTR= after a signal, so wrap them:
+
+#+begin_src c
+#include <errno.h>
+#include <unistd.h>
+
+ssize_t write_all(int fd, const void *buf, size_t n) {
+    const char *p = buf;
+    size_t left = n;
+    while (left > 0) {
+        ssize_t w = write(fd, p, left);
+        if (w < 0) {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        p += w;
+        left -= (size_t)w;
+    }
+    return (ssize_t)n;
+}
+#+end_src
+
+Do not mix =stdio= and raw descriptor I/O on the same file without flushing, because the buffers are independent.
+
+** 10. Other useful calls
+#+begin_src c
+remove("old.txt");                     /* delete a file */
+rename("a.txt", "b.txt");              /* rename or move (atomic on POSIX within a filesystem) */
+FILE *t = tmpfile();                   /* anonymous temporary file, deleted at close */
+rewind(f);                             /* back to the start and clear error state */
+fseek(f, 0, SEEK_SET);  ftell(f);      /* reposition, query */
+#+end_src
+
+For atomic updates of a file, write a temporary file in the same directory, flush and =fsync= it, then =rename= it over the original.
+
+** What to remember
+- Check the result of every I/O call, including =fclose= on files you wrote.
+- Use =int= for =fgetc= / =getchar= results; do not loop on =feof=.
+- Never pass external data as a =printf= format; use =snprintf= and check truncation.
+- =errno= is valid only right after a failing call; save it before doing anything else.
+- Pick one error convention (codes + =goto cleanup= is common) and be consistent.
+- =assert= is for bugs, not for expected failures.
+- Raw =read= / =write= need loops for partial transfers and =EINTR=.

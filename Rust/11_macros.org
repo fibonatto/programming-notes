@@ -1,0 +1,178 @@
+#+title: Rust Macros
+#+startup: overview
+
+* Rust Macros
+** 1. What a macro does
+A function receives evaluated values. A macro receives /tokens/ (pieces of source code) and expands into other code, which the compiler then type-checks. Macros run at compile time, before type checking, and are invoked with a =!= (=println!=, =vec!=, =my_macro!=).
+
+This is why macros can take a variable number of arguments, accept custom syntax, and generate items such as functions and impls, none of which an ordinary function can do.
+
+Rust has two families:
+- *Declarative macros* (=macro_rules!=): pattern matching on tokens. This file covers them in detail.
+- *Procedural macros*: Rust functions that transform a token stream (derive, attribute, and function-like). Section 8 sketches them.
+
+** 2. A simple macro
+#+begin_src rust
+macro_rules! square {
+    ($x:expr) => {
+        $x * $x
+    };
+}
+
+square!(3);          // 9
+square!(1 + 2);      // 9, not 5
+#+end_src
+
+A macro is a list of rules: =(pattern) => { expansion }=. The first rule whose pattern matches is used. =$x:expr= binds the matched /expression/ to =$x=. Because =$x= is a parsed expression, not raw text, =1 + 2= keeps its grouping; this avoids the precedence problem of C macros.
+
+It still evaluates the expression twice. Bind it once:
+
+#+begin_src rust
+macro_rules! square {
+    ($x:expr) => {{
+        let v = $x;
+        v * v
+    }};
+}
+#+end_src
+
+The doubled braces make the expansion a block expression, so the =let= stays inside it.
+
+** 3. Fragment specifiers
+| Specifier  | Matches                                         |
+|------------+-------------------------------------------------|
+| =expr=     | an expression                                   |
+| =ident=    | an identifier or keyword                        |
+| =ty=       | a type                                          |
+| =pat=      | a pattern                                       |
+| =stmt=     | a statement                                     |
+| =block=    | a ={ ... }= block                               |
+| =item=     | an item (fn, struct, impl, ...)                 |
+| =literal=  | a literal such as =1= or ="a"=                  |
+| =path=     | a path such as =std::vec::Vec=                  |
+| =tt=       | a single token tree: the most flexible          |
+
+#+begin_src rust
+macro_rules! make_fn {
+    ($name:ident, $ret:ty, $value:expr) => {
+        fn $name() -> $ret {
+            $value
+        }
+    };
+}
+
+make_fn!(answer, i32, 42);
+answer();        // 42
+#+end_src
+
+** 4. Repetition
+=$( ... ) sep rep= matches a pattern repeatedly, where =rep= is =*= (zero or more), =+= (one or more), or =?= (zero or one).
+
+#+begin_src rust
+macro_rules! hashmap {
+    ($($k:expr => $v:expr),* $(,)?) => {{
+        let mut m = ::std::collections::HashMap::new();
+        $( m.insert($k, $v); )*
+        m
+    }};
+}
+
+let m = hashmap! { "a" => 1, "b" => 2, };   // trailing comma allowed
+#+end_src
+
+The same =$( ... )*= syntax in the expansion repeats the code once per match.
+
+** 5. Recursive macros
+A rule can call the macro itself on the remaining tokens.
+
+#+begin_src rust
+macro_rules! max {
+    ($x:expr) => ($x);
+    ($x:expr, $($rest:expr),+) => {{
+        let a = $x;
+        let b = max!($($rest),+);
+        if a > b { a } else { b }
+    }};
+}
+
+max!(1, 5, 3);      // 5
+#+end_src
+
+Rules are tried in order, so put the more specific or terminating rule where it matches correctly. The compiler limits recursion depth (default 128, adjustable with =#![recursion_limit = "..."]=).
+
+** 6. Hygiene
+Rust's =macro_rules!= is partially hygienic. A local variable introduced by a macro cannot collide with, or capture, a variable at the call site:
+
+#+begin_src rust
+macro_rules! using_a {
+    ($e:expr) => {{
+        let a = 42;
+        $e
+    }};
+}
+
+let four = using_a!(a / 10);     // error: `a` in the argument does not see the macro's `a`
+#+end_src
+
+This is the problem C's =SWAP= macro has; here it does not occur for local variables. Hygiene covers local variables and labels only. Items (functions, types, statics) and names resolved at the call site are not protected, so use absolute paths (=::std::collections::HashMap=) inside macros that may be used in other crates.
+
+** 7. Standard macros worth knowing
+| Macro                  | Purpose                                              |
+|------------------------+------------------------------------------------------|
+| =println!=, =format!=  | Formatted output and strings (checked at compile time) |
+| =vec!=                 | Build a =Vec=                                        |
+| =assert!=, =assert_eq!=| Check conditions; panic with a message               |
+| =dbg!=                 | Print an expression and its value to stderr, return it |
+| =matches!=             | Test a value against a pattern                       |
+| =todo!=, =unimplemented!=, =unreachable!= | Placeholders that panic          |
+| =write!=, =writeln!=   | Formatted write to any writer                        |
+| =include_str!=         | Embed a file's text at compile time                  |
+| =cfg!=, =env!=         | Compile-time configuration and environment           |
+
+#+begin_src rust
+matches!(x, Some(n) if n > 0);
+assert_eq!(add(2, 2), 4, "math broke: {}", add(2, 2));
+#+end_src
+
+** 8. Derive, attribute, and function-like procedural macros
+Procedural macros are compiled Rust functions that take and return a =TokenStream=. They must live in a crate with =proc-macro = true= in =Cargo.toml=. They are usually written with the =syn= (parsing) and =quote= (code generation) crates.
+
+#+begin_src rust
+#[derive(Debug, Clone, serde::Serialize)]     // derive macros generate trait impls
+struct User { name: String }
+
+#[tokio::main]                                // attribute macro rewrites an item
+async fn main() { }
+
+let q = sqlx::query!("SELECT 1");             // function-like macro with custom syntax
+#+end_src
+
+You will use these long before you write one. =#[derive(Debug)]= is the first procedural macro most people meet.
+
+** 9. Inspecting expansion
+- =cargo expand= (the =cargo-expand= tool) prints the code after macro expansion.
+- =rust-analyzer= in many editors offers an "expand macro recursively" command.
+- On nightly: =rustc -Zunpretty=expanded src/main.rs=.
+- A =compile_error!= invocation in a rule gives a clear message when no pattern matches.
+
+Inspect expansions when learning or debugging a macro. Error messages from macro-generated code point at the call site and can be confusing.
+
+** 10. When to write a macro
+Prefer a function (or a generic function, or a trait) when you need to compute a result from values. A closure already solves delayed evaluation.
+
+Consider a macro when you need to:
+- accept a variable number of arguments or custom syntax (=hashmap!=);
+- generate repetitive items such as impls for many types;
+- avoid writing the same pattern many times when generics cannot express it;
+- control evaluation or inspect the source of an argument (=assert!=, =dbg!=).
+
+Do not write a macro just to avoid a function call. Macros are harder to read, to document, and to debug.
+
+** 11. Recommended learning sequence
+1. Use =println!=, =vec!=, =assert!=, and =matches!= until their behavior is familiar.
+2. Write a small =macro_rules!= with one rule and an =expr= fragment.
+3. Add repetition (=$(...),*=) and build a =hashmap!=.
+4. Learn hygiene and why you bind =$x= once.
+5. Install =cargo expand= and read the expansions.
+6. Write a recursive macro such as =max!=.
+7. Explore procedural macros only when a project needs them.

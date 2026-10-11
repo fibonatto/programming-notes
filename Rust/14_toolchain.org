@@ -1,0 +1,245 @@
+#+title: Rust Toolchain
+#+startup: overview
+
+* Rust Toolchain
+** 1. Installing and managing toolchains with rustup
+#+begin_src sh
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh     # install rustup, rustc, cargo
+rustup update                         # update stable
+rustup toolchain install nightly      # a second channel
+rustup default stable
+rustup show                           # what is installed and active
+rustup component add clippy rustfmt rust-src rust-analyzer
+rustup target add wasm32-unknown-unknown aarch64-unknown-linux-gnu
+cargo +nightly build                  # run one command with another toolchain
+#+end_src
+
+Channels: =stable= (every six weeks), =beta=, =nightly= (unstable features and tools such as Miri and sanitizers). Pin a project to a toolchain with a =rust-toolchain.toml= file at its root:
+
+#+begin_src toml
+[toolchain]
+channel = "1.85.0"
+components = ["clippy", "rustfmt"]
+targets = ["wasm32-unknown-unknown"]
+#+end_src
+
+** 2. Everyday cargo commands
+#+begin_src sh
+cargo new app            # a new binary package (add --lib for a library)
+cargo init               # turn the current directory into a package
+cargo check              # type-check and borrow-check without producing a binary (fast)
+cargo build              # debug build in target/debug
+cargo build --release    # optimized build in target/release
+cargo run -- arg1 arg2   # build and run, passing arguments after --
+cargo test               # run unit, integration, and doc tests
+cargo bench              # run benchmarks
+cargo doc --open         # build and open the documentation
+cargo fmt                # format the code
+cargo clippy             # lint
+cargo add serde          # add a dependency
+cargo update             # refresh Cargo.lock within the allowed versions
+cargo tree               # dependency tree
+cargo clean              # delete target/
+#+end_src
+
+Iterate with =cargo check= (seconds) and run the full build only when you need to run the program. =cargo run --release= for anything performance-sensitive: debug builds can be tens of times slower.
+
+** 3. Cargo.toml
+#+begin_src toml
+[package]
+name = "app"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"                # minimum supported Rust version (MSRV)
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+anyhow = "1"
+
+[dev-dependencies]
+proptest = "1"
+
+[features]
+default = []
+fast = []
+
+[[bin]]
+name = "tool"
+path = "src/bin/tool.rs"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = true
+#+end_src
+
+Dependency versions follow semver: ="1.2"= means =^1.2= (any 1.x at least 1.2). =Cargo.lock= records exact versions (see =10_modules.org= for features and workspaces).
+
+** 4. Profiles and build speed
+| Profile    | Defaults                                                          |
+|------------+-------------------------------------------------------------------|
+| =dev=      | =opt-level = 0=, debug info, =debug-assertions=, =overflow-checks= |
+| =release=  | =opt-level = 3=, no debug info, assertions and overflow checks off |
+
+Useful settings in =[profile.*]=:
+- =opt-level = 3= (speed), ="s"= / ="z"= (size), =1= / =2=.
+- =lto = "thin"= or =true=: link-time optimization across crates; slower builds, faster code.
+- =codegen-units = 1=: better optimization, slower compile.
+- =panic = "abort"=: no unwinding; smaller and faster, but destructors do not run on panic.
+- =debug = true= in release for profiling with symbols; =strip = true= to shrink the binary.
+- =overflow-checks = true= to keep integer-overflow panics in release.
+- =[profile.dev.package."*"] opt-level = 3= optimizes dependencies in debug builds while keeping your own code easy to debug.
+
+Speeding up development builds: =cargo check=, incremental compilation (on by default for debug), a faster linker (=mold=, =lld=), a compiler cache (=sccache=), splitting large crates into a workspace, and avoiding heavy dependencies.
+
+** 5. Testing
+#+begin_src rust
+pub fn add(a: i32, b: i32) -> i32 { a + b }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn adds() {
+        assert_eq!(add(2, 3), 5);
+        assert!(add(1, 1) > 1, "sum was {}", add(1, 1));
+        assert_ne!(add(1, 1), 3);
+    }
+
+    #[test]
+    #[should_panic(expected = "index out of bounds")]
+    fn out_of_bounds() {
+        let v: Vec<i32> = Vec::new();
+        let _ = v[std::hint::black_box(0)];
+    }
+
+    #[test]
+    fn returns_result() -> Result<(), std::num::ParseIntError> {
+        let n: i32 = "42".parse()?;
+        assert_eq!(n, 42);
+        Ok(())
+    }
+}
+#+end_src
+
+- *Unit tests* live next to the code in a =#[cfg(test)]= module and can see private items.
+- *Integration tests* are files in =tests/=; each one is a separate crate that uses only the public API.
+- *Doc tests* are the code blocks in =///= comments; they keep documentation honest.
+- Output from passing tests is hidden; show it with =cargo test -- --nocapture=. Filter by name with =cargo test adds=; run one thread with =-- --test-threads=1=. =cargo test --release= tests the optimized build; ignored tests (=#[ignore]=) run with =-- --ignored=.
+- Property-based tests (=proptest=, =quickcheck=) and fuzzing (=cargo fuzz=, with libFuzzer) find inputs you did not think of; benchmarks use =criterion= (stable) or the unstable built-in =#[bench]=.
+
+** 6. Linting and formatting
+#+begin_src sh
+cargo clippy                              # many useful lints
+cargo clippy --all-targets -- -D warnings # treat every warning as an error (CI)
+cargo fmt                                 # format in place
+cargo fmt --check                         # fail if not formatted (CI)
+cargo fix                                 # apply compiler-suggested fixes
+cargo fix --edition                       # migrate to the next edition
+#+end_src
+
+Clippy lint groups: =clippy::all= (default), =clippy::pedantic= (stricter, opt in), =clippy::nursery=, and =clippy::perf=. Enable more in code with =#![warn(clippy::pedantic)]=. Configure formatting in =rustfmt.toml= (rarely needed; defaults are the community standard).
+
+** 7. Documentation
+#+begin_src rust
+/// Adds two numbers.
+///
+/// # Examples
+///
+/// ```
+/// assert_eq!(demo::add(1, 2), 3);
+/// ```
+///
+/// # Panics
+/// Never.
+pub fn add(a: i32, b: i32) -> i32 { a + b }
+#+end_src
+
+Use the standard sections =# Examples=, =# Errors=, =# Panics=, and =# Safety=. =cargo doc --open --no-deps= builds the docs for your crate; docs.rs hosts them for published crates. The =#![warn(missing_docs)]= lint reminds you.
+
+** 8. Debugging
+#+begin_src sh
+RUST_BACKTRACE=1 cargo run                # backtrace on panic (=full= for everything)
+rust-gdb target/debug/app                 # gdb with Rust pretty-printers
+rust-lldb target/debug/app
+cargo expand                              # show the code after macro expansion (cargo-expand)
+#+end_src
+
+- =dbg!(expr)= prints the file, line, expression, and value to stderr, and returns the value.
+- =println!("{x:?}")= and =eprintln!= remain the most common debugger.
+- Debug builds contain debug info; add =debug = true= to =[profile.release]= to debug optimized code.
+- For services, use the =tracing= crate with a subscriber and =RUST_LOG=.
+- Read compiler errors top to bottom, and use =rustc --explain EXXXX=.
+
+** 9. Checking unsafe code and memory
+#+begin_src sh
+rustup toolchain install nightly --component miri
+cargo +nightly miri test                  # interprets your tests; detects UB, leaks, aliasing errors
+
+RUSTFLAGS="-Zsanitizer=address" cargo +nightly run --target x86_64-unknown-linux-gnu
+RUSTFLAGS="-Zsanitizer=thread"  cargo +nightly run --target x86_64-unknown-linux-gnu -Zbuild-std
+valgrind target/debug/app
+#+end_src
+
+Miri runs much slower than native code and cannot call foreign functions, but it catches the subtle bugs that sanitizers miss. Use it on any crate with =unsafe=.
+
+** 10. Performance
+- Measure in =--release=, on realistic input; use =criterion= for micro-benchmarks and =std::hint::black_box= to stop the optimizer from deleting the work.
+- Profile with =perf record= and =perf report=, or =cargo flamegraph=; build with =debug = true= so symbols are present.
+- Find bloat with =cargo bloat= and compile-time hogs with =cargo build --timings=.
+- Look at the generated code with Compiler Explorer or =cargo asm= (the =cargo-show-asm= tool).
+- Typical wins come from algorithms, avoiding allocations (=Vec::with_capacity=, reusing buffers), iterators instead of repeated indexing, =lto= and =codegen-units = 1=, and a different allocator (=mimalloc=, =jemalloc=) for allocation-heavy programs.
+- =RUSTFLAGS="-C target-cpu=native"= enables the host CPU's instructions; the result may not run on other machines.
+
+** 11. Cross-compiling, WebAssembly, and embedded
+#+begin_src sh
+rustup target add aarch64-unknown-linux-gnu
+cargo build --release --target aarch64-unknown-linux-gnu   # needs a linker for that target (see below)
+
+cargo install cross                       # builds inside containers with the right toolchain
+cross build --release --target aarch64-unknown-linux-gnu
+
+cargo install cargo-zigbuild              # uses Zig as the cross linker
+cargo zigbuild --release --target x86_64-unknown-linux-musl   # static binary
+
+rustup target add wasm32-unknown-unknown
+cargo build --release --target wasm32-unknown-unknown
+wasm-pack build                           # package for the browser (wasm-bindgen)
+rustup target add wasm32-wasip1           # WASI: run with a runtime such as wasmtime
+#+end_src
+
+Each target triple names architecture, vendor, OS, and ABI. Pure-Rust programs cross-compile easily; C dependencies need a C cross-toolchain. Embedded and kernel code use =#![no_std]= and a chip-specific target and runtime (the Embedded Rust book covers it).
+
+** 12. Publishing and supply chain
+#+begin_src sh
+cargo package                              # check what would be published
+cargo publish                              # upload to crates.io
+cargo yank --version 0.1.2                 # discourage new use of a bad release
+cargo audit                                # known vulnerabilities in dependencies (cargo-audit)
+cargo deny check                           # licenses, bans, advisories (cargo-deny)
+cargo vet                                  # record dependency reviews
+#+end_src
+
+Set =rust-version= (MSRV), follow semver, and review what a dependency pulls in (=cargo tree=). A published version cannot be deleted, only yanked.
+
+** 13. A CI baseline
+#+begin_src sh
+cargo fmt --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --all-features
+cargo doc --no-deps
+cargo audit
+#+end_src
+
+Add a nightly job running =cargo +nightly miri test= if the crate uses =unsafe=, and a build of the MSRV toolchain if you promise one.
+
+** What to remember
+- Install with rustup; pin a project's toolchain with =rust-toolchain.toml=.
+- =cargo check= to iterate, =cargo run --release= to measure, =cargo test= for unit, integration, and doc tests.
+- Profiles control optimization, debug info, overflow checks, and panic behavior.
+- Run =cargo fmt=, =cargo clippy -D warnings=, and the tests in CI.
+- Use Miri and sanitizers on unsafe code; use =tracing= and =RUST_BACKTRACE= for diagnosis.
+- Cross-compiling is a =rustup target add= plus a linker; WebAssembly is a target like any other.

@@ -1,0 +1,346 @@
+#+title: Data Structures
+#+startup: overview
+
+* Data Structures
+** 0. Staff-level lens
+A data structure is a promise about the cost of operations under a particular access pattern, on a particular machine. At Staff scope you are expected to:
+- choose structures from the /workload/ (read/write ratio, key distribution, range queries, concurrency, durability), not from habit;
+- know the memory-hierarchy consequences (locality, cache lines, pointer chasing) well enough to predict which design wins before benchmarking;
+- see storage engines, indexes, caches, and queues as the same few structures at different scales;
+- know the failure modes: resize pauses, hash collisions under attack, unbounded growth, contention on a hot key.
+Companion files: =04_complexity.org= (cost models), =06_algorithms.org= (algorithms that use these structures), =11_memory-management.org= and =03_data-representation.org= (layout), =12_concurrency.org= (concurrent variants).
+
+** 1. Interfaces first
+Think in terms of /interfaces/ (what operations exist) and then implementations (how they are paid for). The Open Data Structures text organizes the field this way:
+| Interface        | Operations                                         | Typical implementations                         |
+|------------------+----------------------------------------------------+-------------------------------------------------|
+| Stack / Queue / Deque | push, pop, enqueue, dequeue at the ends         | dynamic array, ring buffer, linked list         |
+| List (sequence)  | get, set, insert, remove by index                  | array list, linked list, rope, skip list        |
+| USet (unordered set / map) | add, remove, find by key                 | hash table (chaining, open addressing)          |
+| SSet (sorted set / map) | add, remove, find, predecessor, successor, range | balanced BST, B-tree, skip list, sorted array |
+| Priority queue   | insert, find-min, delete-min (decrease-key)        | binary heap, d-ary heap, pairing heap           |
+| Graph            | adjacency queries, neighbors                       | adjacency list, matrix, compressed sparse row   |
+
+** 2. Arrays, dynamic arrays, and ring buffers
+- An *array* is contiguous: O(1) index, cache-friendly sequential scans, hardware prefetching works. Insertion in the middle is O(n).
+- A *dynamic array* (vector, ArrayList, slice) grows geometrically; appends are amortized O(1) (see =04_complexity.org=), but an individual append may copy everything, and references into the old buffer become invalid.
+- A *ring buffer* (circular queue) gives O(1) enqueue/dequeue with a fixed capacity and no allocation; it underlies network queues, audio buffers, and lock-free single-producer single-consumer queues.
+- A *bitset* packs booleans into words; set operations run 64 elements at a time.
+- *Default to the array.* Linked lists, trees, and hash tables must beat it on measured workloads.
+
+** 3. Linked lists
+O(1) insertion and deletion given a node, O(n) search, and no random access. Every node is a separate allocation, and following pointers causes cache misses, so scans are often 10x or more slower than over an array of the same length. Legitimate uses: intrusive lists inside kernels and allocators (a node embeds its link, so removal needs no search), LRU lists combined with a hash map, persistent (immutable) lists in functional code, and queues where nodes are handed off between threads.
+
+** 4. Hash tables
+Hash tables implement unordered sets and maps with expected O(1) operations.
+- *Hash function*: maps keys to integers; should spread keys uniformly. Use a /keyed/ or randomized hash (SipHash, per-process random seed) for untrusted keys to prevent hash-flooding denial of service. Never use a non-cryptographic hash for security; never rely on a language's iteration order across versions.
+- *Collision resolution*:
+  - *Chaining*: each bucket holds a list or tree; simple; load factors above 1 work; pointer overhead.
+  - *Open addressing*: store entries in the table and probe for a free slot: linear probing (best locality, clustering), quadratic probing, double hashing, Robin Hood hashing (steals slots to equalize probe length), cuckoo hashing (worst-case O(1) lookup with two or more tables). Deletions need tombstones or backward shifting.
+- *Load factor and resizing*: keep the table at most 50% to 90% full depending on the scheme. Resizing rehashes everything; it causes latency spikes, which can be avoided with incremental rehashing (Redis-style) or pre-sizing.
+- *Modern designs* (SwissTable family, used by Abseil and by Rust's standard =HashMap=) use SIMD to compare a group of control bytes at once and keep metadata separate from keys.
+- *Pitfalls*: mutable keys, keys whose equality and hash disagree, floating-point keys (NaN), pathological hash values, iteration while mutating, hot keys in sharded tables.
+
+#+begin_src python
+class LinearProbingMap:
+    """Open addressing with linear probing and backward-shift deletion."""
+    EMPTY = object()
+
+    def __init__(self, capacity=8):
+        self.cap = capacity
+        self.keys = [self.EMPTY] * capacity
+        self.vals = [None] * capacity
+        self.n = 0
+
+    def _slot(self, key):
+        i = hash(key) % self.cap
+        while self.keys[i] is not self.EMPTY and self.keys[i] != key:
+            i = (i + 1) % self.cap
+        return i
+
+    def _grow(self):
+        old = [(k, v) for k, v in zip(self.keys, self.vals) if k is not self.EMPTY]
+        self.cap *= 2
+        self.keys, self.vals, self.n = [self.EMPTY] * self.cap, [None] * self.cap, 0
+        for k, v in old:
+            self[k] = v
+
+    def __setitem__(self, key, val):
+        if (self.n + 1) * 4 > self.cap * 3:        # keep load factor <= 0.75
+            self._grow()
+        i = self._slot(key)
+        if self.keys[i] is self.EMPTY:
+            self.n += 1
+        self.keys[i], self.vals[i] = key, val
+
+    def get(self, key, default=None):
+        i = self._slot(key)
+        return default if self.keys[i] is self.EMPTY else self.vals[i]
+
+    def __delitem__(self, key):
+        i = self._slot(key)
+        if self.keys[i] is self.EMPTY:
+            raise KeyError(key)
+        self.keys[i] = self.EMPTY
+        self.n -= 1
+        j = (i + 1) % self.cap
+        while self.keys[j] is not self.EMPTY:      # re-insert the rest of the cluster
+            k, v = self.keys[j], self.vals[j]
+            self.keys[j] = self.EMPTY
+            self.n -= 1
+            self[k] = v
+            j = (j + 1) % self.cap
+
+import random
+random.seed(9)
+m, ref = LinearProbingMap(), {}
+for _ in range(3000):
+    k = random.randint(0, 200)
+    if random.random() < 0.6:
+        m[k] = ref[k] = random.random()
+    elif k in ref:
+        del m[k]
+        del ref[k]
+    assert m.get(k) == ref.get(k)
+assert m.n == len(ref)
+#+end_src
+
+** 5. Trees and ordered structures
+- *Binary search tree*: ordered set with O(height) operations; degenerates to a list on sorted input. *Balanced* variants guarantee O(log n): AVL (strictly balanced, faster lookups), red-black (fewer rotations; used in many standard libraries), treap (randomized priorities), skip list (probabilistic layers; easy to make concurrent).
+- *B-tree / B+ tree*: high fan-out (hundreds of keys per node) so each node fills a disk page or cache lines; height is 3 or 4 for billions of keys. B+ trees keep data in linked leaves for fast range scans. Used by nearly every relational database index and file system.
+- *Heap*: complete binary tree in an array; O(log n) insert and delete-min, O(1) peek, O(n) build. d-ary heaps (d of 4 or 8) are more cache-friendly. Priority queues drive Dijkstra, schedulers, event simulation, and top-k.
+- *Trie / radix tree*: keys decomposed by prefix; operations in O(key length), independent of n; supports prefix queries, longest-prefix match (IP routing), autocomplete.
+- *Segment tree and Fenwick (binary indexed) tree*: range queries and point updates in O(log n) (sums, minimums); essential for counters, rate limiting windows, and analytics.
+- *Interval tree, k-d tree, R-tree, quadtree*: spatial and interval queries (calendar overlaps, geographic search).
+- *Union-find (disjoint sets)*: near-constant-time connectivity; used in Kruskal's algorithm, image labeling, and network connectivity.
+
+#+begin_src python
+import heapq, random
+
+class Fenwick:
+    def __init__(self, n):
+        self.t = [0] * (n + 1)
+    def add(self, i, delta):                 # point update, 0-based index
+        i += 1
+        while i < len(self.t):
+            self.t[i] += delta
+            i += i & -i
+    def prefix(self, i):                     # sum of elements [0, i)
+        s = 0
+        while i > 0:
+            s += self.t[i]
+            i -= i & -i
+        return s
+
+random.seed(4)
+n = 50
+f, arr = Fenwick(n), [0] * n
+for _ in range(500):
+    i, d = random.randrange(n), random.randint(-5, 5)
+    f.add(i, d)
+    arr[i] += d
+    j = random.randrange(n + 1)
+    assert f.prefix(j) == sum(arr[:j])
+
+class MinHeap:
+    def __init__(self):
+        self.a = []
+    def push(self, x):
+        a = self.a
+        a.append(x)
+        i = len(a) - 1
+        while i and a[(i - 1) // 2] > a[i]:
+            a[(i - 1) // 2], a[i] = a[i], a[(i - 1) // 2]
+            i = (i - 1) // 2
+    def pop(self):
+        a = self.a
+        top, last = a[0], a.pop()
+        if a:
+            a[0] = last
+            i = 0
+            while True:
+                l, r, s = 2 * i + 1, 2 * i + 2, i
+                if l < len(a) and a[l] < a[s]: s = l
+                if r < len(a) and a[r] < a[s]: s = r
+                if s == i: break
+                a[i], a[s] = a[s], a[i]
+                i = s
+        return top
+
+h, ref = MinHeap(), []
+for _ in range(1000):
+    x = random.randint(0, 99)
+    h.push(x); heapq.heappush(ref, x)
+    if random.random() < 0.4:
+        assert h.pop() == heapq.heappop(ref)
+
+class Trie:
+    def __init__(self):
+        self.children, self.end = {}, False
+    def insert(self, word):
+        node = self
+        for ch in word:
+            node = node.children.setdefault(ch, Trie())
+        node.end = True
+    def with_prefix(self, prefix):
+        node = self
+        for ch in prefix:
+            if ch not in node.children:
+                return []
+            node = node.children[ch]
+        out = []
+        def walk(n, acc):
+            if n.end:
+                out.append(prefix + acc)
+            for c in sorted(n.children):
+                walk(n.children[c], acc + c)
+        walk(node, "")
+        return out
+
+t = Trie()
+for w in ["car", "card", "care", "cat", "dog"]:
+    t.insert(w)
+assert t.with_prefix("car") == ["car", "card", "care"] and t.with_prefix("x") == []
+#+end_src
+
+** 6. Graph representations
+| Representation          | Space      | Edge test | Iterate neighbors | Use                                   |
+|-------------------------+------------+-----------+-------------------+---------------------------------------|
+| Adjacency matrix        | O(V^2)     | O(1)      | O(V)              | Dense graphs, small V, matrix methods |
+| Adjacency list          | O(V + E)   | O(deg)    | O(deg)            | Default for sparse graphs             |
+| Edge list               | O(E)       | O(E)      | O(E)              | Sorting edges (Kruskal), streaming    |
+| Compressed sparse row (CSR) | O(V + E) | O(log deg) | O(deg), contiguous | Large static graphs; best locality |
+Implicit graphs (generate neighbors on demand, such as puzzle states, grid cells, or dependency resolution) avoid building the graph at all.
+
+** 7. Probabilistic and approximate structures
+| Structure           | Answers                                | Error                          | Space                     |
+|---------------------+----------------------------------------+--------------------------------+---------------------------|
+| Bloom filter        | Is x possibly in the set?              | False positives, no false negatives | about 1.44 log2(1/p) bits per element |
+| Counting Bloom / cuckoo filter | Same, with deletions        | False positives                | slightly more             |
+| Count-Min sketch    | Approximate frequency of x             | Overestimates, bounded         | sublinear                 |
+| HyperLogLog         | Number of distinct elements            | Relative error about 1.04 / sqrt(m) | kilobytes for billions |
+| MinHash / SimHash   | Set or document similarity             | Estimation error               | small signatures          |
+| Skip list           | Ordered set (probabilistic balance)    | none (expected costs)          | O(n) expected             |
+
+*Bloom filter math*: for m bits, k hash functions, and n inserted items, the false-positive probability is about (1 - e^(-kn/m))^k; the best k is (m/n) ln 2; to reach false-positive rate p you need m of about -n ln p / (ln 2)^2 bits. They guard expensive lookups (LSM-tree reads, cache admission, spam checks).
+
+#+begin_src python
+import math, hashlib
+
+class Bloom:
+    def __init__(self, n, p):
+        self.m = max(8, int(-n * math.log(p) / (math.log(2) ** 2)))
+        self.k = max(1, round(self.m / n * math.log(2)))
+        self.bits = bytearray((self.m + 7) // 8)
+    def _idx(self, item):
+        d = hashlib.sha256(str(item).encode()).digest()
+        h1 = int.from_bytes(d[:8], "big")
+        h2 = int.from_bytes(d[8:16], "big") | 1
+        return [(h1 + i * h2) % self.m for i in range(self.k)]    # double hashing
+    def add(self, item):
+        for i in self._idx(item):
+            self.bits[i // 8] |= 1 << (i % 8)
+    def __contains__(self, item):
+        return all(self.bits[i // 8] >> (i % 8) & 1 for i in self._idx(item))
+
+b = Bloom(10000, 0.01)
+for i in range(10000):
+    b.add(i)
+assert all(i in b for i in range(10000))                      # no false negatives
+fp = sum(1 for i in range(10000, 30000) if i in b) / 20000
+assert fp < 0.02                                               # near the 1% target
+#+end_src
+
+** 8. Persistent and immutable structures
+Immutable structures never change in place; "updating" returns a new version that shares most structure with the old one. Techniques: path copying in trees, hash array mapped tries (HAMT: Clojure and Scala maps, Haskell =Data.HashMap=), relaxed-radix-balanced vectors, finger trees, and functional queues (two stacks, amortized O(1)). Benefits: cheap snapshots, safe sharing between threads without locks, undo/history, time-travel debugging, structural sharing in UI state diffs (React-style) and in version-control object stores. Costs: more allocation, pointer chasing, and a GC or reference counting. Many databases use persistent B-trees (copy-on-write) for snapshot isolation.
+
+#+begin_src python
+class PQueue:
+    """Persistent FIFO queue: two immutable lists, amortized O(1) per operation."""
+    def __init__(self, front=(), back=()):
+        self.front, self.back = front, back          # tuples treated as immutable
+    def push(self, x):
+        return PQueue(self.front, (x,) + self.back)
+    def pop(self):
+        front, back = self.front, self.back
+        if not front:
+            front, back = tuple(reversed(back)), ()
+        if not front:
+            raise IndexError("empty")
+        return front[0], PQueue(front[1:], back)
+
+q0 = PQueue()
+q1 = q0.push(1).push(2)
+x, q2 = q1.pop()
+assert x == 1 and q1.pop()[0] == 1                  # q1 is unchanged by popping
+y, q3 = q2.pop()
+assert y == 2
+#+end_src
+
+** 9. Memory hierarchy and layout
+- Reading a cache line (typically 64 bytes) costs about the same as reading one byte. Structures that pack related data together win: arrays over linked lists, B-trees over binary trees, open addressing over chaining.
+- *Array of structs versus struct of arrays*: if a hot loop touches one field of many records, store fields in separate arrays (columnar layout); if it touches all fields of one record, keep records together. Columnar storage underlies analytical databases and Apache Arrow.
+- *False sharing*: independent variables on the same cache line, written by different cores, slow each other; pad hot per-thread counters to a cache line.
+- *Pointer compression and indices*: use 32-bit indices into arrays instead of 64-bit pointers (smaller, relocatable, serializable).
+- *Cache-oblivious layouts* (van Emde Boas layout) and *B-trees* both reduce block transfers.
+- See =11_memory-management.org= and Drepper's paper for the hardware details.
+
+** 10. Storage engines and indexes
+Databases make the data-structure trade-offs explicit:
+| Aspect              | B-tree (update in place)                      | LSM-tree (log-structured merge)                      |
+|---------------------+-----------------------------------------------+------------------------------------------------------|
+| Writes              | Random page updates; write-ahead log          | Sequential appends to a memtable and sorted runs     |
+| Reads               | One path root to leaf                         | May check several runs (Bloom filters help)          |
+| Write amplification | Moderate                                      | Higher due to compaction                             |
+| Space amplification | Lower; fragmentation within pages             | Higher until compaction                              |
+| Range scans         | Excellent (linked leaves)                     | Good after compaction                                |
+| Typical use         | Relational databases, file systems            | Write-heavy key-value stores                         |
+Related ideas: write-ahead logs for durability, copy-on-write B-trees for snapshots, columnar formats with compression for analytics, inverted indexes for text search, and secondary indexes that trade write cost for read speed.
+
+** 11. Choosing a structure
+| Workload                                         | Start with                                           |
+|--------------------------------------------------+------------------------------------------------------|
+| Mostly sequential access, append-only            | Dynamic array or ring buffer                         |
+| Lookup by key, no ordering needed                | Hash table                                           |
+| Ordered iteration, range queries, predecessor    | B-tree or balanced BST; sorted array if read-mostly  |
+| Repeated min/max extraction                      | Binary or d-ary heap                                 |
+| Prefix queries, longest-prefix match             | Trie or radix tree                                   |
+| Range sums with updates                          | Fenwick or segment tree                              |
+| Membership test, memory-limited, tolerates false positives | Bloom or cuckoo filter                     |
+| Distinct count or frequency at huge scale        | HyperLogLog, Count-Min                               |
+| Snapshots, undo, lock-free sharing               | Persistent structure                                 |
+| Cache with eviction                              | Hash map plus linked list (LRU), or CLOCK            |
+| Huge persistent data                             | B-tree or LSM-tree engine                            |
+Check each choice against: operation mix, data size relative to cache and memory, key distribution (skew and hot keys), concurrency, durability, and the worst case you can tolerate (spikes versus averages).
+
+** 12. Self-check
+1. Why can a sorted vector beat a balanced tree for 1,000 elements, and where is the crossover as writes increase?
+2. Design an LRU cache with O(1) get and put; then explain how you would make it concurrent without one global lock.
+3. A hash table of 10 million entries causes 200 ms pauses on resize. Give two fixes with their trade-offs.
+4. How many bits per element does a Bloom filter need for a 0.1% false-positive rate?
+5. Why does a B-tree use a high fan-out, and how would you pick the node size for a given storage device?
+6. Explain how structural sharing makes a persistent map's update O(log n) in time and memory.
+7. A rate limiter needs "number of requests in the last 60 seconds per user". Compare ring buffer, sorted set, and counter-bucket designs.
+
+** 13. Exercises
+- Warm-up: implement a dynamic array with a configurable growth factor and instrument copies; confirm the amortized cost.
+- Core: implement a hash table with linear probing and Robin Hood hashing; compare probe lengths at load factors 0.5, 0.8, 0.95.
+- Core: implement a binary heap, a trie, a Fenwick tree, and an LRU cache; test each against a simple oracle with randomized operations.
+- Core: implement a skip list; measure search depth against log n.
+- Stretch: implement a B-tree with insertion and deletion and verify the invariants after every operation.
+- Stretch: build a tiny LSM store (memtable, sorted runs, Bloom filters, compaction) and measure read and write amplification.
+- Stretch: implement a persistent hash trie and benchmark it against a mutable hash map.
+
+** 14. Resources
+- Morin, /Open Data Structures/ (free; interfaces, implementations, and analysis in pseudocode, Java, and C++): https://opendatastructures.org/ods-cpp.pdf
+- MIT 6.006 lecture notes (data structures, hashing, binary trees, AVL, heaps): https://ocw.mit.edu/courses/6-006-introduction-to-algorithms-spring-2020/pages/lecture-notes
+- Drepper, /What Every Programmer Should Know About Memory/ (caches, memory layout): http://people.redhat.com/drepper/cpumemory.pdf
+- Kleppmann, /Designing Data-Intensive Applications/ (storage engines, indexes, replication) and Petrov, /Database Internals/ (B-trees, LSM-trees); Okasaki, /Purely Functional Data Structures/.
+- Pierce et al., /Software Foundations/ volume 3, /Verified Functional Algorithms/, for specifying and proving data structures: https://softwarefoundations.cis.upenn.edu/
+
+** What to remember
+- Choose by workload and memory behavior; arrays first, measure before replacing.
+- Hash tables are expected O(1): use keyed hashes for untrusted input and plan for resize pauses.
+- B-trees fit the memory hierarchy; LSM-trees trade read cost for write throughput.
+- Probabilistic sketches buy huge savings with controlled error.
+- Persistent structures trade allocation for safe sharing and snapshots.

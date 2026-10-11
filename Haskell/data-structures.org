@@ -1,0 +1,232 @@
+#+title: Haskell Data Structures
+#+startup: overview
+
+* Haskell Data Structures
+Haskell's data structures are immutable and /persistent/: "modifying" one returns a new value that shares most of its structure with the old one. Mutation exists, but it is explicit and confined (section 10).
+
+** 1. Lists
+#+begin_src haskell
+[1, 2, 3]
+1 : [2, 3]                        -- cons, O(1)
+[1, 2] ++ [3, 4]                  -- append, O(length of the left list)
+xs !! 2                           -- index, O(n), partial
+length xs                         -- O(n)
+#+end_src
+
+A list is a singly linked list, defined by =data [a] = [] | a : [a]=. It is ideal for sequential processing and streaming (lists are lazy). It is a poor fit for indexing, appending at the end, or large random access.
+
+** 2. Tuples
+#+begin_src haskell
+(1, "a") :: (Int, String)
+fst (1, "a")                      -- 1
+snd (1, "a")                      -- "a"
+let (x, y, z) = (1, 2, 3)
+#+end_src
+
+=fst= and =snd= work only on pairs. Prefer a record when the fields have meaning.
+
+** 3. Algebraic data types
+A =data= declaration lists constructors. Several constructors make a /sum/ type; several fields in one constructor make a /product/ type.
+
+#+begin_src haskell
+data Shape
+  = Circle Double
+  | Rect Double Double
+  deriving (Show, Eq)
+
+area :: Shape -> Double
+area (Circle r) = pi * r * r
+area (Rect w h) = w * h
+
+data Color = Red | Green | Blue
+  deriving (Show, Eq, Ord, Enum, Bounded)
+
+[minBound .. maxBound] :: [Color]    -- [Red,Green,Blue]
+#+end_src
+
+Compile with =-Wall= (specifically =-Wincomplete-patterns=) so that adding a constructor produces warnings wherever a pattern match misses it.
+
+** 4. Records
+#+begin_src haskell
+data Person = Person
+  { name :: String
+  , age  :: Int
+  } deriving (Show, Eq)
+
+p  = Person { name = "Ada", age = 36 }
+name p                               -- "Ada"
+p' = p { age = 37 }                  -- new record; p is unchanged
+#+end_src
+
+Field names are ordinary top-level functions (=name :: Person -> String=), so two records in the same module cannot share a field name unless you enable extensions such as =DuplicateRecordFields=. =newtype= wraps one value in a distinct type with no run-time cost:
+
+#+begin_src haskell
+newtype UserId = UserId Int deriving (Show, Eq, Ord)
+#+end_src
+
+** 5. Maybe, Either, and NonEmpty
+#+begin_src haskell
+data Maybe a    = Nothing | Just a
+data Either e a = Left e | Right a
+
+import Data.List.NonEmpty (NonEmpty(..))
+import qualified Data.List.NonEmpty as NE
+
+xs :: NonEmpty Int
+xs = 1 :| [2, 3]
+NE.head xs                           -- total: a NonEmpty always has a head
+#+end_src
+
+Encode "this can be absent" or "this can fail" in the type, and "this is never empty" with =NonEmpty=, instead of relying on runtime checks.
+
+** 6. Recursive types
+#+begin_src haskell
+data Tree a = Leaf | Node (Tree a) a (Tree a)
+
+insert :: Ord a => a -> Tree a -> Tree a
+insert x Leaf = Node Leaf x Leaf
+insert x t@(Node l v r)
+  | x < v     = Node (insert x l) v r
+  | x > v     = Node l v (insert x r)
+  | otherwise = t
+
+toList :: Tree a -> [a]
+toList Leaf         = []
+toList (Node l v r) = toList l ++ [v] ++ toList r
+
+toList (foldr insert Leaf [3, 1, 2])   -- [1,2,3]
+#+end_src
+
+=insert= rebuilds only the path from the root to the new element; the rest of the tree is shared with the old one. This tree is unbalanced; use =Data.Map= / =Data.Set= for production use.
+
+Making the tree =Foldable= gives you =sum=, =length=, =elem=, =maximum=, and more:
+
+#+begin_src haskell
+instance Foldable Tree where
+  foldr _ z Leaf         = z
+  foldr f z (Node l v r) = foldr f (f v (foldr f z r)) l
+#+end_src
+
+** 7. Data.Map and Data.Set
+These live in the =containers= package, which ships with GHC.
+
+#+begin_src haskell
+import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
+import Data.List (foldl')
+
+m :: Map.Map Int String
+m = Map.fromList [(1, "a"), (2, "b")]
+
+Map.insert 3 "c" m
+Map.lookup 2 m                       -- Just "b"
+Map.findWithDefault "?" 9 m          -- "?"
+Map.member 1 m                       -- True
+Map.toList m                         -- [(1,"a"),(2,"b")]
+Map.insertWith (++) 1 "z" m          -- combines with the old value
+
+wordCount :: [String] -> Map.Map String Int
+wordCount = foldl' (\acc w -> Map.insertWith (+) w 1 acc) Map.empty
+
+Set.toList (Set.fromList [3, 1, 2, 3])   -- [1,2,3]
+Set.member 2 (Set.fromList [1, 2])       -- True
+#+end_src
+
+Both are balanced trees with O(log n) operations and sorted keys; the key type needs =Ord=. Use =Data.Map.Strict= unless you want lazy values. =Data.IntMap= is faster for =Int= keys, and =Data.HashMap.Strict= (package =unordered-containers=) is hashed.
+
+** 8. Arrays and vectors
+#+begin_src haskell
+import Data.Array
+
+a :: Array Int Char
+a = listArray (0, 2) "abc"
+
+a ! 1                                -- 'b', O(1)
+a // [(1, 'x')]                      -- new array, O(n)
+bounds a                             -- (0,2)
+#+end_src
+
+=Data.Array= (package =array=) is simple but slow to update. For serious indexed work use =Data.Vector= (package =vector=, not part of GHC's boot libraries, so add it to your cabal file):
+
+#+begin_src haskell
+import qualified Data.Vector as V
+
+v = V.fromList [1, 2, 3 :: Int]
+v V.! 1                              -- 2, O(1)
+V.map (* 2) v
+V.sum v
+#+end_src
+
+** 9. Text, ByteString, and Seq
+#+begin_src haskell
+{-# LANGUAGE OverloadedStrings #-}
+import qualified Data.Text as T
+import qualified Data.Sequence as Seq
+import Data.Sequence ((|>), (<|))
+
+T.toUpper "hello"                    -- "HELLO"
+T.splitOn "," "a,b,c"                -- ["a","b","c"]
+
+Seq.fromList [1, 2, 3] |> 4          -- O(1) append at the end
+0 <| Seq.fromList [1, 2, 3]          -- O(1) prepend
+Seq.index (Seq.fromList [1, 2, 3]) 1 -- 2, O(log n)
+#+end_src
+
+=String= is =[Char]=: convenient, but uses much memory. Use =Data.Text= for text and =Data.ByteString= for raw bytes. =Data.Sequence= is a good fit for queues and deques.
+
+** 10. Controlled mutation
+When you need in-place updates, use mutable references and arrays inside =IO= or =ST=.
+
+#+begin_src haskell
+import Data.IORef
+
+main :: IO ()
+main = do
+  r <- newIORef (0 :: Int)
+  modifyIORef' r (+ 1)
+  readIORef r >>= print              -- 1
+#+end_src
+
+The =ST= monad runs local mutation and exposes a pure interface; the type system guarantees the mutable state cannot escape:
+
+#+begin_src haskell
+import Control.Monad.ST
+import Data.STRef
+
+sumST :: [Int] -> Int
+sumST xs = runST $ do
+  ref <- newSTRef 0
+  mapM_ (\x -> modifySTRef' ref (+ x)) xs
+  readSTRef ref
+#+end_src
+
+Mutable arrays (=Data.Array.ST=, =Data.Vector.Mutable=) work the same way. Reach for these only when a profile shows a need.
+
+** 11. Foldable and Traversable
+Many structures share a common interface:
+
+#+begin_src haskell
+length (Just 3)                      -- 1
+sum (Map.fromList [(1, 10), (2, 20)])  -- 30: folds over the values
+maximum (Set.fromList [3, 1, 2])     -- 3
+traverse (\x -> if x > 0 then Just x else Nothing) [1, 2, 3]   -- Just [1,2,3]
+#+end_src
+
+=Foldable= abstracts "can be reduced to a summary" and =Traversable= abstracts "can be mapped over with effects". Writing against these classes makes functions work for lists, maps, sets, and your own types.
+
+** 12. Choose the structure for the job
+| Need                                  | Common choice                         |
+|---------------------------------------+---------------------------------------|
+| Sequence processed in order, streamed | List                                  |
+| Indexed sequence                      | =Data.Vector=                         |
+| Key-value lookup                      | =Data.Map= (or =Data.IntMap=)         |
+| Set of unique values                  | =Data.Set=                            |
+| Queue / deque                         | =Data.Sequence=                       |
+| Text                                  | =Data.Text=                           |
+| Fixed named fields                    | Record (=data= with fields)           |
+| One of several shapes                 | =data= with several constructors      |
+| Maybe absent / maybe failed           | =Maybe= / =Either e=                  |
+| Distinct type around a primitive      | =newtype=                             |
+| In-place mutation                     | =IORef=, =STRef=, mutable vectors     |
+
+Start with lists, =data=, =Maybe=, and =Data.Map=. Add vectors, text, and mutation when the problem calls for them.

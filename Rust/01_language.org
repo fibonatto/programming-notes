@@ -1,0 +1,246 @@
+#+title: Rust Language Reference
+#+startup: overview
+
+* Rust Language Reference
+** 1. Editions and release channels
+Rust is released every six weeks on the *stable* channel; *beta* and *nightly* come before it. Language changes that could break old code arrive in /editions/, chosen per crate in =Cargo.toml=:
+
+#+begin_src toml
+[package]
+name = "demo"
+version = "0.1.0"
+edition = "2021"
+#+end_src
+
+| Edition | Notes                                                                                                                  |
+|---------+------------------------------------------------------------------------------------------------------------------------|
+|    2015 | The original                                                                                                           |
+|    2018 | New module paths, =async=, =dyn= required                                                                              |
+|    2021 | Disjoint closure captures, array =IntoIterator=, new prelude items                                                     |
+|    2024 | Stable since Rust 1.85: =unsafe= tightened (see =13_unsafe-and-ffi.org=), new temporary and =impl Trait= capture rules |
+
+Crates in different editions interoperate; =cargo fix --edition= migrates code. New projects should use the newest stable edition.
+
+** 2. Expressions and statements
+Rust is expression-oriented. A block evaluates to its last expression; a semicolon turns an expression into a statement whose value is =()=.
+
+#+begin_src rust
+let x = {
+    let a = 2;
+    a * 3            // no semicolon: the block's value is 6
+};
+
+let label = if x > 5 { "big" } else { "small" };     // if is an expression
+let n = match label { "big" => 1, _ => 0 };          // so is match
+let v = loop { break 42; };                          // loop can return a value with break
+#+end_src
+
+Both arms of an =if= must have the same type. Without an =else=, an =if= has type =()=. The commonest beginner error ("expected =i32=, found =()=") is a stray semicolon on the last line of a function.
+
+** 3. Bindings, mutability, and shadowing
+#+begin_src rust
+let x = 5;            // immutable
+let mut y = 5;        // mutable
+y += 1;
+
+let x = x * 2;        // shadowing: a new variable with the same name (may change type)
+let x = x.to_string();
+
+let (a, b) = (1, 2);                      // destructuring
+let Point { x: px, y: py } = point;       // destructuring a struct
+let [first, .., last] = [1, 2, 3, 4];     // array pattern
+
+let Some(v) = opt else { return; };       // let-else: diverge when the pattern fails
+let _ = f();                              // evaluate and discard
+let _unused = 5;                          // leading underscore silences the unused warning
+
+const MAX: u32 = 100;                     // compile-time constant, inlined, type required
+static NAME: &str = "app";                // one fixed memory location, 'static lifetime
+#+end_src
+
+Immutability is the default, and the compiler tells you when =mut= is unnecessary. Use =const= for values and =static= when you need an address or interior state (=AtomicUsize=, =OnceLock=). Avoid =static mut=.
+
+** 4. Control flow
+#+begin_src rust
+if n < 0 { } else if n == 0 { } else { }
+
+while n > 0 { n -= 1; }
+for i in 0..5 { }                // 0 to 4
+for i in (0..5).rev() { }        // 4 down to 0
+for (i, x) in v.iter().enumerate() { }
+
+'outer: for i in 0..10 {         // labels: break or continue an outer loop
+    for j in 0..10 {
+        if i * j > 20 { break 'outer; }
+    }
+}
+
+while let Some(top) = stack.pop() { }     // loop while the pattern matches
+if let Some(x) = opt { }
+#+end_src
+
+There are no parentheses around conditions and no truthiness: a condition must be a =bool=. =for= works over anything implementing =IntoIterator= (see =07_iterators.org=).
+
+** 5. Pattern matching
+=match= tests a value against patterns in order and must be exhaustive.
+
+#+begin_src rust
+match n {
+    0 => "zero",
+    1 | 2 => "one or two",
+    3..=9 => "small",
+    x if x < 0 => "negative",        // guard
+    _ => "large",
+}
+
+match msg {
+    Message::Move { x, y } => println!("{x},{y}"),
+    Message::Write(text) => println!("{text}"),
+    Message::Quit => {}
+}
+
+match pair {
+    (0, y) => println!("on the y axis at {y}"),
+    (x, 0) => println!("on the x axis at {x}"),
+    _ => {}
+}
+
+match n { v @ 1..=5 => println!("small {v}"), _ => {} }   // bind while testing
+#+end_src
+
+#+begin_src rust
+match slice {
+    [] => "empty",
+    [x] => "one",
+    [first, .., last] => "many",
+}
+#+end_src
+
+- Patterns can destructure tuples, structs, enums, references, slices, and nest freely.
+- A pattern that cannot fail (irrefutable) is allowed in =let= and function parameters; refutable ones need =match=, =if let=, =let else=, or =while let=.
+- By default a pattern binding moves or copies the matched value; match on a reference (=match &x=, or =match x= where =x: &T=) to bind references.
+- Adding an enum variant turns every non-exhaustive =match= into a compile error; avoid =_= arms on your own enums if you want that protection.
+
+** 6. Operators
+Precedence, tightest first: method calls and field access; =?=; unary =-= =!= =*= =&=; =as=; =*= =/= =%=; =+= =-=; =<<= =>>=; =&=; =^=; a bar for bitwise OR; comparisons (non-associative: =a < b < c= is an error); =&&=; two bars for logical OR; ranges =..= =..=; assignment (right to left).
+
+- No =++= or =--=; write =x += 1=.
+- No implicit numeric conversions: use =as=, =From=/=Into=, or =TryFrom= (see =02_types.org=).
+- =&&= and the logical OR short-circuit.
+- Comparison operators work through the =PartialEq= / =PartialOrd= traits; arithmetic operators through =std::ops= traits, so they can be implemented for your types (see =06_traits-and-generics.org=).
+- Comparing a =&T= with a =T= does not compile; dereference or reference explicitly.
+- Evaluation order within an expression is left to right (unlike C).
+
+** 7. Items
+At module level you declare /items/: =fn=, =struct=, =enum=, =trait=, =impl=, =const=, =static=, =type=, =use=, =mod=, and macros. Items may appear in any order; a function can be used before its definition.
+
+#+begin_src rust
+type Grid = Vec<Vec<u8>>;                 // alias, not a new type
+
+struct Meters(f64);                       // tuple struct (a new type)
+struct Unit;                              // unit struct
+
+impl Meters {
+    const ZERO: Meters = Meters(0.0);     // associated constant
+    fn new(v: f64) -> Self { Meters(v) }
+}
+#+end_src
+
+** 8. Comments and documentation
+#+begin_src rust
+// line comment
+/* block comment, nestable */
+
+/// Documentation for the item that follows (Markdown).
+///
+/// ```
+/// assert_eq!(demo::add(1, 2), 3);   // runs as a doc test
+/// ```
+pub fn add(a: i32, b: i32) -> i32 { a + b }
+
+//! Documentation for the enclosing module or crate (at the top of the file).
+#+end_src
+
+=cargo doc --open= builds the HTML documentation and =cargo test= runs the code blocks in doc comments.
+
+** 9. Attributes
+#+begin_src rust
+#[derive(Debug, Clone, PartialEq)]       // generate trait impls
+#[allow(dead_code)]                      // silence one lint on one item
+#[inline]                                // hint to inline
+#[must_use]                              // warn if the result is ignored
+#[cfg(target_os = "linux")]              // conditional compilation (see 10_modules.org)
+#[test]                                  // mark a test function
+
+#![deny(unsafe_code)]                    // inner attribute: applies to the whole crate
+#![warn(missing_docs)]
+#+end_src
+
+Lints fall into =allow=, =warn=, =deny=, and =forbid=. Clippy adds many more (see =14_toolchain.org=).
+
+** 10. main, panics, and exit codes
+#+begin_src rust
+fn main() {
+    println!("hello");
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let n: i32 = "42".parse()?;           // an Err here is printed and the exit code is 1
+    println!("{n}");
+    Ok(())
+}
+
+use std::process::ExitCode;
+fn main() -> ExitCode {
+    if run().is_err() { return ExitCode::FAILURE; }
+    ExitCode::SUCCESS
+}
+#+end_src
+
+A /panic/ (=panic!=, =unwrap= on =None=, array index out of bounds, integer overflow in debug builds, division by zero) unwinds the stack, running destructors, then ends the thread; in the main thread it ends the program with exit code 101. A project can set =panic = "abort"= in its profile for smaller binaries. Panics are for bugs; recoverable errors use =Result= (see =08_io-and-errors.org=). =std::process::exit(code)= ends immediately without running destructors.
+
+** 11. Reading compiler errors
+Rust's errors are long on purpose: they show the code, the reason, and often a fix.
+
+| Code   | Meaning                                              | Typical fix                              |
+|--------+------------------------------------------------------+------------------------------------------|
+| E0382  | Use of a moved value                                 | Borrow, clone, or restructure ownership  |
+| E0499  | Two mutable borrows alive at once                    | Shorten the first borrow                 |
+| E0502  | Mutable borrow while a shared borrow is alive        | Finish reading before mutating           |
+| E0505  | Move out while borrowed                              | End the borrow first                     |
+| E0308  | Mismatched types                                     | Convert, or fix a stray semicolon        |
+| E0106  | Missing lifetime specifier                           | Annotate, or return an owned value       |
+| E0277  | Trait bound not satisfied                            | Implement or derive the trait            |
+| E0597  | Borrowed value does not live long enough             | Move the value to a longer scope         |
+
+#+begin_src sh
+rustc --explain E0382        # a full explanation with examples
+cargo check                  # type-check quickly while you iterate
+#+end_src
+
+Fix the first error first; later ones are often consequences.
+
+** 12. A map for C programmers
+| In C                                   | In Rust                                              |
+|----------------------------------------+------------------------------------------------------|
+| =malloc= / =free=                      | =Box::new= and ownership; =Drop= frees automatically |
+| =NULL=                                 | =Option<T>= (no null references)                     |
+| =errno= / return codes                 | =Result<T, E>= and =?=                               |
+| =goto cleanup=                         | =Drop= (RAII) and early =return= / =?=               |
+| =void *= plus casts                    | Generics and trait objects                           |
+| Function pointer + =void *ctx=         | Closures (=Fn=, =FnMut=, =FnOnce=)                   |
+| Tagged union                           | =enum= with data                                     |
+| Header files, =#include=               | Modules and =use=                                    |
+| Macros, =#ifdef=                       | =macro_rules!=, =#[cfg]=, generics                   |
+| Undefined behavior everywhere          | Only inside =unsafe= (and then it is yours)          |
+| Pointer + length                       | Slice =&[T]=, bounds checked                         |
+| =static inline= helper                 | A generic or =#[inline]= function                    |
+| Threads and mutexes                    | =std::thread=, =Mutex<T>= owning its data, =Send=/=Sync= |
+
+** What to remember
+- Expressions all the way down: blocks, =if=, =match=, and =loop= produce values.
+- Bindings are immutable by default; shadowing is a new variable.
+- =match= is exhaustive; patterns destructure anything.
+- No implicit numeric conversions, no truthiness, no =++=.
+- Panics are for bugs, =Result= for failures.
+- Read the first compiler error, and use =rustc --explain=.

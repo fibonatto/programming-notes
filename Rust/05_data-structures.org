@@ -1,0 +1,202 @@
+#+title: Rust Data Structures
+#+startup: overview
+
+* Rust Data Structures
+** 1. Arrays, slices, and Vec
+#+begin_src rust
+let a: [i32; 3] = [1, 2, 3];       // fixed length, stored inline
+let zeros = [0u8; 4];              // [0, 0, 0, 0]
+
+let mut v = vec![1, 2, 3];         // Vec<i32>: growable, heap-allocated
+v.push(4);
+v.pop();                           // Some(4)
+
+let s: &[i32] = &v[1..];           // slice: a borrowed view (pointer + length)
+v.len();
+v.get(10);                         // None: checked access
+// v[10]                           // panics: out of bounds
+#+end_src
+
+Indexing is bounds-checked and panics on failure; use =get= when the index may be invalid. Take =&[T]= in function parameters so callers can pass an array, a =Vec=, or a sub-slice.
+
+** 2. Tuples
+#+begin_src rust
+let t = (1, "a", 2.5);
+t.0;                               // 1
+let (x, y, z) = t;
+
+struct Meters(f64);                // tuple struct
+let m = Meters(3.0);
+m.0;
+#+end_src
+
+A one-field tuple struct is the /newtype pattern/: a distinct type with the same representation, used to prevent mixing up units or IDs.
+
+** 3. Structs
+#+begin_src rust
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Point {
+    x: f64,
+    y: f64,
+}
+
+let p = Point { x: 1.0, y: 2.0 };
+let q = Point { x: 5.0, ..p };     // struct update: remaining fields from p
+println!("{:?}", q);
+
+struct Marker;                     // unit struct: no data
+#+end_src
+
+Fields are private to the module by default; mark them =pub= to expose them. A struct does not implement =Debug=, =Clone=, =PartialEq=, or =Default= unless you derive or implement them. =Copy= requires every field to be =Copy=.
+
+** 4. Enums
+Each variant may carry its own data, so an enum is a sum type.
+
+#+begin_src rust
+enum Shape {
+    Circle { r: f64 },
+    Rect { w: f64, h: f64 },
+    Point,
+}
+
+fn area(s: &Shape) -> f64 {
+    match s {
+        Shape::Circle { r } => std::f64::consts::PI * r * r,
+        Shape::Rect { w, h } => w * h,
+        Shape::Point => 0.0,
+    }
+}
+#+end_src
+
+=match= must cover every variant, so adding a variant makes every incomplete =match= a compile error. The standard library's =Option<T>= and =Result<T, E>= are ordinary enums.
+
+** 5. Strings
+| Type        | Owns data | Notes                                              |
+|-------------+-----------+----------------------------------------------------|
+| =String=    | yes       | growable UTF-8                                     |
+| =&str=      | no        | borrowed UTF-8 slice; string literals are =&'static str= |
+| =Vec<u8>=   | yes       | raw bytes                                          |
+| =&[u8]=     | no        | borrowed bytes                                     |
+| =PathBuf=, =&Path= | yes / no | file paths (not always valid UTF-8)         |
+| =char=      | n/a       | one Unicode scalar value, 4 bytes                  |
+
+#+begin_src rust
+let mut s = String::from("héllo");
+s.push_str(" world");
+s.len();                    // bytes
+s.chars().count();          // characters
+#+end_src
+
+Strings cannot be indexed by integer; slice by byte range (=&s[0..2]=, which panics off a character boundary) or iterate with =chars()=.
+
+** 6. HashMap, HashSet, BTreeMap
+#+begin_src rust
+use std::collections::{HashMap, HashSet, BTreeMap};
+
+let mut counts: HashMap<&str, usize> = HashMap::new();
+for w in ["a", "b", "a"] {
+    *counts.entry(w).or_insert(0) += 1;
+}
+counts.get("a");                       // Some(&2)
+counts.contains_key("z");              // false
+
+let mut seen = HashSet::new();
+seen.insert(3);
+
+let mut sorted = BTreeMap::new();      // sorted by key
+sorted.insert(2, "b");
+sorted.insert(1, "a");
+#+end_src
+
+A key type needs =Eq= and =Hash= for =HashMap=, and =Ord= for =BTreeMap=. Iteration order of a =HashMap= is not specified and can differ between runs. Floats are not =Eq= or =Ord= because of NaN.
+
+#+begin_src rust
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct Id(u32);
+#+end_src
+
+** 7. Other collections
+| Type             | Use                                                       |
+|------------------+-----------------------------------------------------------|
+| =VecDeque<T>=    | Double-ended queue (ring buffer)                          |
+| =BinaryHeap<T>=  | Priority queue; largest element first                     |
+| =BTreeSet<T>=    | Sorted set                                                |
+| =LinkedList<T>=  | Doubly linked list; rarely the right choice               |
+
+** 8. Recursive types need indirection
+A type cannot contain itself directly because its size would be infinite. Put the recursive part behind a pointer such as =Box=.
+
+#+begin_src rust
+enum List {
+    Cons(i32, Box<List>),
+    Nil,
+}
+
+let l = List::Cons(1, Box::new(List::Cons(2, Box::new(List::Nil))));
+
+enum Tree {
+    Leaf,
+    Node(Box<Tree>, i32, Box<Tree>),
+}
+
+fn sum(t: &Tree) -> i32 {
+    match t {
+        Tree::Leaf => 0,
+        Tree::Node(l, v, r) => sum(l) + v + sum(r),
+    }
+}
+
+struct Node {
+    value: i32,
+    next: Option<Box<Node>>,       // singly linked list
+}
+#+end_src
+
+** 9. Shared ownership and graphs
+Ownership forms a tree. Data that must have several owners or cycles needs reference counting, or indices:
+
+#+begin_src rust
+use std::rc::Rc;
+use std::cell::RefCell;
+
+let shared = Rc::new(RefCell::new(vec![1, 2]));
+let other = Rc::clone(&shared);
+other.borrow_mut().push(3);               // checked at run time
+#+end_src
+
+For graphs, a simpler and faster approach is usually to store nodes in a =Vec= and refer to them by index:
+
+#+begin_src rust
+struct Graph {
+    nodes: Vec<NodeData>,
+    edges: Vec<Vec<usize>>,                // edges[i] lists neighbours of node i
+}
+#+end_src
+
+Cycles of =Rc= leak; break them with =Weak=.
+
+** 10. Deriving and standard traits
+#+begin_src rust
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+struct Version { major: u32, minor: u32 }
+#+end_src
+
+=Debug= enables ={:?}=; =Clone= enables =.clone()=; =PartialEq= / =Eq= enable ~==~; =Hash= and =Ord= allow use as map keys; =Default= gives =Version::default()=. Derived =Ord= compares fields in declaration order.
+
+** 11. Choose the structure for the job
+| Need                                  | Common choice                         |
+|---------------------------------------+---------------------------------------|
+| Fixed-size sequence                   | =[T; N]=                              |
+| Growable sequence (default)           | =Vec<T>=                              |
+| Borrowed view of a sequence           | =&[T]=                                |
+| Key-value lookup                      | =HashMap<K, V>=                       |
+| Sorted keys                           | =BTreeMap<K, V>=                      |
+| Fixed named fields                    | =struct=                              |
+| One of several shapes                 | =enum=                                |
+| Maybe absent / maybe failed           | =Option<T>= / =Result<T, E>=          |
+| Distinct type around a primitive      | Newtype =struct Meters(f64)=          |
+| Recursive structure                   | =Box<T>= in an enum or struct         |
+| Shared ownership                      | =Rc<T>= / =Arc<T>=                    |
+| Graph                                 | =Vec= of nodes plus indices           |
+
+Start with =struct=, =enum=, =Vec=, and =HashMap=. Add the rest when the problem calls for it.

@@ -1,0 +1,322 @@
+#+title: Learn Rust
+#+startup: overview
+
+* Learn Rust
+** 1. Cargo and a first program
+#+begin_src sh
+cargo new hello
+cd hello
+cargo run          # build and run
+cargo build --release
+cargo check        # type-check without producing a binary
+cargo test
+cargo clippy       # lints
+cargo fmt
+#+end_src
+
+#+begin_src rust
+fn main() {
+    println!("hello");
+}
+#+end_src
+
+=println!= is a macro (the =!= marks it). Its format string is checked at compile time.
+
+** 2. Bindings and mutability
+#+begin_src rust
+let x = 5;          // immutable
+let mut y = 5;      // mutable
+y += 1;
+
+let x = x * 2;      // shadowing: a new binding that reuses the name
+let x = "now a string";
+
+const MAX: u32 = 100;       // compile-time constant, type required
+static GREETING: &str = "hi";
+#+end_src
+
+Bindings are immutable by default. Shadowing creates a new variable, so the type may change; =mut= changes the value of the same variable.
+
+** 3. Types
+#+begin_src rust
+let a: i32 = -1;
+let b: u8 = 255;
+let c: usize = 10;           // pointer-sized; used for indexing
+let d: f64 = 3.14;
+let e: bool = true;
+let f: char = 'z';           // a Unicode scalar value, 4 bytes
+let t: (i32, &str) = (1, "a");
+let arr: [i32; 3] = [1, 2, 3];
+let slice: &[i32] = &arr[0..2];
+let unit: () = ();
+#+end_src
+
+- Integers: =i8..i128=, =u8..u128=, =isize=, =usize=. Default integer type is =i32=, float is =f64=.
+- Arithmetic overflow panics in debug builds and wraps in release builds by default. Use =checked_add=, =wrapping_add=, =saturating_add= to state the intent.
+- There are no implicit numeric conversions. Write =x as u64= or =u64::from(x)= / =u8::try_from(x)=.
+
+** 4. Functions and expressions
+#+begin_src rust
+fn square(x: i32) -> i32 {
+    x * x              // no semicolon: this is the returned expression
+}
+
+fn early(x: i32) -> i32 {
+    if x < 0 {
+        return 0;
+    }
+    x
+}
+#+end_src
+
+Almost everything is an expression. Adding a semicolon turns an expression into a statement whose value is =()=, which is a common cause of "expected =i32=, found =()=" errors.
+
+** 5. Control flow
+#+begin_src rust
+let label = if n > 0 { "pos" } else { "non-pos" };   // if is an expression
+
+loop {                       // infinite loop; break can return a value
+    break;
+}
+while n > 0 { n -= 1; }
+
+for i in 0..5 { }            // 0,1,2,3,4
+for i in 0..=5 { }           // 0..5 inclusive
+for x in &v { }              // iterate by reference
+#+end_src
+
+Conditions must be =bool=; there is no truthiness.
+
+** 6. Ownership
+Every value has one owner. When the owner goes out of scope, the value is dropped.
+
+#+begin_src rust
+let s1 = String::from("hi");
+let s2 = s1;                 // ownership moves to s2
+// println!("{s1}");         // error: s1 was moved
+
+let s3 = s2.clone();         // explicit deep copy
+#+end_src
+
+Types that are plain bit-copies implement =Copy= (integers, floats, =bool=, =char=, tuples and arrays of =Copy= types), so assignment copies instead of moving. Passing a value to a function moves it, unless it is =Copy=.
+
+#+begin_src rust
+fn consume(s: String) { }    // takes ownership
+consume(s3);
+// s3 is no longer usable here
+#+end_src
+
+** 7. Borrowing
+A reference borrows a value without taking ownership.
+
+#+begin_src rust
+fn len(s: &String) -> usize { s.len() }        // shared (read-only) borrow
+fn push(s: &mut String) { s.push('!'); }       // exclusive (mutable) borrow
+
+let mut s = String::from("hi");
+push(&mut s);
+let n = len(&s);
+#+end_src
+
+At any moment a value may have either *any number of shared references* or *exactly one mutable reference*, never both. A reference may not outlive the value it points to. This rules out data races and use-after-free at compile time.
+
+#+begin_src rust
+let r1 = &s;
+let r2 = &mut s;      // error if r1 is used afterwards
+println!("{r1}");
+#+end_src
+
+Borrows end at their last use (non-lexical lifetimes), not at the end of the block.
+
+** 8. Lifetimes
+Lifetime annotations describe how the lifetimes of references relate. They do not change how long anything lives.
+
+#+begin_src rust
+fn longest<'a>(a: &'a str, b: &'a str) -> &'a str {
+    if a.len() >= b.len() { a } else { b }
+}
+#+end_src
+
+The result cannot outlive either input. Most signatures need no annotation because of elision rules. Structs holding references need them:
+
+#+begin_src rust
+struct Parser<'a> {
+    input: &'a str,
+}
+#+end_src
+
+** 9. Structs, enums, and impl
+#+begin_src rust
+#[derive(Debug, Clone, PartialEq)]
+struct Point {
+    x: f64,
+    y: f64,
+}
+
+impl Point {
+    fn new(x: f64, y: f64) -> Self { Point { x, y } }
+    fn norm(&self) -> f64 { (self.x * self.x + self.y * self.y).sqrt() }
+    fn scale(&mut self, k: f64) { self.x *= k; self.y *= k; }
+}
+
+let mut p = Point::new(3.0, 4.0);
+p.scale(2.0);
+println!("{:?}", p);
+#+end_src
+
+Enums carry data per variant (they are sum types):
+
+#+begin_src rust
+enum Shape {
+    Circle { r: f64 },
+    Rect { w: f64, h: f64 },
+    Unit,
+}
+#+end_src
+
+** 10. Pattern matching
+=match= must be exhaustive.
+
+#+begin_src rust
+fn area(s: &Shape) -> f64 {
+    match s {
+        Shape::Circle { r } => std::f64::consts::PI * r * r,
+        Shape::Rect { w, h } => w * h,
+        Shape::Unit => 1.0,
+    }
+}
+
+match n {
+    0 => "zero",
+    1..=9 => "small",
+    x if x < 0 => "negative",
+    _ => "large",
+};
+
+if let Some(v) = opt { /* use v */ }
+let Some(v) = opt else { return; };      // let-else
+#+end_src
+
+** 11. Option and Result
+There is no null and no exceptions. Absence and failure are values.
+
+#+begin_src rust
+enum Option<T> { Some(T), None }
+enum Result<T, E> { Ok(T), Err(E) }
+#+end_src
+
+#+begin_src rust
+use std::num::ParseIntError;
+
+fn parse(s: &str) -> Result<i32, ParseIntError> {
+    let n: i32 = s.trim().parse()?;      // ? returns early on Err
+    Ok(n * 2)
+}
+
+let v = parse("21")?;                    // only inside a function returning Result
+let n = opt.unwrap_or(0);
+let m = opt.map(|x| x + 1);
+#+end_src
+
+=unwrap()= and =expect("msg")= panic on =None= / =Err=. Reserve them for tests, prototypes, and cases where failure is a bug.
+
+** 12. Traits and generics
+#+begin_src rust
+trait Area {
+    fn area(&self) -> f64;
+    fn describe(&self) -> String {              // default method
+        format!("area = {}", self.area())
+    }
+}
+
+impl Area for Point { fn area(&self) -> f64 { 0.0 } }
+
+fn total<T: Area>(items: &[T]) -> f64 {
+    items.iter().map(|i| i.area()).sum()
+}
+
+fn show(x: &impl std::fmt::Display) { println!("{x}"); }
+#+end_src
+
+Generics are monomorphized (one specialized copy per type, no runtime cost). For runtime polymorphism use trait objects: =Box<dyn Area>= or =&dyn Area=.
+
+** 13. Collections and iterators
+#+begin_src rust
+let mut v = vec![3, 1, 2];
+v.push(4);
+v.sort();
+
+use std::collections::HashMap;
+let mut m: HashMap<String, i32> = HashMap::new();
+m.insert("a".to_string(), 1);
+*m.entry("a".to_string()).or_insert(0) += 1;
+if let Some(n) = m.get("a") { }
+
+let squares: Vec<i32> = v.iter().map(|x| x * x).collect();
+let evens: Vec<&i32> = v.iter().filter(|x| **x % 2 == 0).collect();
+let sum: i32 = v.iter().sum();
+#+end_src
+
+Iterators are lazy; nothing runs until a consumer such as =collect=, =sum=, or a =for= loop. =iter()= yields references, =iter_mut()= mutable references, =into_iter()= takes ownership.
+
+** 14. Strings
+#+begin_src rust
+let s: &str = "hello";               // borrowed, UTF-8 string slice
+let mut owned = String::from("hello");
+owned.push_str(" world");
+let t = format!("{owned}!");
+
+&owned[0..5];                         // byte range; panics if not on a char boundary
+owned.chars().count();                // number of Unicode scalar values
+owned.len();                          // number of bytes
+#+end_src
+
+Strings are UTF-8, so they are not indexable by integer. Take =&str= in parameters; own a =String= when you need to store or modify.
+
+** 15. Smart pointers and interior mutability
+#+begin_src rust
+let b = Box::new(5);                          // heap allocation, single owner
+
+use std::rc::Rc;
+use std::cell::RefCell;
+let shared = Rc::new(RefCell::new(vec![1]));  // single-threaded shared ownership
+shared.borrow_mut().push(2);                  // borrow rules checked at run time
+
+use std::sync::{Arc, Mutex};
+let counter = Arc::new(Mutex::new(0));        // thread-safe version
+*counter.lock().unwrap() += 1;
+#+end_src
+
+=Rc= / =Arc= use reference counting. =RefCell= panics if you violate the borrow rules at run time. =Rc= is not =Send=, so the compiler rejects it across threads.
+
+** 16. Modules and crates
+#+begin_src rust
+mod geometry {
+    pub struct Point { pub x: f64, pub y: f64 }
+    pub fn origin() -> Point { Point { x: 0.0, y: 0.0 } }
+}
+
+use geometry::origin;
+#+end_src
+
+Items are private by default; =pub= exposes them. A file =foo.rs= declared with =mod foo;= becomes a module. Dependencies go in =Cargo.toml=.
+
+** 17. unsafe
+=unsafe= unlocks a small set of operations the compiler cannot verify: dereferencing raw pointers, calling unsafe functions (including FFI), accessing mutable statics, and implementing unsafe traits.
+
+#+begin_src rust
+let x = 5;
+let p = &x as *const i32;
+let v = unsafe { *p };
+#+end_src
+
+It does not turn off the borrow checker; it shifts the proof obligation to you. Keep unsafe blocks small and wrap them in a safe API.
+
+** What to remember
+- Immutable by default; =mut= is explicit.
+- One owner per value; assignment and function calls move unless the type is =Copy=.
+- Many readers or one writer, never both, and references cannot outlive their referent.
+- No null, no exceptions: use =Option= and =Result= with =?=.
+- =match= is exhaustive; enums carry data.
+- Iterators are lazy and compile to tight loops.
+- Run =cargo clippy= and read the compiler errors; they are usually precise.

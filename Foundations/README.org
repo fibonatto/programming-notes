@@ -1,0 +1,449 @@
+#+title: Foundations of Computer Science for Staff-Level Engineering
+#+startup: overview
+
+* Foundations of Computer Science for Staff-Level Engineering
+Twelve files that cover the theory and systems fundamentals behind senior engineering decisions, plus this guide. Follow links with =C-c C-o= (cursor on the link) and return with =C-c &=.
+
+** Scope and expectations
+- *What these notes are*: a technical-foundations curriculum: mathematics, algorithms and data structures, computability and complexity, programming-language theory, memory, concurrency and distributed systems, and data representation. Each file states the Staff-level use of its topic, explains the ideas, runs the code, and ends with self-checks, exercises, and sources.
+- *What they are not*: a promotion plan. Staff-level work is mostly a matter of scope, judgment, influence, and writing, which these files do not teach. The StaffEng project describes how the role works, including the common archetypes (Tech Lead, Architect, Solver, Right Hand): [[https://staffeng.com/guides/][staffeng.com/guides]] and [[https://staffeng.com/book][the book]]. Strong foundations make your decisions better and your arguments defensible; they do not replace the rest.
+- *Calibrating depth*: the goal is to explain, apply, and critique each topic, to know where the sharp edges are, and to know which primary source to open next. It is not to memorize results.
+
+** How to use these files
+1. Read in the order below. Earlier files give vocabulary the later ones assume.
+2. Work through each file in four passes: read, run the code, do the exercises, answer the self-check questions without notes.
+3. Keep an engineering notebook: for each file, write a one-page summary in your own words and one real example from your work where the topic mattered (an incident, a design choice, a review comment).
+4. Use the capstone projects (below) to integrate several files; they are the best evidence that you can apply the material.
+5. Read the primary sources listed in each file for at least one topic per file. The notes summarize; the sources are the authority.
+
+** Setup
+*** Naming
+The files are meant to carry a numeric prefix so they sort in reading order. If they still have their original names, run this once from the Foundations directory:
+
+#+begin_src sh
+mv discrete-mathematics.org 01_discrete-mathematics.org
+mv logic-and-proofs.org 02_logic-and-proofs.org
+mv data-representation.org 03_data-representation.org
+mv complexity.org 04_complexity.org
+mv data-structures.org 05_data-structures.org
+mv algorithms.org 06_algorithms.org
+mv theory-of-computation.org 07_theory-of-computation.org
+mv paradigms.org 08_paradigms.org
+mv functional-programming.org 09_functional-programming.org
+mv type-systems.org 10_type-systems.org
+mv memory-management.org 11_memory-management.org
+mv concurrency.org 12_concurrency.org
+
+# update the textual cross-references inside the files (complexity.org becomes 04_complexity.org)
+perl -pi -e 'BEGIN { %n = ("discrete-mathematics"=>"01_discrete-mathematics", "logic-and-proofs"=>"02_logic-and-proofs", "data-representation"=>"03_data-representation", complexity=>"04_complexity", "data-structures"=>"05_data-structures", algorithms=>"06_algorithms", "theory-of-computation"=>"07_theory-of-computation", paradigms=>"08_paradigms", "functional-programming"=>"09_functional-programming", "type-systems"=>"10_type-systems", "memory-management"=>"11_memory-management", concurrency=>"12_concurrency") } s/(?<![\w-])([a-z-]+)\.org/exists $n{$1} ? "$n{$1}.org" : "$1.org"/ge' [0-9][0-9]_*.org
+#+end_src
+
+The perl command rewrites only names that have no prefix yet, so running it twice does no harm. The glob =[0-9][0-9]_*.org= leaves this README untouched.
+
+*** Running the code blocks
+The Python blocks are self-contained and end in assertions: a block that finishes silently has passed. They were run on Python 3.12. The C block in the memory file was compiled with GCC. The Lean snippets and the =text= blocks (pseudocode, Haskell) are illustrative and were not executed here; check the Lean ones in your own installation.
+
+#+begin_src sh
+# add to your shell config: run every Python block of an org file, reporting failures
+orgpy() {
+    python3 - "$1" <<'PY'
+import re, subprocess, sys, tempfile, os
+text = open(sys.argv[1]).read()
+blocks = re.findall(r'#\+begin_src python\n(.*?)#\+end_src', text, re.S)
+bad = 0
+for i, code in enumerate(blocks, 1):
+    with tempfile.NamedTemporaryFile('w', suffix='.py', delete=False) as t:
+        t.write(code)
+    r = subprocess.run([sys.executable, t.name], capture_output=True, text=True, timeout=120)
+    os.unlink(t.name)
+    if r.returncode:
+        bad += 1
+        print(f'block {i} FAILED:\n{r.stderr}')
+print(f'{len(blocks)} python blocks, {bad} failed')
+PY
+}
+
+orgpy 06_algorithms.org
+#+end_src
+
+To experiment, copy a block into a scratch file and modify it: break the invariant, change the input, add a timer. Modifying code is where the understanding happens.
+
+** Progress [0/12]
+- [ ] [[file:01_discrete-mathematics.org][01_discrete-mathematics]]
+- [ ] [[file:02_logic-and-proofs.org][02_logic-and-proofs]]
+- [ ] [[file:03_data-representation.org][03_data-representation]]
+- [ ] [[file:04_complexity.org][04_complexity]]
+- [ ] [[file:05_data-structures.org][05_data-structures]]
+- [ ] [[file:06_algorithms.org][06_algorithms]]
+- [ ] [[file:07_theory-of-computation.org][07_theory-of-computation]]
+- [ ] [[file:08_paradigms.org][08_paradigms]]
+- [ ] [[file:09_functional-programming.org][09_functional-programming]]
+- [ ] [[file:10_type-systems.org][10_type-systems]]
+- [ ] [[file:11_memory-management.org][11_memory-management]]
+- [ ] [[file:12_concurrency.org][12_concurrency]]
+
+** Reading order and rationale
+The order follows dependencies and moves from abstract tools to machine realities:
+- *Mathematical core (01, 02)*: counting, probability, number theory, graphs, logic, and proof. Everything quantitative or rigorous later uses them.
+- *Representation first (03)*: bits, numbers, text, and encodings make the machine concrete early and feed hashing, layout, and cost.
+- *Analysis and structures (04, 05, 06)*: cost models, data structures, then algorithms that use them.
+- *Limits of computation (07)*: what cannot be computed or analyzed, and the formal languages behind parsers.
+- *Languages and types (08, 09, 10)*: paradigms, functional programming, and type systems; they share the lambda calculus and logic.
+- *Machines and systems (11, 12)*: memory management, then concurrency and distributed systems, which need ownership, memory models, and invariants from the earlier files.
+Skipping around is fine if you already know a topic; do the self-check first, and read only the sections you cannot answer.
+
+** The sequence
+*** 01: discrete-mathematics
+File: [[file:01_discrete-mathematics.org][01_discrete-mathematics]]
+
+Counting, modular arithmetic, graphs, and probability: the vocabulary behind algorithms, hashing, cryptography, and capacity estimates.
+
+After this file you should be able to: Turn a vague question (collision odds, replica survival, build ordering) into a calculation you can defend.
+
+Key sections:
+- [[file:01_discrete-mathematics.org::*2. Counting][§2 Counting]]
+- [[file:01_discrete-mathematics.org::*3. Number theory and modular arithmetic][§3 Number theory and modular arithmetic]]
+- [[file:01_discrete-mathematics.org::*4. Graph theory][§4 Graph theory]]
+- [[file:01_discrete-mathematics.org::*5. Probability][§5 Probability]]
+- [[file:01_discrete-mathematics.org::*6. Sums, series, and recurrences][§6 Sums, series, and recurrences]]
+
+Practice:
+- Solve self-check questions 1 and 4: the 64-bit id collision threshold, and the false-alarm probability of a health check.
+- Implement toy RSA with the number-theory code, then break it by factoring.
+- Verify the birthday approximation by simulation for several table sizes.
+- Answer every question in [[file:01_discrete-mathematics.org::*8. Self-check][the self-check section]] without notes, and do the exercises that interest you most.
+
+*** 02: logic-and-proofs
+File: [[file:02_logic-and-proofs.org][02_logic-and-proofs]]
+
+Propositional and predicate logic, proof techniques, invariants, Hoare logic, model checking, and proof assistants.
+
+After this file you should be able to: State invariants and failure assumptions precisely, and choose the cheapest assurance technique that fits the risk.
+
+Key sections:
+- [[file:02_logic-and-proofs.org::*1. Propositional logic][§1 Propositional logic]]
+- [[file:02_logic-and-proofs.org::*3. Proof techniques][§3 Proof techniques]]
+- [[file:02_logic-and-proofs.org::*4. Invariants and state machines][§4 Invariants and state machines]]
+- [[file:02_logic-and-proofs.org::*5. Program correctness and Hoare logic][§5 Program correctness and Hoare logic]]
+- [[file:02_logic-and-proofs.org::*7. Proof assistants and the link to programs][§7 Proof assistants and the link to programs]]
+- [[file:02_logic-and-proofs.org::*8. Reasoning habits that transfer to engineering][§8 Reasoning habits that transfer to engineering]]
+
+Practice:
+- Add runtime-checked loop invariants to binary search, partition, and merge, and test them randomly.
+- Model a mutual-exclusion protocol (TLA+ or a Python state explorer) and find the bug in a broken variant.
+- Prove list reversal correct in Lean.
+- Answer every question in [[file:02_logic-and-proofs.org::*9. Self-check][the self-check section]] without notes, and do the exercises that interest you most.
+
+*** 03: data-representation
+File: [[file:03_data-representation.org][03_data-representation]]
+
+Integers, floating point, text, time, identifiers, serialization, compression, and the layout of data in memory and on the wire.
+
+After this file you should be able to: Design encodings and schemas that stay correct and compatible for years, and diagnose numeric, text, and time bugs.
+
+Key sections:
+- [[file:03_data-representation.org::*2. Integers][§2 Integers]]
+- [[file:03_data-representation.org::*3. Floating point][§3 Floating point]]
+- [[file:03_data-representation.org::*4. Text][§4 Text]]
+- [[file:03_data-representation.org::*5. Time and dates][§5 Time and dates]]
+- [[file:03_data-representation.org::*7. Serialization and schema evolution][§7 Serialization and schema evolution]]
+- [[file:03_data-representation.org::*8. Information, compression, and error detection][§8 Information, compression, and error detection]]
+- [[file:03_data-representation.org::*10. Staff-level pitfalls in data modeling][§10 Staff-level pitfalls in data modeling]]
+
+Practice:
+- Implement UTF-8 decode with full validation and fuzz it against your language's decoder.
+- Build a small schema-based binary serializer with field tags and test old-reader/new-data and new-reader/old-data compatibility.
+- Reproduce the floating-point failures in §3 and fix each with the right technique.
+- Answer every question in [[file:03_data-representation.org::*11. Self-check][the self-check section]] without notes, and do the exercises that interest you most.
+
+*** 04: complexity
+File: [[file:04_complexity.org][04_complexity]]
+
+Asymptotics, recurrences, amortized analysis, complexity classes, NP-hardness, and how to cope with hard problems.
+
+After this file you should be able to: State the cost model behind a claim, spot disguised NP-hard problems, and choose a pragmatic strategy.
+
+Key sections:
+- [[file:04_complexity.org::*1. Asymptotic notation][§1 Asymptotic notation]]
+- [[file:04_complexity.org::*2. Models of computation][§2 Models of computation]]
+- [[file:04_complexity.org::*3. Recurrences][§3 Recurrences]]
+- [[file:04_complexity.org::*4. Amortized analysis][§4 Amortized analysis]]
+- [[file:04_complexity.org::*6. Complexity classes][§6 Complexity classes]]
+- [[file:04_complexity.org::*7. Coping with hardness][§7 Coping with hardness]]
+- [[file:04_complexity.org::*9. When asymptotics mislead][§9 When asymptotics mislead]]
+
+Practice:
+- Plot the running time of a library sort against n log n over four orders of magnitude and find the constant.
+- Implement the 2-approximation for vertex cover and compare it with exact solutions on small graphs.
+- Encode a toy dependency-resolution problem as SAT and solve it with a library.
+- Answer every question in [[file:04_complexity.org::*10. Self-check][the self-check section]] without notes, and do the exercises that interest you most.
+
+*** 05: data-structures
+File: [[file:05_data-structures.org][05_data-structures]]
+
+Interfaces and implementations: arrays, hash tables, trees, heaps, probabilistic and persistent structures, and storage engines.
+
+After this file you should be able to: Choose structures from the workload and the memory hierarchy, and predict where they break.
+
+Key sections:
+- [[file:05_data-structures.org::*2. Arrays, dynamic arrays, and ring buffers][§2 Arrays, dynamic arrays, and ring buffers]]
+- [[file:05_data-structures.org::*4. Hash tables][§4 Hash tables]]
+- [[file:05_data-structures.org::*5. Trees and ordered structures][§5 Trees and ordered structures]]
+- [[file:05_data-structures.org::*7. Probabilistic and approximate structures][§7 Probabilistic and approximate structures]]
+- [[file:05_data-structures.org::*9. Memory hierarchy and layout][§9 Memory hierarchy and layout]]
+- [[file:05_data-structures.org::*10. Storage engines and indexes][§10 Storage engines and indexes]]
+- [[file:05_data-structures.org::*11. Choosing a structure][§11 Choosing a structure]]
+
+Practice:
+- Implement linear probing and Robin Hood hashing; compare probe lengths at several load factors.
+- Implement a B-tree and check its invariants after every operation.
+- Build a tiny LSM store with a memtable, sorted runs, Bloom filters, and compaction; measure amplification.
+- Answer every question in [[file:05_data-structures.org::*12. Self-check][the self-check section]] without notes, and do the exercises that interest you most.
+
+*** 06: algorithms
+File: [[file:06_algorithms.org][06_algorithms]]
+
+Problem-solving techniques: sorting, searching, divide and conquer, greedy, dynamic programming, graphs, strings, and randomized methods.
+
+After this file you should be able to: Recognize the problem class, write a brute-force oracle, pick a technique, and test it against adversarial input.
+
+Key sections:
+- [[file:06_algorithms.org::*1. A method for attacking problems][§1 A method for attacking problems]]
+- [[file:06_algorithms.org::*2. Sorting and selection][§2 Sorting and selection]]
+- [[file:06_algorithms.org::*3. Searching and binary search on the answer][§3 Searching and binary search on the answer]]
+- [[file:06_algorithms.org::*6. Dynamic programming][§6 Dynamic programming]]
+- [[file:06_algorithms.org::*7. Graph algorithms][§7 Graph algorithms]]
+- [[file:06_algorithms.org::*9. Randomized, streaming, and approximate algorithms][§9 Randomized, streaming, and approximate algorithms]]
+- [[file:06_algorithms.org::*10. Algorithms engineering at Staff scope][§10 Algorithms engineering at Staff scope]]
+
+Practice:
+- Solve a graded set of problems per technique, always writing the brute-force oracle first.
+- Implement consistent hashing with virtual nodes and measure key movement when a node is added.
+- Implement Bloom, Count-Min, and HyperLogLog sketches and measure their error.
+- Answer every question in [[file:06_algorithms.org::*11. Self-check][the self-check section]] without notes, and do the exercises that interest you most.
+
+*** 07: theory-of-computation
+File: [[file:07_theory-of-computation.org][07_theory-of-computation]]
+
+Automata, grammars, Turing machines, decidability, and their consequences for parsers, regex engines, and analysis tools.
+
+After this file you should be able to: Recognize impossible requests, choose the weakest sufficient language, and explain regex and parser behavior.
+
+Key sections:
+- [[file:07_theory-of-computation.org::*2. Finite automata and regular languages][§2 Finite automata and regular languages]]
+- [[file:07_theory-of-computation.org::*3. Context-free languages and parsing][§3 Context-free languages and parsing]]
+- [[file:07_theory-of-computation.org::*4. Turing machines and the Church-Turing thesis][§4 Turing machines and the Church-Turing thesis]]
+- [[file:07_theory-of-computation.org::*5. Undecidability][§5 Undecidability]]
+- [[file:07_theory-of-computation.org::*8. From theory to engineering decisions][§8 From theory to engineering decisions]]
+
+Practice:
+- Implement Thompson's NFA construction and show it is linear where a backtracking engine is exponential.
+- Write an LL(1) recursive-descent parser and a Pratt parser for the same grammar.
+- Build a universal Turing machine simulator.
+- Answer every question in [[file:07_theory-of-computation.org::*9. Self-check][the self-check section]] without notes, and do the exercises that interest you most.
+
+*** 08: paradigms
+File: [[file:08_paradigms.org][08_paradigms]]
+
+Imperative, object-oriented, functional, declarative, concurrent, and data-oriented styles, plus metaprogramming and language design axes.
+
+After this file you should be able to: Choose and defend a paradigm and language for a component, and design abstractions that do not leak.
+
+Key sections:
+- [[file:08_paradigms.org::*1. Paradigms as sets of concepts][§1 Paradigms as sets of concepts]]
+- [[file:08_paradigms.org::*3. Object-oriented programming][§3 Object-oriented programming]]
+- [[file:08_paradigms.org::*5. Declarative, logic, and constraint programming][§5 Declarative, logic, and constraint programming]]
+- [[file:08_paradigms.org::*8. Metaprogramming and DSLs][§8 Metaprogramming and DSLs]]
+- [[file:08_paradigms.org::*9. Language design axes][§9 Language design axes]]
+- [[file:08_paradigms.org::*10. Evaluating abstractions][§10 Evaluating abstractions]]
+- [[file:08_paradigms.org::*11. Interpreters as a paradigm laboratory][§11 Interpreters as a paradigm laboratory]]
+
+Practice:
+- Solve one problem in three styles and compare tests, performance, and extension cost.
+- Implement a tree-walking interpreter with closures (the first half of Crafting Interpreters).
+- Write a technology-selection document for a real decision, with alternatives, risks, and a reversal plan.
+- Answer every question in [[file:08_paradigms.org::*12. Self-check][the self-check section]] without notes, and do the exercises that interest you most.
+
+*** 09: functional-programming
+File: [[file:09_functional-programming.org][09_functional-programming]]
+
+Lambda calculus, folds, algebraic data types, functors and monads, effects, laziness, and property-based testing.
+
+After this file you should be able to: Apply pure-core, effects-at-the-edges design in any language, and reason about its costs.
+
+Key sections:
+- [[file:09_functional-programming.org::*1. Core ideas][§1 Core ideas]]
+- [[file:09_functional-programming.org::*2. Lambda calculus][§2 Lambda calculus]]
+- [[file:09_functional-programming.org::*5. Abstractions: functor, applicative, monad][§5 Abstractions: functor, applicative, monad]]
+- [[file:09_functional-programming.org::*6. Purity, effects, and state][§6 Purity, effects, and state]]
+- [[file:09_functional-programming.org::*7. Laziness][§7 Laziness]]
+- [[file:09_functional-programming.org::*8. Equational reasoning, parametricity, and testing][§8 Equational reasoning, parametricity, and testing]]
+- [[file:09_functional-programming.org::*9. Parser combinators][§9 Parser combinators]]
+
+Practice:
+- Implement State, Reader, and Writer monads and use them to thread configuration, logging, and counters.
+- Extend the parser-combinator library with unary minus and exponentiation.
+- Work through the first chapters of Functional Programming in Lean.
+- Answer every question in [[file:09_functional-programming.org::*12. Self-check][the self-check section]] without notes, and do the exercises that interest you most.
+
+*** 10: type-systems
+File: [[file:10_type-systems.org][10_type-systems]]
+
+Type safety, simply typed lambda calculus, inference, polymorphism, variance, dependent types, linear types, and gradual typing.
+
+After this file you should be able to: Choose type-system features, design APIs where misuse does not compile, and migrate codebases to stricter types.
+
+Key sections:
+- [[file:10_type-systems.org::*2. Type safety: progress and preservation][§2 Type safety: progress and preservation]]
+- [[file:10_type-systems.org::*3. The simply typed lambda calculus][§3 The simply typed lambda calculus]]
+- [[file:10_type-systems.org::*5. Type inference and unification][§5 Type inference and unification]]
+- [[file:10_type-systems.org::*6. Subtyping and variance][§6 Subtyping and variance]]
+- [[file:10_type-systems.org::*8. Dependent and refinement types; Curry-Howard][§8 Dependent and refinement types; Curry-Howard]]
+- [[file:10_type-systems.org::*12. Type-driven design in practice][§12 Type-driven design in practice]]
+
+Practice:
+- Implement Algorithm W with let-polymorphism for a small ML-like language.
+- Design a typestate API and show that illegal call sequences fail to compile.
+- Prove progress and preservation for the simply typed lambda calculus in Software Foundations.
+- Answer every question in [[file:10_type-systems.org::*13. Self-check][the self-check section]] without notes, and do the exercises that interest you most.
+
+*** 11: memory-management
+File: [[file:11_memory-management.org][11_memory-management]]
+
+The memory hierarchy, virtual memory, allocators, ownership, reference counting, tracing GC, and production diagnosis.
+
+After this file you should be able to: Predict cache and GC effects, choose a memory strategy for latency and footprint, and diagnose leaks in production.
+
+Key sections:
+- [[file:11_memory-management.org::*1. The memory hierarchy][§1 The memory hierarchy]]
+- [[file:11_memory-management.org::*2. Virtual memory and the process address space][§2 Virtual memory and the process address space]]
+- [[file:11_memory-management.org::*3. Manual allocation and allocators][§3 Manual allocation and allocators]]
+- [[file:11_memory-management.org::*5. Automatic memory management][§5 Automatic memory management]]
+- [[file:11_memory-management.org::*7. Performance engineering for memory][§7 Performance engineering for memory]]
+- [[file:11_memory-management.org::*8. Diagnosing leaks and growth in production][§8 Diagnosing leaks and growth in production]]
+
+Practice:
+- Run the traversal benchmark and find the cache-size boundaries.
+- Implement an arena allocator and a pool allocator; compare with malloc.
+- Implement a mark-sweep collector for a toy language, then add a copying phase.
+- Answer every question in [[file:11_memory-management.org::*9. Self-check][the self-check section]] without notes, and do the exercises that interest you most.
+
+*** 12: concurrency
+File: [[file:12_concurrency.org][12_concurrency]]
+
+Threads, synchronization, memory models, concurrency models, distributed-systems theory, consistency, queueing, and testing.
+
+After this file you should be able to: Design systems with stated invariants and failure models, and predict capacity and tail latency.
+
+Key sections:
+- [[file:12_concurrency.org::*2. What can go wrong][§2 What can go wrong]]
+- [[file:12_concurrency.org::*3. Synchronization primitives][§3 Synchronization primitives]]
+- [[file:12_concurrency.org::*4. Memory models and ordering][§4 Memory models and ordering]]
+- [[file:12_concurrency.org::*6. Distributed systems: models and impossibility][§6 Distributed systems: models and impossibility]]
+- [[file:12_concurrency.org::*7. Consistency models and transactions][§7 Consistency models and transactions]]
+- [[file:12_concurrency.org::*8. Queueing, capacity, and tail latency][§8 Queueing, capacity, and tail latency]]
+- [[file:12_concurrency.org::*9. Testing and debugging concurrent systems][§9 Testing and debugging concurrent systems]]
+
+Practice:
+- Stress-test a bounded queue, then break it on purpose (lost update, deadlock) and fix it under a race detector.
+- Implement Raft leader election and log replication in a simulator with message loss; check the safety properties.
+- Write a linearizability checker for a small register and run it on a buggy replicated register.
+- Answer every question in [[file:12_concurrency.org::*11. Self-check][the self-check section]] without notes, and do the exercises that interest you most.
+
+** Capstone projects
+Each project integrates several files. Do at least one; write the design document first and the invariants before the code.
+*** A small database engine
+Build a key-value store with a write-ahead log, a B-tree or LSM index, checksummed records, a binary serialization format, a buffer cache, and multi-threaded readers with a single writer; test crash recovery by truncating the log at every byte; write the invariants and a short correctness argument.
+
+Files exercised: [[file:05_data-structures.org][05_data-structures]], [[file:03_data-representation.org][03_data-representation]], [[file:11_memory-management.org][11_memory-management]], [[file:12_concurrency.org][12_concurrency]], [[file:04_complexity.org][04_complexity]], [[file:02_logic-and-proofs.org][02_logic-and-proofs]].
+
+*** A language implementation
+Implement an interpreter with a lexer, a parser, closures, a Hindley-Milner type checker, algebraic data types with exhaustive matching, and a mark-sweep garbage collector; add property-based tests for the parser and the evaluator.
+
+Files exercised: [[file:07_theory-of-computation.org][07_theory-of-computation]], [[file:08_paradigms.org][08_paradigms]], [[file:09_functional-programming.org][09_functional-programming]], [[file:10_type-systems.org][10_type-systems]], [[file:11_memory-management.org][11_memory-management]], [[file:06_algorithms.org][06_algorithms]].
+
+*** A distributed-system design and simulation
+Write a design document for a replicated, partition-tolerant service (state the failure model, consistency guarantees, quorum or consensus choice, idempotency and fencing, capacity numbers from Little's law, overload behavior); then build a deterministic simulator that injects faults and checks the invariants.
+
+Files exercised: [[file:12_concurrency.org][12_concurrency]], [[file:01_discrete-mathematics.org][01_discrete-mathematics]], [[file:02_logic-and-proofs.org][02_logic-and-proofs]], [[file:03_data-representation.org][03_data-representation]], [[file:04_complexity.org][04_complexity]], [[file:08_paradigms.org][08_paradigms]].
+
+** A checklist of Staff-level technical judgment
+Rate yourself honestly; the items are skills, not facts.
+- [ ] I can state the invariant and the failure model of a system I own, and I know which of them are tested, which are modeled, and which are assumed.
+- [ ] I can estimate the cost of a design (time, memory, network, tail latency) from first principles, and I know which constants matter at our scale.
+- [ ] I recognize hard problems (NP-hard, undecidable, distributed-consensus) disguised as product requirements and propose workable alternatives.
+- [ ] I choose data structures and storage layouts from the workload and the memory hierarchy, and I can explain the trade-off to a peer.
+- [ ] I can read and review concurrent code, protocols, and database transactions for races, deadlocks, and consistency anomalies.
+- [ ] I design APIs and types that make misuse hard, and I can explain the soundness gaps of the type systems I rely on.
+- [ ] I choose languages and paradigms for stated reasons, and I write the decision down with alternatives and reversal costs.
+- [ ] I diagnose memory and performance problems with measurements and a correct mental model of caches, GC, and allocators.
+- [ ] I encode data so that it survives schema evolution, language boundaries, and time zones.
+- [ ] I can teach any topic in these files to a colleague using an example from our own systems.
+
+** Find it fast
+| I want...                                  | Go to |
+|--------------------------------------------+-------|
+| Collision odds for random ids | [[file:01_discrete-mathematics.org::*5. Probability][01_discrete-mathematics §5]] |
+| Modular arithmetic and gcd | [[file:01_discrete-mathematics.org::*3. Number theory and modular arithmetic][01_discrete-mathematics §3]] |
+| Invariants and safety versus liveness | [[file:02_logic-and-proofs.org::*4. Invariants and state machines][02_logic-and-proofs §4]] |
+| Hoare logic and loop invariants | [[file:02_logic-and-proofs.org::*5. Program correctness and Hoare logic][02_logic-and-proofs §5]] |
+| Floating-point pitfalls | [[file:03_data-representation.org::*3. Floating point][03_data-representation §3]] |
+| UTF-8 and text lengths | [[file:03_data-representation.org::*4. Text][03_data-representation §4]] |
+| Schema evolution rules | [[file:03_data-representation.org::*7. Serialization and schema evolution][03_data-representation §7]] |
+| Master theorem and recurrences | [[file:04_complexity.org::*3. Recurrences][04_complexity §3]] |
+| Coping with NP-hard problems | [[file:04_complexity.org::*7. Coping with hardness][04_complexity §7]] |
+| Hash tables | [[file:05_data-structures.org::*4. Hash tables][05_data-structures §4]] |
+| B-tree versus LSM-tree | [[file:05_data-structures.org::*10. Storage engines and indexes][05_data-structures §10]] |
+| Choosing a data structure | [[file:05_data-structures.org::*11. Choosing a structure][05_data-structures §11]] |
+| Dynamic programming recipe | [[file:06_algorithms.org::*6. Dynamic programming][06_algorithms §6]] |
+| Graph algorithm cheat sheet | [[file:06_algorithms.org::*7. Graph algorithms][06_algorithms §7]] |
+| Regex engines and ReDoS | [[file:07_theory-of-computation.org::*2. Finite automata and regular languages][07_theory-of-computation §2]] |
+| Rice's theorem and tooling limits | [[file:07_theory-of-computation.org::*5. Undecidability][07_theory-of-computation §5]] |
+| Language design axes | [[file:08_paradigms.org::*9. Language design axes][08_paradigms §9]] |
+| Monad laws and State monad | [[file:09_functional-programming.org::*5. Abstractions: functor, applicative, monad][09_functional-programming §5]] |
+| Type inference by unification | [[file:10_type-systems.org::*5. Type inference and unification][10_type-systems §5]] |
+| Variance of function types | [[file:10_type-systems.org::*6. Subtyping and variance][10_type-systems §6]] |
+| Tracing GC algorithms | [[file:11_memory-management.org::*5. Automatic memory management][11_memory-management §5]] |
+| Diagnosing production leaks | [[file:11_memory-management.org::*8. Diagnosing leaks and growth in production][11_memory-management §8]] |
+| Memory models and litmus tests | [[file:12_concurrency.org::*4. Memory models and ordering][12_concurrency §4]] |
+| Consistency models | [[file:12_concurrency.org::*7. Consistency models and transactions][12_concurrency §7]] |
+| Little's law, queueing, and tail latency | [[file:12_concurrency.org::*8. Queueing, capacity, and tail latency][12_concurrency §8]] |
+
+** Coverage against a standard curriculum
+The ACM, IEEE Computer Society, and AAAI /Computer Science Curricula 2023/ report organizes the discipline into knowledge areas with units and learning outcomes: [[https://csed.acm.org/wp-content/uploads/2024/05/The-Report.pdf][the report (PDF)]]. These notes concentrate on the foundations most relevant to senior engineering: algorithms and complexity, mathematical foundations, programming-language foundations, systems fundamentals and memory, parallel and distributed computing, and data representation. They do not cover databases, networking, security, graphics, human-computer interaction, machine learning, or software-engineering process in depth; use the report's unit lists to find the gaps relevant to your work.
+
+** Sources used
+These are the free or official materials the notes draw on and point to. The notes paraphrase them; they do not reproduce them.
+| Area | Source | Link |
+|------+--------+------|
+| Curriculum | ACM/IEEE-CS/AAAI, Computer Science Curricula 2023 | [[https://csed.acm.org/wp-content/uploads/2024/05/The-Report.pdf][link]] |
+| Mathematics | Lehman, Leighton, Meyer: Mathematics for Computer Science (MIT 6.042J text) | [[https://ocw.mit.edu/courses/6-042j-mathematics-for-computer-science-spring-2015/resources/mit6_042js15_textbook_pdf/][link]] |
+| Mathematics | Levin: Discrete Mathematics, An Open Introduction | [[https://discrete.openmathbooks.org/][link]] |
+| Algorithms | MIT 6.006 Introduction to Algorithms (Spring 2020): lecture notes | [[https://ocw.mit.edu/courses/6-006-introduction-to-algorithms-spring-2020/pages/lecture-notes][link]] |
+| Algorithms | Erickson: Algorithms (free book and lecture notes) | [[https://jeffe.cs.illinois.edu/teaching/algorithms/][link]] |
+| Data structures | Morin: Open Data Structures | [[https://opendatastructures.org/ods-cpp.pdf][link]] |
+| Computation | MIT 18.404J Theory of Computation (Fall 2020) | [[https://ocw.mit.edu/courses/mathematics/18-404j-theory-of-computation-fall-2020/][link]] |
+| Complexity | Arora, Barak: Computational Complexity, A Modern Approach (draft) | [[https://theory.cs.princeton.edu/complexity][link]] |
+| Logic and types | Pierce et al.: Software Foundations | [[https://softwarefoundations.cis.upenn.edu/][link]] |
+| Logic and types | Lean 4 learning hub (Theorem Proving in Lean 4, Functional Programming in Lean, Mathematics in Lean) | [[https://lean-lang.org/learn][link]] |
+| Types | Pierce: Types and Programming Languages (companion site) | [[http://www.cis.upenn.edu/~bcpierce/tapl][link]] |
+| Programming | Abelson, Sussman: Structure and Interpretation of Computer Programs, JavaScript edition | [[https://sicp.sourceacademy.org/sicpjs.pdf][link]] |
+| Programming | Nystrom: Crafting Interpreters | [[https://craftinginterpreters.com][link]] |
+| Systems | Arpaci-Dusseau: Operating Systems, Three Easy Pieces | [[https://pages.cs.wisc.edu/~remzi/OSTEP/][link]] |
+| Memory | Drepper: What Every Programmer Should Know About Memory | [[http://people.redhat.com/drepper/cpumemory.pdf][link]] |
+| Concurrency | McKenney: Is Parallel Programming Hard, And, If So, What Can You Do About It? | [[https://www.kernel.org/pub/linux/kernel/people/paulmck/perfbook/perfbook.html][link]] |
+| Distributed | Jepsen: consistency models | [[https://jepsen.io/consistency/models][link]] |
+| Numbers | Goldberg: What Every Computer Scientist Should Know About Floating-Point Arithmetic | [[https://docs.oracle.com/cd/E19957-01/816-2464/ncg_goldberg.html][link]] |
+| Text | IETF RFC 3629: UTF-8 | [[https://www.rfc-editor.org/rfc/rfc3629][link]] |
+| Career | StaffEng: guides and book | [[https://staffeng.com/guides/][link]] |
+
+Books recommended without links (Sipser, Cormen et al., Skiena, Kleinberg and Tardos, Harper, Van Roy and Haridi, Jones et al., Herlihy and Shavit, Kleppmann, Bryant and O'Hallaron, Warren, and others) were not checked for free copies; borrow or buy them.
+
+** Provenance and limits
+- The files were written from the sources above and from standard textbook knowledge. Source pages were located and their scope checked; they were not all read cover to cover, and specific figures in the notes (latency orders of magnitude, industry statistics, library behavior) are conventional or approximate. Verify any number you depend on against a primary source.
+- Python code was executed (all assertions pass) and the C snippet was compiled and run; Lean and pseudocode were not executed.
+- Results are stated at textbook level. Where research is moving (garbage-collector designs, consensus variants, type-system features), treat the notes as a map and the papers as the territory.
+- When you find an error, fix the file and note the source of the correction at the bottom of the relevant section.
+
+** A suggested cadence
+As a rough guide only (it depends heavily on your background and time): one file every three to six weeks, with two or three sessions per week of reading plus exercises, and a capstone project every four to five files. The whole sequence is then a project of roughly a year or more at a few hours per week. Keep the notebook habit; retention comes from applying the material to your own systems.

@@ -1,0 +1,189 @@
+#+title: Haskell Type Classes
+#+startup: overview
+
+* Haskell Type Classes
+Haskell has no macros in the Lisp, C, or Rust sense. Its main mechanism for abstraction over types, and for code that adapts to the types it receives, is the /type class/. This file plays the role that =macros.org= plays elsewhere: it covers the language's central abstraction facility. Template Haskell, the actual compile-time metaprogramming system, is sketched in section 11.
+
+** 1. What a type class does
+A type class declares a set of operations that types may implement. A function constrained by a class works for any type that has an instance.
+
+#+begin_src haskell
+class Describable a where
+  describe :: a -> String
+
+instance Describable Bool where
+  describe True  = "yes"
+  describe False = "no"
+
+instance Describable Int where
+  describe n = "the number " ++ show n
+
+describe True       -- "yes"
+describe (3 :: Int) -- "the number 3"
+#+end_src
+
+The compiler picks the instance from the types, at compile time. A constraint such as =Describable a => a -> String= is, in effect, an extra hidden argument: a table (/dictionary/) of the class's methods for that type.
+
+** 2. Constraints
+#+begin_src haskell
+describeAll :: Describable a => [a] -> [String]
+describeAll = map describe
+
+showTwice :: (Show a, Eq a) => a -> a -> String
+showTwice x y = if x == y then show x else show x ++ " / " ++ show y
+#+end_src
+
+A function can use only the operations its constraints promise. Without =Eq a=, the =x == y= above would not type-check.
+
+** 3. Default methods and minimal definitions
+#+begin_src haskell
+class Shape a where
+  area      :: a -> Double
+  perimeter :: a -> Double
+  describeShape :: a -> String
+  describeShape x = "area " ++ show (area x) ++ ", perimeter " ++ show (perimeter x)
+
+data Circle = Circle Double
+data Rect   = Rect Double Double
+
+instance Shape Circle where
+  area (Circle r)      = pi * r * r
+  perimeter (Circle r) = 2 * pi * r
+
+instance Shape Rect where
+  area (Rect w h)      = w * h
+  perimeter (Rect w h) = 2 * (w + h)
+  describeShape r      = "a rectangle with " ++ show (area r)   -- overrides the default
+#+end_src
+
+A class states which methods an instance must define. For =Eq=, either =(==)= or =(/=)= is enough because each has a default in terms of the other.
+
+** 4. Deriving
+For common classes the compiler can write the instance:
+
+#+begin_src haskell
+data Color = Red | Green | Blue
+  deriving (Show, Eq, Ord, Enum, Bounded)
+
+show Red                 -- "Red"
+Red < Blue               -- True: constructors are ordered by declaration
+succ Red                 -- Green
+[minBound .. maxBound] :: [Color]
+#+end_src
+
+Derivable out of the box: =Eq=, =Ord=, =Show=, =Read=, =Enum=, =Bounded=, and (with extensions) =Functor=, =Foldable=, =Traversable=, =Generic=. For a =newtype=, =GeneralizedNewtypeDeriving= copies the underlying type's instance.
+
+** 5. Superclasses
+A class can require another:
+
+#+begin_src haskell
+class Eq a => Ord a where          -- from the standard library (simplified)
+  compare :: a -> a -> Ordering
+  (<), (<=), (>), (>=) :: a -> a -> Bool
+#+end_src
+
+Every =Ord= type must also be =Eq=. A function constrained by =Ord a= may therefore use =(==)= as well.
+
+** 6. Dispatch on the return type
+A class method can select its instance from the /result/ type, which is something object-oriented method dispatch cannot do:
+
+#+begin_src haskell
+minBound :: Int          -- -9223372036854775808 on a 64-bit system
+minBound :: Bool         -- False
+read "42"  :: Int        -- 42
+read "4.5" :: Double     -- 4.5
+mempty :: String         -- ""
+#+end_src
+
+When the type cannot be inferred, add an annotation; otherwise the compiler reports an ambiguity (or, for numeric classes, silently defaults to =Integer= or =Double=).
+
+** 7. Classes over type constructors
+Some classes abstract over types that take a parameter, such as =Maybe=, =[]=, or =IO=. These have kind =* -> *=.
+
+#+begin_src haskell
+class Functor f where
+  fmap :: (a -> b) -> f a -> f b
+
+instance Functor Maybe where
+  fmap _ Nothing  = Nothing
+  fmap g (Just x) = Just (g x)
+
+data Tree a = Leaf | Node (Tree a) a (Tree a)
+
+instance Functor Tree where
+  fmap _ Leaf         = Leaf
+  fmap g (Node l v r) = Node (fmap g l) (g v) (fmap g r)
+
+fmap (+ 1) (Just 2)      -- Just 3
+(+ 1) <$> Node Leaf 1 Leaf   -- Node Leaf 2 Leaf
+#+end_src
+
+=Functor=, =Applicative=, and =Monad= are such classes, so a single piece of code (such as a =do= block, =mapM=, or =traverse=) works for =Maybe=, lists, =Either e=, parsers, state, and =IO=.
+
+** 8. Semigroup and Monoid
+=Semigroup= has an associative combine operation, =Monoid= adds an identity element.
+
+#+begin_src haskell
+newtype MaxInt = MaxInt Int deriving Show
+
+instance Semigroup MaxInt where
+  MaxInt a <> MaxInt b = MaxInt (max a b)
+
+instance Monoid MaxInt where
+  mempty = MaxInt minBound
+
+mconcat (map MaxInt [3, 9, 2])    -- MaxInt 9
+[1, 2] <> [3]                     -- [1,2,3]
+"ab" <> "cd"                      -- "abcd"
+#+end_src
+
+Instances should satisfy the class's laws (associativity; =mempty <> x = x=). The compiler cannot check laws; you must.
+
+** 9. Instance rules
+- There is at most one instance of a class for a given type in a program (/coherence/). To give a type a second behavior, wrap it in a =newtype=.
+- An instance defined in a module that owns neither the class nor the type is an /orphan instance/; avoid them in libraries.
+- Instances for types such as =[Char]= or =Maybe Int= need extensions (=FlexibleInstances=); instances with extra constraints need =FlexibleContexts=. Both are in common use and are on by default in the =GHC2021= language edition.
+- Classes with several type parameters (=MultiParamTypeClasses=) and associated types (=TypeFamilies=) extend the model for advanced designs.
+
+** 10. When to define a class
+Prefer an ordinary function or a plain record of functions when you do not need the compiler to select behavior by type. Define a class when:
+- the operation is naturally defined per type and you want call sites to stay generic;
+- there are laws, as with =Monoid= or =Functor=;
+- you want derived or generic behavior across many types.
+
+Do not model a closed set of cases with a class when a =data= type with several constructors expresses it better. A class is open (anyone can add an instance); a sum type is closed and exhaustively checkable.
+
+** 11. Template Haskell
+Template Haskell (the =TemplateHaskell= extension) is Haskell's compile-time code generation. Quotes =[| ... |]= build syntax trees, splices =$(...)= run Haskell code at compile time and insert the result:
+
+#+begin_src haskell
+{-# LANGUAGE TemplateHaskell #-}
+
+$(return [])                         -- an empty declaration splice
+
+five :: Int
+five = $( [| 2 + 3 |] )              -- the splice expands to the expression 2 + 3
+#+end_src
+
+Because of the /stage restriction/, a splice can only call functions imported from another module, not ones defined earlier in the same module. Template Haskell is used for boilerplate, for instance =makeLenses= in the =lens= library. It is advanced and largely unnecessary for learning; many Haskell programs never use it. The related =GHC.Generics= lets you write instances for many types at once without Template Haskell.
+
+** 12. Inspecting
+In GHCi:
+
+#+begin_src haskell
+:info Show        -- the class, its methods, and its instances
+:info Maybe       -- the type and the classes it is an instance of
+:type fmap
+:kind Maybe       -- * -> *
+#+end_src
+
+Error messages such as "No instance for (Show (a -> b))" mean you used a type in a context that requires a class it does not implement.
+
+** 13. Recommended learning sequence
+1. Use =Eq=, =Ord=, =Show=, and =deriving= until they feel routine.
+2. Write a small class (such as =Shape=) with two instances.
+3. Learn constraints in signatures (=Ord a => ...=) and read the errors when one is missing.
+4. Learn =Functor= by writing an instance for your own =Tree=.
+5. Learn =Semigroup= and =Monoid=, then =Applicative= and =Monad=.
+6. Read =:info= output on standard classes.
+7. Explore extensions, generics, and Template Haskell only when a project needs them.

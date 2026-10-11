@@ -1,0 +1,218 @@
+#+title: Logic and Proofs
+#+startup: overview
+
+* Logic and Proofs
+** 0. Staff-level lens
+Proof is the engineering skill of knowing why something is true, not merely that tests pass. At Staff scope you will be the person asked "is this protocol safe?", "can this cache ever serve stale data after a failover?", or "does this migration preserve the invariant?". You do not need to formalize everything. You need to:
+- state invariants and pre/postconditions precisely, in writing;
+- spot the hidden quantifier ("for all inputs" versus "for the inputs I tried");
+- recognize which claims are worth a proof, which a model checker, which a property-based test, and which a type;
+- read a proof sketch in a design document and find where it assumes more than it states.
+
+** 1. Propositional logic
+Propositions are statements that are true or false. Connectives: negation, conjunction (and), disjunction (or), implication (p implies q), equivalence.
+
+Key equivalences:
+| Name                  | Equivalence                                               |
+|-----------------------+-----------------------------------------------------------|
+| De Morgan             | not (p and q) is (not p) or (not q); dually for or        |
+| Implication           | p implies q is (not p) or q                               |
+| Contrapositive        | p implies q is (not q) implies (not p)                    |
+| Distribution          | p and (q or r) is (p and q) or (p and r); dually          |
+| Double negation       | not not p is p (classically; not in intuitionistic logic) |
+
+Remember that "p implies q" is true when p is false (vacuous truth). The /converse/ (q implies p) is a different statement, and confusing the two is the most common reasoning error in postmortems.
+
+*Normal forms*: CNF (conjunction of clauses, each a disjunction of literals) and DNF. Any formula converts to CNF, possibly with exponential blowup; the Tseitin transformation produces an equisatisfiable CNF with linear growth by introducing fresh variables.
+
+*Satisfiability (SAT)*: is there an assignment making the formula true? SAT is NP-complete (see =04_complexity.org=), yet modern CDCL solvers handle industrial instances with millions of variables. SAT and SMT solvers power hardware verification, package version resolution, configuration checking, symbolic execution, and many static analyzers.
+
+#+begin_src python
+from itertools import product
+
+def equivalent(f, g, n):
+    return all(f(*v) == g(*v) for v in product([False, True], repeat=n))
+
+assert equivalent(lambda p, q: not (p and q), lambda p, q: (not p) or (not q), 2)   # De Morgan
+assert equivalent(lambda p, q: (not p) or q, lambda p, q: q or (not p), 2)          # contrapositive
+assert not equivalent(lambda p, q: (not p) or q, lambda p, q: (not q) or p, 2)      # converse differs
+
+# A tiny DPLL SAT solver: clauses are lists of nonzero ints; -k means "not x_k".
+def simplify(clauses, lit):
+    out = []
+    for c in clauses:
+        if lit in c:
+            continue
+        reduced = [l for l in c if l != -lit]
+        if not reduced:
+            return None                     # empty clause: conflict
+        out.append(reduced)
+    return out
+
+def dpll(clauses, model=None):
+    model = dict(model or {})
+    while True:                             # unit propagation
+        unit = next((c[0] for c in clauses if len(c) == 1), None)
+        if unit is None:
+            break
+        model[abs(unit)] = unit > 0
+        clauses = simplify(clauses, unit)
+        if clauses is None:
+            return None
+    if not clauses:
+        return model
+    lit = clauses[0][0]
+    for choice in (lit, -lit):              # branch
+        reduced = simplify(clauses, choice)
+        if reduced is not None:
+            m = dict(model)
+            m[abs(choice)] = choice > 0
+            res = dpll(reduced, m)
+            if res is not None:
+                return res
+    return None
+
+cnf = [[1, 2], [-1, 2], [-2, 3]]            # (x1 or x2) and (not x1 or x2) and (not x2 or x3)
+model = dpll(cnf)
+assert model is not None
+assert all(any(model.get(abs(l), False) == (l > 0) for l in c) for c in cnf)
+assert dpll([[1], [-1]]) is None            # unsatisfiable
+#+end_src
+
+** 2. Predicate logic
+Predicate logic adds variables, predicates, and quantifiers: for all (universal) and there exists (existential).
+- Negation swaps quantifiers: not (for all x, P(x)) is (there exists x, not P(x)).
+- *Order of quantifiers matters*: "for every user there is a server that stores their data" differs from "there is a server that stores every user's data".
+- Typical specification statements: "for all replicas r1, r2, if both committed index i then their entries at i are equal" (state-machine safety); "for all requests, eventually a response is sent" (liveness; needs time or temporal operators).
+- Free versus bound variables, substitution, and scope behave exactly as in programming languages.
+- Many bugs are quantifier bugs: an unstated universal ("this lock is always held") that holds only on the main path.
+
+** 3. Proof techniques
+| Technique              | When to use                                                           |
+|------------------------+-----------------------------------------------------------------------|
+| Direct proof           | Assume the hypothesis, derive the conclusion                          |
+| Contrapositive         | The negated conclusion gives more to work with                        |
+| Contradiction          | Assume the claim false and derive an impossibility (sqrt 2 irrational, infinitely many primes, halting problem) |
+| Cases                  | Split into exhaustive cases and prove each                            |
+| Induction              | Statements over naturals or recursive structures                      |
+| Counterexample         | To refute a universal claim, one instance suffices                    |
+| Construction           | To prove an existential claim, exhibit the object                     |
+| Pigeonhole / counting  | Existence without construction                                        |
+
+*Induction in three forms*:
+1. *Ordinary*: prove P(0) (base) and P(n) implies P(n+1) (step).
+2. *Strong*: assume P(k) for all k < n, prove P(n). Natural for recursive algorithms whose subproblems have arbitrary smaller sizes.
+3. *Structural*: for lists, trees, and syntax: prove P of the empty/leaf case, and P of a compound given P of its parts. Proofs about interpreters and type systems are structural inductions.
+
+Common mistakes: strengthening neither the base case nor the hypothesis; induction hypothesis too weak (strengthen the statement to make the proof go through, as with loop invariants); proving only for one size; circular reasoning; using "WLOG" without justification.
+
+** 4. Invariants and state machines
+An *invariant* is a property true in every reachable state. To prove one:
+1. it holds in the initial state;
+2. every transition that starts in a state satisfying it ends in a state satisfying it (inductive step over transitions).
+This is induction on the length of an execution. The same shape proves loop invariants, protocol safety, and data-structure well-formedness (a red-black tree stays valid after insert).
+
+Two families of correctness properties (Lamport, Alpern-Schneider):
+- *Safety*: "nothing bad ever happens" (mutual exclusion, no two leaders in one term). A violation has a finite witness trace.
+- *Liveness*: "something good eventually happens" (every request is answered). Needs fairness assumptions and cannot be refuted by a finite prefix.
+Most protocol bugs found in industry are safety violations under unusual interleavings, partitions, or restarts.
+
+** 5. Program correctness and Hoare logic
+A *Hoare triple* {P} C {Q} says: if P holds before C runs and C terminates, then Q holds afterwards (partial correctness). Total correctness also requires termination, shown with a *variant*: a quantity that strictly decreases and is bounded below.
+
+Rules (informally):
+- Assignment: {Q[e/x]} x := e {Q}.
+- Sequence: {P} C1 {R} and {R} C2 {Q} give {P} C1; C2 {Q}.
+- Conditional: prove both branches under the branch condition.
+- Loop: choose an invariant I; show I holds before, that {I and cond} body {I}, and conclude {I and not cond} after the loop.
+- Consequence: strengthen the precondition or weaken the postcondition freely.
+
+*Weakest precondition* calculus works backwards from the postcondition and underlies tools such as Dafny and Why3. *Separation logic* extends this to pointers and heaps (ownership of memory regions); Rust's borrow checker is a lightweight, automated cousin.
+
+#+begin_src python
+import math, bisect, random
+
+def gcd(a, b):
+    a0, b0 = a, b
+    while b != 0:
+        assert math.gcd(a, b) == math.gcd(a0, b0)    # invariant: gcd is preserved
+        a, b = b, a % b                              # variant: b strictly decreases
+    return a
+
+def lower_bound(xs, x):
+    lo, hi = 0, len(xs)
+    while lo < hi:
+        # invariant: everything before lo is < x, everything from hi on is >= x
+        assert all(v < x for v in xs[:lo]) and all(v >= x for v in xs[hi:])
+        mid = lo + (hi - lo) // 2                    # avoids overflow in fixed-width ints
+        if xs[mid] < x:
+            lo = mid + 1
+        else:
+            hi = mid
+    return lo                                        # at exit lo == hi, so the invariant pins the answer
+
+assert gcd(1071, 462) == 21
+random.seed(7)
+for _ in range(200):
+    xs = sorted(random.randint(0, 20) for _ in range(random.randint(0, 15)))
+    x = random.randint(-1, 21)
+    assert lower_bound(xs, x) == bisect.bisect_left(xs, x)
+#+end_src
+
+** 6. Temporal logic, specification languages, and model checking
+- *Linear temporal logic (LTL)* adds operators "always" (G), "eventually" (F), "next" (X), "until" (U) to describe behaviors over time. Safety: G (not bad). Liveness: G (request implies F response).
+- *TLA+* (Lamport) specifies systems as state machines plus temporal properties; the TLC model checker explores states exhaustively up to a bound, and a proof system exists for unbounded claims. It is widely used for concurrent and distributed protocols because design bugs show up in small models.
+- *Alloy* models structural constraints with relational logic; *Dafny*, *Why3*, *Frama-C* verify programs with annotations; *SMT solvers* (Z3, cvc5) discharge the verification conditions.
+- A practical hierarchy of assurance, from cheap to expensive: types, assertions, unit tests, property-based tests, fuzzing, model checking small instances, bounded verification, full proof. Spend assurance where failure is expensive and the logic is subtle: consensus, memory allocators, cryptographic code, financial ledgers, migrations.
+
+** 7. Proof assistants and the link to programs
+In a proof assistant (Lean 4, Rocq, Isabelle, Agda), propositions are types and proofs are programs (Curry-Howard; see =10_type-systems.org=). The kernel checks every step, so a proof is trusted without trusting the proof-search code.
+
+#+begin_src text
+-- Lean 4 (checked by the Lean kernel; verify in your installation)
+theorem and_swap (p q : Prop) (h : p ∧ q) : q ∧ p := ⟨h.2, h.1⟩
+
+theorem zero_add' : ∀ n : Nat, 0 + n = n
+  | 0     => rfl
+  | n + 1 => congrArg Nat.succ (zero_add' n)       -- induction is recursion
+
+theorem add_comm' (a b : Nat) : a + b = b + a := Nat.add_comm a b
+#+end_src
+
+The workflow: state the theorem as a type, build the proof with tactics (=induction=, =simp=, =omega=, =rw=), and let the kernel reject mistakes. Learning paths: /Theorem Proving in Lean 4/ and /Functional Programming in Lean/ for Lean; /Software Foundations/ volume 1 (Logical Foundations) and volume 2 (Programming Language Foundations) for Rocq/Coq. Verified software exists at production scale (the seL4 microkernel, the CompCert C compiler), but at a cost of many person-years: formal proof is for the highest-value, most stable components.
+
+** 8. Reasoning habits that transfer to engineering
+- Write the invariant next to the data structure or protocol, in the code or the design document. Violations then become findable.
+- State the assumptions about failures, timing, and ordering explicitly (crash-stop, partial synchrony, at-least-once delivery). A protocol proven under one failure model says nothing about another.
+- Distinguish "I tested it" (existential evidence) from "it always holds" (universal claim).
+- When you cannot prove a claim, ask what the smallest counterexample would look like; that is often a test case or a missing guard.
+- Prefer making invalid states unrepresentable (types, constructors) to proving that invalid states never occur.
+
+** 9. Self-check
+1. Negate: "for every request there exists a replica that acknowledged it". Which counterexample would a chaos test need to produce?
+2. Prove by structural induction that the length of the concatenation of two lists is the sum of their lengths.
+3. Find the invariant that proves a two-pointer partition loop correct, and the variant that proves it terminates.
+4. Why can a finite trace never refute a liveness property?
+5. Explain why strengthening the induction hypothesis sometimes makes a proof easier.
+6. A design document claims "no message is lost". Write the precise quantified statement and the failure model under which it is true.
+
+** 10. Exercises
+- Warm-up: prove (by contradiction) there are infinitely many primes; (by induction) that 1 + 2 + ... + n = n(n+1)/2.
+- Core: add runtime-checked loop invariants to three algorithms you use regularly (binary search, partition, merge) and run randomized tests against them.
+- Core: write a TLA+ spec (or a Python state-space explorer) for a two-process mutual-exclusion protocol; find the bug in a deliberately broken version.
+- Stretch: formalize and prove in Lean the correctness of list reversal (reverse of reverse is identity) and of binary-search lower_bound on a sorted list.
+- Stretch: work through the first six chapters of Software Foundations, volume 1.
+
+** 11. Resources
+- Lehman, Leighton, Meyer, /Mathematics for Computer Science/ (Part I: proofs, induction; also state machines and invariants): https://ocw.mit.edu/courses/6-042j-mathematics-for-computer-science-spring-2015/resources/mit6_042js15_textbook_pdf/
+- Levin, /Discrete Mathematics: An Open Introduction/ (symbolic logic and proofs): https://discrete.openmathbooks.org/
+- Avigad, de Moura, Kong, Ullrich, /Theorem Proving in Lean 4/: https://lean-lang.org/theorem_proving_in_lean4/ ; the Lean learning hub (also lists /Functional Programming in Lean/ and /Mathematics in Lean/): https://lean-lang.org/learn
+- Pierce et al., /Software Foundations/ (volumes on logic, programming-language theory, verified algorithms; all free and machine-checked): https://softwarefoundations.cis.upenn.edu/
+- Huth and Ryan, /Logic in Computer Science/; Velleman, /How to Prove It/; Hammack, /Book of Proof/ (books for the proof-writing basics).
+- Lamport's TLA+ materials (the TLA+ site and /Specifying Systems/) for protocol specification.
+
+** What to remember
+- An implication is not its converse; quantifier order changes meaning.
+- Invariants plus induction over transitions prove safety; liveness needs fairness and a variant.
+- Choose the cheapest assurance technique that matches the cost of failure.
+- Proofs are programs; a proof assistant is a type checker for reasoning.

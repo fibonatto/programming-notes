@@ -1,0 +1,181 @@
+#+title: C++ Templates
+#+startup: overview
+
+* C++ Templates
+Templates are C++'s compile-time code generation. The compiler produces a separate specialized function or class for each set of template arguments (/instantiation/). Unlike C macros, templates are parsed and type-checked, but they are not the same thing as macros: they cannot define new syntax or capture source text.
+
+** 1. Function templates
+#+begin_src cpp
+template <typename T>
+T max_of(T a, T b) {
+    return a < b ? b : a;
+}
+
+max_of(3, 4);            // T = int, deduced
+max_of(2.5, 1.0);        // T = double
+max_of<double>(3, 4.5);  // T given explicitly; 3 converts to double
+// max_of(3, 4.5);       // error: conflicting deductions (int vs double)
+#+end_src
+
+The body is checked when it is instantiated with a particular type. Using =<= on a type without it is an error at the point of instantiation, often with a long message.
+
+** 2. Class templates
+#+begin_src cpp
+template <typename T>
+class Stack {
+public:
+    void push(T x) { items_.push_back(std::move(x)); }
+    T pop() {                                     // precondition: not empty
+        T x = std::move(items_.back());
+        items_.pop_back();
+        return x;
+    }
+    bool empty() const { return items_.empty(); }
+
+private:
+    std::vector<T> items_;
+};
+
+Stack<int> s;
+s.push(1);
+
+std::vector v{1, 2, 3};      // class template argument deduction (C++17): vector<int>
+#+end_src
+
+Member functions of a class template are instantiated only when used.
+
+** 3. Non-type template parameters
+Templates can take values as parameters.
+
+#+begin_src cpp
+template <typename T, std::size_t N>
+constexpr std::size_t size(const T (&)[N]) { return N; }
+
+int a[7];
+static_assert(size(a) == 7);
+
+std::array<int, 4> arr;              // N is part of the type
+#+end_src
+
+** 4. Constraints with concepts (C++20)
+A concept states what a template argument must support. Violations are reported at the call, not deep inside the body.
+
+#+begin_src cpp
+#include <concepts>
+
+template <std::integral T>
+T twice(T x) { return x * 2; }
+
+template <typename T>
+concept Addable = requires(T a, T b) {
+    { a + b } -> std::convertible_to<T>;
+};
+
+template <Addable T>
+T add(T a, T b) { return a + b; }
+
+template <typename T>
+    requires std::is_trivially_copyable_v<T>
+void raw_copy(const T &src, T &dst);
+#+end_src
+
+Before C++20 the same effect was achieved with SFINAE (=std::enable_if_t=), which produces much harder error messages. Prefer concepts in new code.
+
+** 5. Specialization
+Give a different implementation for particular arguments.
+
+#+begin_src cpp
+template <typename T> struct Name { static constexpr const char *value = "other"; };
+template <>           struct Name<int> { static constexpr const char *value = "int"; };   // full
+template <typename T> struct Name<T *> { static constexpr const char *value = "pointer"; };  // partial
+
+Name<int>::value;       // "int"
+Name<char *>::value;    // "pointer"
+Name<double>::value;    // "other"
+#+end_src
+
+Class templates support partial specialization; function templates do not (use overloading or =if constexpr= instead).
+
+** 6. Variadic templates and fold expressions
+#+begin_src cpp
+template <typename... Ts>
+auto sum(Ts... xs) {
+    return (xs + ... + 0);          // binary right fold with initial value 0
+}
+
+sum(1, 2, 3);                       // 6
+sum();                              // 0
+
+template <typename... Ts>
+void print_all(Ts &&...xs) {
+    ((std::cout << xs << ' '), ...);   // comma fold: run for each argument
+    std::cout << '\n';
+}
+#+end_src
+
+A unary fold with an empty pack is an error for most operators; the binary form with an initial value avoids that.
+
+** 7. Perfect forwarding
+In a template, =T &&= is a /forwarding reference/: it binds to lvalues and rvalues and remembers which. =std::forward= passes it on with the same category.
+
+#+begin_src cpp
+template <typename T, typename... Args>
+std::unique_ptr<T> make(Args &&...args) {
+    return std::unique_ptr<T>(new T(std::forward<Args>(args)...));
+}
+#+end_src
+
+This is how =std::make_unique= and =emplace_back= avoid extra copies. Outside a deduced template parameter, =T &&= is just an rvalue reference.
+
+** 8. =if constexpr= and type traits
+=if constexpr= discards the untaken branch at compile time, so each branch may use operations the other type lacks.
+
+#+begin_src cpp
+#include <type_traits>
+
+template <typename T>
+std::string describe(const T &x) {
+    if constexpr (std::is_integral_v<T>)
+        return "int " + std::to_string(x);
+    else if constexpr (std::is_same_v<T, std::string>)
+        return "string " + x;
+    else
+        return "other";
+}
+#+end_src
+
+=<type_traits>= provides =is_integral_v=, =is_same_v=, =remove_reference_t=, =decay_t=, and many others.
+
+** 9. Where templates live
+The compiler needs the full definition at the point of instantiation, so templates are usually defined in headers. Putting a template's definition in a =.cpp= file leads to linker errors unless you explicitly instantiate the types you need:
+
+#+begin_src cpp
+template class Stack<int>;                         // explicit instantiation
+template int max_of<int>(int, int);
+#+end_src
+
+Heavy template use increases compile time and binary size (/code bloat/).
+
+** 10. Reading template errors
+- Read the first error and the line that mentions your code ("required from here"); ignore the middle of the instantiation chain.
+- Add =static_assert= (or a concept) at the entry point so the failure is clear.
+- Test small instantiations; the Compiler Explorer site is convenient.
+- GCC: =-ftemplate-backtrace-limit=N= limits the printed chain. Clang usually prints more readable diagnostics.
+
+** 11. When to write a template
+Prefer an ordinary function or class when the types are known. Consider a template when you need to:
+- write an algorithm or container independent of the element type;
+- accept any callable without type-erasure cost;
+- select an implementation by type at compile time;
+- compute values or types at compile time.
+
+Do not make something a template just to avoid writing two overloads.
+
+** 12. Recommended learning sequence
+1. Write a =max_of= and a =Stack<T>=; read the errors from a wrong use.
+2. Learn deduction rules, including why =max_of(3, 4.5)= fails.
+3. Learn concepts and =requires=.
+4. Learn forwarding references and =std::forward=.
+5. Learn variadic templates and fold expressions.
+6. Learn =if constexpr= and =<type_traits>=.
+7. Explore specialization and SFINAE only when reading older code.

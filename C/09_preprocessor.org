@@ -1,0 +1,205 @@
+#+title: The C Preprocessor
+#+startup: overview
+
+* The C Preprocessor
+This file covers how the preprocessor works and the facilities around it (headers, conditional compilation, predefined macros). Techniques for writing macros (=do { } while (0)=, =#= and =##=, X-macros, hygiene) are in =08_macros.org=.
+
+** 1. Where it fits
+Compilation proceeds in phases. The preprocessor runs before the compiler proper: it joins =\= line continuations, strips comments, executes directives, expands macros, and produces one long stream of tokens (a /translation unit/).
+
+#+begin_src sh
+cc -E file.c              # output the preprocessed source
+cc -E -P file.c           # without #line markers
+cc -dM -E - < /dev/null   # list the compiler's predefined macros
+cc -C -E file.c           # keep comments
+#+end_src
+
+A directive is a line whose first non-blank token is =#=. The preprocessor knows nothing about types, scopes, or C syntax.
+
+** 2. Directives
+| Directive                         | Purpose                                                     |
+|-----------------------------------+-------------------------------------------------------------|
+| =#include=                        | Insert another file                                         |
+| =#define=, =#undef=               | Define or remove a macro                                    |
+| =#if=, =#elif=, =#else=, =#endif= | Conditional inclusion on an expression                      |
+| =#ifdef=, =#ifndef=               | Conditional on a macro being defined                        |
+| =#elifdef=, =#elifndef=           | C23: =#elif= forms of the above                             |
+| =#error=, =#warning=              | Stop or warn (=#warning= standard in C23, extension before) |
+| =#line=                           | Change the reported line and file                           |
+| =#pragma=, =_Pragma("...")=       | Implementation-specific directives                          |
+| =#embed=                          | C23: include a file's bytes as an initializer list          |
+
+** 3. #include
+#+begin_src c
+#include <stdio.h>           /* searches system include directories */
+#include "mylib.h"           /* searches the including file's directory first, then like <> */
+#+end_src
+
+Add search paths with =-I dir=. The included text is inserted verbatim, so every header is parsed in every translation unit that includes it. The directive also accepts a macro expanding to a header name.
+
+*** Include guards
+#+begin_src c
+#ifndef MYLIB_H
+#define MYLIB_H
+/* declarations */
+#endif /* MYLIB_H */
+#+end_src
+
+=#pragma once= does the same and is supported by all mainstream compilers, though it is not in the standard. Make guard names unique (include the project name).
+
+*** What belongs in a header
+- Declarations of functions, =extern= variables, types, and macros that other files need.
+- =static inline= functions.
+- Not definitions of non-=static= functions or variables: including that header from two files produces a duplicate definition at link time.
+- A header should compile on its own: include what it uses (check by including it first in a test =.c= file).
+- Prefer forward declarations (=struct Foo;=) over including a header just to name a pointer type.
+
+** 4. Conditional compilation
+#+begin_src c
+#if defined(__linux__) && !defined(NO_EPOLL)
+    /* ... */
+#elif defined(_WIN32)
+    /* ... */
+#else
+#   error "unsupported platform"
+#endif
+
+#if __STDC_VERSION__ >= 201112L
+    /* C11 or later */
+#endif
+
+#ifdef DEBUG
+#   define LOG(...) fprintf(stderr, __VA_ARGS__)
+#else
+#   define LOG(...) ((void)0)
+#endif
+#+end_src
+
+- =#if= takes an integer constant expression; =sizeof=, casts, and enum constants are not available (the preprocessor does not know types).
+- An identifier that is not a macro evaluates to =0= in =#if=. A typo in =#if FEATURE_X= therefore silently becomes false; =-Wundef= reports it.
+- =defined(X)= (or =defined X=) tests whether a macro exists. Define feature macros as =1= and test them with =#if=, or test existence with =#ifdef=, but be consistent.
+- Set macros from the command line: =-DNAME=, =-DNAME=value=, =-UNAME=.
+- Keep conditional blocks small and isolate platform differences behind one function interface in a platform-specific file; scattered =#ifdef= soup makes code hard to read and test.
+
+Detection helpers (C23 standardizes the first two; GCC and Clang support them earlier):
+
+#+begin_src c
+#if __has_include(<threads.h>)
+#   include <threads.h>
+#endif
+
+#if defined(__has_c_attribute) && __has_c_attribute(nodiscard)
+#   define NODISCARD [[nodiscard]]
+#endif
+#+end_src
+
+** 5. Predefined macros
+| Macro                                                           | Meaning                                                         |
+|-----------------------------------------------------------------+-----------------------------------------------------------------|
+| =__FILE__=, =__LINE__=                                          | Current file name and line number                               |
+| =__DATE__=, =__TIME__=                                          | Compilation date and time (make builds non-reproducible)        |
+| =__STDC__=                                                      | 1 for a conforming implementation                               |
+| =__STDC_VERSION__=                                              | =199901L=, =201112L=, =201710L=, =202311L=                      |
+| =__STDC_HOSTED__=                                               | 1 if a full hosted standard library is present                  |
+| =__STDC_NO_THREADS__=, =__STDC_NO_ATOMICS__=, =__STDC_NO_VLA__= | 1 if that optional feature is missing                           |
+| =__COUNTER__=                                                   | Non-standard; increases on each use                             |
+| =__func__=                                                      | Not a macro: an implicit =static const char[]= in each function |
+
+Compiler, OS, and architecture identification (non-standard but universal):
+
+| Macro                                     | Meaning                                        |
+|-------------------------------------------+------------------------------------------------|
+| =__GNUC__=, =__clang__=, =_MSC_VER=       | Compiler (note: Clang also defines =__GNUC__=) |
+| =__linux__=, =__APPLE__=, =_WIN32=        | Operating system                               |
+| =__x86_64__=, =__aarch64__=, =__wasm32__= | Architecture                                   |
+| =__BYTE_ORDER__=                          | Byte order (GCC/Clang)                         |
+
+** 6. Feature-test macros
+Strict standard modes hide non-ISO declarations. Define a feature-test macro /before the first include/ to request them (on glibc and similar):
+
+#+begin_src c
+#define _POSIX_C_SOURCE 200809L    /* POSIX.1-2008: getline, strdup, clock_gettime, ... */
+#include <stdio.h>
+#include <string.h>
+#+end_src
+
+- =_POSIX_C_SOURCE= requests the named POSIX level.
+- =_DEFAULT_SOURCE= requests the default glibc set (BSD and POSIX).
+- =_GNU_SOURCE= requests everything, including GNU extensions.
+- =-std=gnu17= implies many of these; =-std=c17= implies none, which is why =strdup= or =getline= can "disappear" with a strict standard.
+
+Put the define at the top of the file or pass it with =-D= for the whole build.
+
+** 7. How macro expansion works
+1. Arguments are identified and, unless they are operands of =#= or =##=, are fully macro-expanded first (/argument prescan/).
+2. The argument text replaces the parameters in the replacement list; =#= and =##= are processed.
+3. The result is rescanned, with the macro's own name excluded, for further macros (so a macro cannot expand recursively).
+
+That explains the "extra level of indirection" idiom:
+
+#+begin_src c
+#define STR(x)  #x
+#define XSTR(x) STR(x)
+#define VERSION 3
+
+STR(VERSION)     /* "VERSION": # operand is not expanded */
+XSTR(VERSION)    /* "3": the argument is expanded before STR sees it */
+
+#define CAT(a, b)  a##b
+#define XCAT(a, b) CAT(a, b)
+CAT(x, __LINE__)     /* x__LINE__ */
+XCAT(x, __LINE__)    /* x42, for example */
+#+end_src
+
+Other rules:
+- A function-like macro name not followed by =(= is left alone.
+- Macros are not expanded inside string literals or comments.
+- A macro defined twice with different bodies is an error; redefining requires =#undef= first.
+- =defined= produced by a macro expansion inside =#if= is undefined behavior; avoid it.
+- A trailing =\= continues a directive onto the next line; nothing, not even a space, may follow it.
+
+** 8. Variadic macros
+#+begin_src c
+#define LOG(fmt, ...) fprintf(stderr, fmt __VA_OPT__(,) __VA_ARGS__)   /* C23 */
+
+LOG("start\n");
+LOG("x = %d\n", x);
+#+end_src
+
+=__VA_OPT__(,)= emits a comma only if variable arguments exist. Before C23, GCC and Clang accept =, ##__VA_ARGS__= for the same purpose, which is a non-standard extension.
+
+** 9. #pragma and _Pragma
+#+begin_src c
+#pragma once
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-parameter"
+/* ... code ... */
+#pragma GCC diagnostic pop
+
+#define IGNORE_UNUSED \
+    _Pragma("GCC diagnostic ignored \"-Wunused-parameter\"")
+#+end_src
+
+Unknown pragmas are ignored (with =-Wunknown-pragmas= a warning), so they are not portable. =_Pragma= works inside macros, where =#pragma= cannot.
+
+** 10. #embed (C23)
+#+begin_src c
+static const unsigned char logo[] = {
+#embed "logo.png"
+};
+#+end_src
+
+Includes the file's bytes as a comma-separated list at compile time. Support is recent (Clang 19, GCC 15); on older compilers use =xxd -i= or the linker to embed data.
+
+** 11. Build-system interaction
+- =-MMD -MP= makes the compiler write =.d= dependency files listing the headers each object file includes; include them in your Makefile so edits to headers trigger rebuilds (see =10_toolchain.org=).
+- Macros defined on the command line (=-DNAME=) are part of the build; changing them requires recompiling all affected files.
+- =__DATE__= / =__TIME__= make binaries differ on every build; avoid them where reproducible builds matter (=-Wdate-time= flags them).
+
+** What to remember
+- The preprocessor produces text before the compiler sees code; =cc -E= shows exactly what.
+- Include guards in every header; keep definitions out of headers except =static inline=.
+- =#if= on an undefined name is false, not an error; enable =-Wundef=.
+- Use feature-test macros before the first include to expose POSIX functions in strict modes.
+- Macro arguments are prescanned, except operands of =#= and =##=; use two layers to expand first.
+- Isolate platform differences instead of scattering =#ifdef=.

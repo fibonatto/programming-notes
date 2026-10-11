@@ -1,0 +1,227 @@
+#+title: Rust Traits and Generics
+#+startup: overview
+
+* Rust Traits and Generics
+Traits are Rust's mechanism for shared behavior; generics let one piece of code work over many types. Together they replace inheritance, templates, and interfaces.
+
+** 1. Defining and implementing traits
+#+begin_src rust
+trait Shape {
+    fn area(&self) -> f64;                           // required
+    fn name(&self) -> String { String::from("shape") }   // default method
+}
+
+struct Circle(f64);
+struct Rect { w: f64, h: f64 }
+
+impl Shape for Circle {
+    fn area(&self) -> f64 { std::f64::consts::PI * self.0 * self.0 }
+    fn name(&self) -> String { String::from("circle") }
+}
+
+impl Shape for Rect {
+    fn area(&self) -> f64 { self.w * self.h }
+}
+#+end_src
+
+A trait is a set of method signatures (and optionally default bodies, associated types, and constants). Implementing it is separate from defining the type, and the trait must be in scope (=use=) to call its methods.
+
+** 2. Generics
+#+begin_src rust
+fn largest<T: PartialOrd + Copy>(xs: &[T]) -> T {
+    let mut m = xs[0];
+    for &x in xs { if x > m { m = x; } }
+    m
+}
+
+struct Stack<T> { items: Vec<T> }
+
+impl<T> Stack<T> {
+    fn new() -> Self { Stack { items: Vec::new() } }
+    fn push(&mut self, x: T) { self.items.push(x); }
+    fn pop(&mut self) -> Option<T> { self.items.pop() }
+}
+
+impl<T: std::fmt::Display> Stack<T> {          // methods only for T: Display
+    fn show(&self) { for x in &self.items { println!("{x}"); } }
+}
+
+largest(&[3, 7, 2]);                           // T = i32
+largest(&[1.5, 0.5]);                          // T = f64
+let s: Stack<String> = Stack::new();
+let n = Stack::<u8>::new();                    // turbofish
+#+end_src
+
+Generics are /monomorphized/: the compiler generates a specialized copy for each concrete type used, so calls are as fast as hand-written code, at the cost of compile time and binary size. Unlike C++ templates, a generic function is checked once against its bounds, not at each instantiation: you can only use operations the bounds promise.
+
+** 3. Bounds and where clauses
+#+begin_src rust
+fn show_all<T: std::fmt::Debug + Clone>(xs: &[T]) { }
+
+fn compare<T, U>(a: T, b: U) -> bool
+where
+    T: PartialEq<U> + std::fmt::Debug,
+    U: std::fmt::Debug,
+{
+    a == b
+}
+
+fn print_it(x: &impl std::fmt::Display) { println!("{x}"); }     // shorthand for a bound
+fn make() -> impl Iterator<Item = u32> { (0..10).filter(|n| n % 2 == 0) }   // return position
+#+end_src
+
+- =impl Trait= in argument position is sugar for a generic parameter. In return position it means "some single concrete type that implements this trait", chosen by the function body, useful for closures and iterator chains.
+- Bounds on an =impl= block control which methods exist for which type arguments.
+- The compiler error "the trait bound =X: Y= is not satisfied" means: implement =Y= for =X=, derive it, or loosen the bound.
+
+** 4. Trait objects and dynamic dispatch
+#+begin_src rust
+let shapes: Vec<Box<dyn Shape>> = vec![
+    Box::new(Circle(1.0)),
+    Box::new(Rect { w: 2.0, h: 3.0 }),
+];
+
+let total: f64 = shapes.iter().map(|s| s.area()).sum();
+
+fn describe(s: &dyn Shape) -> String { format!("{} {:.2}", s.name(), s.area()) }
+#+end_src
+
+A =dyn Trait= value is accessed through a pointer (=&dyn=, =Box<dyn>=, =Rc<dyn>=) holding the data pointer and a /vtable/ of method pointers, so the concrete type is resolved at run time.
+
+| Static dispatch (generics, =impl Trait=)      | Dynamic dispatch (=dyn Trait=)                  |
+|-----------------------------------------------+-------------------------------------------------|
+| Resolved at compile time; inlinable           | Resolved through a vtable at run time           |
+| One compiled copy per type                    | One copy of the code                            |
+| Collection holds a single type                | Collection may mix types                        |
+| Cannot return different types from one branch | Can                                             |
+
+A trait must be /dyn compatible/ (formerly "object safe") to be used as =dyn=: its methods cannot be generic and cannot return =Self= (unless the method is marked =where Self: Sized=), and it needs a receiver. Prefer generics by default; use =dyn= for heterogeneous collections, plugin-style boundaries, and to reduce code size.
+
+** 5. Associated types and constants
+#+begin_src rust
+trait Container {
+    type Item;                             // one implementation chooses one Item
+    const KIND: &'static str;
+    fn get(&self, i: usize) -> Option<&Self::Item>;
+}
+
+impl Container for Vec<i32> {
+    type Item = i32;
+    const KIND: &'static str = "vec of i32";
+    fn get(&self, i: usize) -> Option<&i32> { self.as_slice().get(i) }
+}
+
+fn first<C: Container>(c: &C) -> Option<&C::Item> { c.get(0) }
+#+end_src
+
+Use an associated type when each implementor has exactly one such type (=Iterator::Item=, =Add::Output=); use a generic parameter (=trait From<T>=) when a type may implement the trait several times with different arguments.
+
+*Const generics* take values as parameters:
+
+#+begin_src rust
+fn sum<const N: usize>(a: [i32; N]) -> i32 { a.iter().sum() }
+
+struct Matrix<const R: usize, const C: usize> { data: [[f64; C]; R] }
+#+end_src
+
+** 6. Operator overloading
+Operators are traits in =std::ops=.
+
+#+begin_src rust
+use std::ops::{Add, Mul, Neg, Index};
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct V2 { x: f64, y: f64 }
+
+impl Add for V2 {
+    type Output = V2;
+    fn add(self, o: V2) -> V2 { V2 { x: self.x + o.x, y: self.y + o.y } }
+}
+
+impl Mul<f64> for V2 {
+    type Output = V2;
+    fn mul(self, k: f64) -> V2 { V2 { x: self.x * k, y: self.y * k } }
+}
+
+impl Neg for V2 {
+    type Output = V2;
+    fn neg(self) -> V2 { V2 { x: -self.x, y: -self.y } }
+}
+
+let v = V2 { x: 1.0, y: 2.0 } + V2 { x: 3.0, y: 4.0 } * 2.0;
+#+end_src
+
+Comparison is =PartialEq= and =PartialOrd= (derivable); indexing is =Index= / =IndexMut=; ~+=~ is =AddAssign=. Only the traits in =std::ops= and =std::cmp= can be overloaded; you cannot invent operators.
+
+** 7. Blanket implementations and the orphan rule
+#+begin_src rust
+trait Describe { fn describe(&self) -> String; }
+
+impl<T: std::fmt::Debug> Describe for T {          // blanket impl: for every Debug type
+    fn describe(&self) -> String { format!("<<{:?}>>", self) }
+}
+
+(1, "a").describe();
+vec![1, 2].describe();
+#+end_src
+
+The standard library uses this pattern: =impl<T: Display> ToString for T=, and =impl<T, U: From<T>> Into<U> for T=.
+
+The *orphan rule* (coherence): you may implement a trait for a type only if your crate defines the trait or the type. You cannot implement =Display= for =Vec<i32>=. The workaround is a newtype (=struct Wrapper(Vec<i32>);=). Each trait can be implemented at most once for a given type, so there are no ambiguous overlaps.
+
+** 8. Supertraits and composition
+#+begin_src rust
+trait Named { fn name(&self) -> String; }
+trait Greeter: Named {                     // every Greeter must also be Named
+    fn greet(&self) -> String { format!("Hello, {}", self.name()) }
+}
+#+end_src
+
+Traits do not provide data inheritance. Share state with composition (a struct containing another struct) and share behavior with traits and default methods. Where you would use a base class in C++ or Java, use a trait for the interface and a field for the reused implementation.
+
+** 9. Marker and auto traits
+| Trait       | Meaning                                                                    |
+|-------------+----------------------------------------------------------------------------|
+| =Copy=      | Duplicated by bitwise copy; no =Drop=                                      |
+| =Sized=     | Size known at compile time (implicit bound on generics; opt out with =?Sized=) |
+| =Send=      | May be moved to another thread                                             |
+| =Sync=      | May be shared by reference across threads (=&T: Send=)                     |
+| =Unpin=     | May be moved after being pinned (async)                                    |
+
+=Send= and =Sync= are /auto traits/: the compiler derives them from a type's fields. Raw pointers and =Rc<T>= are not =Send=; =RefCell<T>= and =Cell<T>= are not =Sync=. See =12_concurrency.org=.
+
+** 10. Common traits to derive or implement
+#+begin_src rust
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+struct Id(u32);
+#+end_src
+
+The conversion, formatting, and comparison traits (=From=, =Display=, =Ord=, =Hash=, =Default=, =Deref=, =Borrow=, =AsRef=) are covered in =09_standard-library.org=.
+
+** 11. Choosing between the tools
+| Need                                              | Use                                          |
+|---------------------------------------------------+----------------------------------------------|
+| One algorithm over many types, maximum speed      | Generic function with trait bounds           |
+| A collection of mixed concrete types              | =Vec<Box<dyn Trait>>=                        |
+| Return a closure or iterator chain                | =impl Trait= (or =Box<dyn ...>= for several) |
+| A closed set of variants                          | =enum= (exhaustive =match=)                  |
+| An open set of types, added by other crates       | Trait                                        |
+| Add methods to a foreign type                     | Extension trait implemented for that type    |
+| Static configuration by type                      | Associated consts and types                  |
+
+Enums are closed (all variants known; the compiler checks completeness). Traits are open (anyone can add an implementation). Pick by who needs to extend the set.
+
+** 12. Pitfalls
+- Over-generic APIs make errors hard to read. Start concrete, generalize when a second use appears.
+- A generic parameter used only in a signature may need =PhantomData<T>= in the struct.
+- Avoid returning =Box<dyn Trait>= from hot paths when =impl Trait= would do.
+- =impl Trait= in return position hides the concrete type, so every branch must return the same one; use =Box<dyn Trait>= when branches differ.
+- Calling a trait method that is not in scope fails with "no method named ... found"; add the =use=.
+
+** What to remember
+- Traits define behavior; generics with bounds use it with static dispatch; =dyn Trait= uses it with dynamic dispatch.
+- The compiler checks generic code against its bounds once; instantiations cannot fail on a missing operation.
+- Associated types for one-per-implementor; type parameters for many.
+- Operators are traits; implement them for your own types.
+- The orphan rule requires owning the trait or the type; use a newtype to get around it.
+- Enums for closed sets, traits for open sets.

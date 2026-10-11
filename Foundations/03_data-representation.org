@@ -1,0 +1,298 @@
+#+title: Data Representation
+#+startup: overview
+
+* Data Representation
+** 0. Staff-level lens
+Every bug about "the number is wrong", "the name is garbled", "the timestamp is off by an hour", or "the old client cannot read the new data" is a representation bug. At Staff scope you will:
+- decide how data is encoded in memory, on disk, and on the wire, and live with the compatibility consequences for years;
+- know the failure modes of numbers (overflow, rounding, precision), text (encodings, normalization), time (zones, leap seconds, clocks), and identifiers;
+- design schemas and serialization formats that evolve without breaking producers and consumers;
+- reason about cost: bytes per record, parsing speed, cache behavior, compressibility.
+Companion files: =11_memory-management.org=, =05_data-structures.org=, =10_type-systems.org=, and the types file in the C notes.
+
+** 1. Bits, bytes, and words
+- A /bit/ is 0 or 1; a /byte/ is 8 bits (the smallest addressable unit on mainstream machines); a /word/ is the machine's natural integer size (32 or 64 bits).
+- *Hexadecimal* groups four bits per digit; use it to read bit patterns (=0xFF= is 11111111).
+- *Bit operations*: AND masks, OR sets, XOR toggles, NOT inverts, shifts move bits. Left shift by k multiplies by 2^k (while no overflow); right shift of unsigned values divides by 2^k; right shift of negative signed values is arithmetic (sign-preserving) in practice.
+- *Endianness*: the byte order of multi-byte values. Little-endian (x86, most ARM) stores the least significant byte first; big-endian (network byte order, many file formats) stores it last. Never write raw structs to files or sockets for portable data; encode byte order explicitly.
+- *Alignment and padding*: hardware prefers values at addresses divisible by their size; compilers insert padding in structs. Layout differs by compiler, flags, and platform unless fixed with explicit packing or a serialization format.
+- *Common tricks*: test power of two (=x != 0 and (x and (x - 1)) == 0=), clear lowest set bit (=x and (x - 1)=), isolate lowest set bit (=x and -x=), popcount, count leading zeros, bitsets and bit-parallel algorithms, Gray codes. Warren's /Hacker's Delight/ is the reference.
+
+** 2. Integers
+- *Unsigned* n-bit integers represent 0 to 2^n - 1 and arithmetic wraps modulo 2^n.
+- *Two's complement* represents signed integers: the top bit has weight -2^(n-1). Range is -2^(n-1) to 2^(n-1) - 1 (asymmetric: one more negative value). Negation is invert-and-add-one. Addition and subtraction use the same circuit for signed and unsigned values.
+- *Overflow*: unsigned wraps; signed overflow is undefined in C and C++, wraps in Java and Go, and panics in debug builds of Rust. Detect with checked arithmetic or wider types.
+- *Sign extension* copies the sign bit when widening; zero extension pads with zeros. Mixing signed and unsigned in comparisons and conversions causes classic bugs (see the C notes).
+- *Variable-length integers* (varints, LEB128) store small numbers in few bytes; *zigzag encoding* maps signed integers to unsigned ones so small negatives stay small.
+- *Arbitrary precision* integers (Python =int=, Java =BigInteger=, GMP) trade speed for correctness; use them for cryptography and exact counting.
+
+#+begin_src python
+def to_signed(x, bits):
+    x &= (1 << bits) - 1
+    return x - (1 << bits) if x >> (bits - 1) else x
+
+assert to_signed(0xFF, 8) == -1 and to_signed(0x80, 8) == -128 and to_signed(0x7F, 8) == 127
+assert to_signed(127 + 1, 8) == -128                  # signed overflow wraps (in two's complement hardware)
+assert ~5 + 1 == -5                                   # negation is invert and add one
+assert to_signed(-1, 32) == -1 and (-1 & 0xFFFFFFFF) == 4294967295
+x = 0b101100
+assert x & -x == 0b100 and x & (x - 1) == 0b101000   # lowest set bit; clear lowest set bit
+assert bin(0xBEEF).count("1") == 13                   # popcount
+
+def varint_encode(n):
+    out = bytearray()
+    while True:
+        b, n = n & 0x7F, n >> 7
+        if n:
+            out.append(b | 0x80)
+        else:
+            out.append(b)
+            return bytes(out)
+
+def varint_decode(data):
+    n = shift = 0
+    for i, b in enumerate(data):
+        n |= (b & 0x7F) << shift
+        if not b & 0x80:
+            return n, i + 1
+        shift += 7
+    raise ValueError("truncated varint")
+
+def zigzag(n):   return (n << 1) ^ (n >> 63)
+def unzigzag(z): return (z >> 1) ^ -(z & 1)
+
+assert varint_encode(300) == b"\xac\x02" and varint_decode(b"\xac\x02") == (300, 2)
+assert varint_encode(1) == b"\x01" and len(varint_encode(2**32)) == 5
+assert [zigzag(n) for n in (0, -1, 1, -2, 2)] == [0, 1, 2, 3, 4]
+assert all(unzigzag(zigzag(n)) == n for n in range(-1000, 1000))
+#+end_src
+
+** 3. Floating point
+IEEE 754 binary floating point stores a sign, an exponent, and a significand (mantissa): value = (-1)^s x 1.m x 2^(e - bias) for normal numbers.
+| Format      | Bits | Sign | Exponent | Significand | Decimal digits | Range (approx.)  |
+|-------------+------+------+----------+-------------+----------------+------------------|
+| binary16 (half)  | 16 | 1 | 5   | 10   | about 3   | up to 6.5 x 10^4  |
+| bfloat16    | 16   | 1    | 8        | 7           | about 2        | like binary32     |
+| binary32 (float) | 32 | 1 | 8   | 23   | 6 to 7    | up to 3.4 x 10^38 |
+| binary64 (double) | 64 | 1 | 11  | 52   | 15 to 17  | up to 1.8 x 10^308 |
+
+Essential facts:
+- *Most decimal fractions are inexact in binary* (0.1 has an infinite binary expansion). =0.1 + 0.2 != 0.3=. This is representation, not a bug in the hardware.
+- *Spacing grows with magnitude*: the gap between adjacent doubles near x is about x times 2^-52 (the /unit in the last place/, ULP). Above 2^53 a double cannot represent every integer; JavaScript's =Number.MAX_SAFE_INTEGER= is 2^53 - 1.
+- *Special values*: signed zeros, subnormals (gradual underflow), infinities, and NaN ("not a number"; NaN compares unequal to everything including itself). Operations round to the nearest representable value (ties to even by default).
+- *Rounding errors accumulate*; floating-point addition is *not associative*: (a + b) + c may differ from a + (b + c), so parallel reductions change results unless the order is fixed.
+- *Catastrophic cancellation*: subtracting nearly equal numbers loses significant digits (the quadratic formula's naive form, variance computed as E[x^2] - E[x]^2). Use stable formulations (Welford's algorithm, alternative formulas).
+- *Summation*: Kahan (compensated) and pairwise summation reduce error; =math.fsum= is exact-ish.
+- *Comparison*: use absolute or relative tolerances chosen for the problem; compare ULP distances for tests; never use floats as keys or loop counters.
+- *Money and exact decimals*: use integers (minor units: cents) or decimal types (Python =Decimal=, Java =BigDecimal=); never binary floats for currency.
+- *Fused multiply-add* (a x b + c with one rounding) and compiler flags such as =-ffast-math= change results; vectorization may reorder operations.
+- *Machine learning formats* (bfloat16, FP16, FP8) trade precision for throughput; accumulate in higher precision.
+Read Goldberg's paper for the full treatment.
+
+#+begin_src python
+import struct, math
+
+def fields(x):
+    b = struct.unpack(">Q", struct.pack(">d", x))[0]
+    return b >> 63, (b >> 52) & 0x7FF, b & ((1 << 52) - 1)       # sign, biased exponent, significand
+
+assert fields(1.0) == (0, 1023, 0) and fields(-2.0) == (1, 1024, 0)
+s, e, m = fields(0.1)
+assert (s, e, m) == (0, 1019, 0x999999999999A)                   # 0.1 is rounded: ...9999A, not ...99999
+
+assert 0.1 + 0.2 != 0.3 and abs((0.1 + 0.2) - 0.3) < 1e-15
+assert math.ulp(1.0) == 2.0 ** -52 and math.ulp(2.0 ** 53) == 2.0   # gaps grow with magnitude
+assert float(2 ** 53 + 1) == float(2 ** 53)                      # integers above 2^53 collide
+nan = float("nan")
+assert nan != nan and math.isnan(nan)
+
+assert (1e16 + 1.0) - 1e16 == 0.0 and (1e16 - 1e16) + 1.0 == 1.0  # addition is not associative
+
+def kahan(xs):
+    s = c = 0.0
+    for x in xs:
+        y = x - c
+        t = s + y
+        c = (t - s) - y
+        s = t
+    return s
+
+xs = [0.1] * 200_000
+exact = math.fsum(xs)
+naive = 0.0
+for x in xs:                                                     # explicit loop: Python 3.12+ sum() is itself compensated
+    naive += x
+assert abs(kahan(xs) - exact) < abs(naive - exact)               # compensated sum is closer
+from decimal import Decimal
+assert Decimal("0.1") + Decimal("0.2") == Decimal("0.3")         # decimal arithmetic is exact here
+#+end_src
+
+** 4. Text
+- *Character sets and encodings*: a /code point/ is a number assigned to a character (Unicode has code points from U+0000 to U+10FFFF); an /encoding/ maps code points to bytes. ASCII is 7 bits; Latin-1 and Windows-1252 are single-byte; *UTF-8*, *UTF-16*, and *UTF-32* encode all of Unicode.
+- *UTF-8* (RFC 3629): variable length, 1 to 4 bytes per code point; ASCII-compatible; self-synchronizing (continuation bytes start with =10=); no byte-order issues; the dominant encoding for files and the web. Bit patterns: =0xxxxxxx= (1 byte), =110xxxxx 10xxxxxx= (2), =1110xxxx 10xxxxxx 10xxxxxx= (3), =11110xxx= and three continuation bytes (4). Surrogate code points (U+D800 to U+DFFF) and values above U+10FFFF are invalid, and /overlong/ encodings (a short code point written in more bytes) must be rejected, since accepting them has caused security bugs.
+- *UTF-16* uses 2 bytes for the basic plane and surrogate pairs (4 bytes) above it; it is the native string form of Java, JavaScript, C#, and Windows APIs, which is why =length= may count 16-bit units rather than characters. Byte order and a BOM matter here.
+- *Three lengths*: bytes, code points, and /grapheme clusters/ (what a user perceives as one character). The flag emoji for Brazil is two code points; "e" followed by a combining accent is two code points but one grapheme. Slicing text by bytes or code units can cut a character in half.
+- *Normalization*: the same visible text can have different code point sequences ("e with acute" precomposed, NFC, or "e" plus combining accent, NFD). Normalize (usually NFC) before comparing, hashing, or storing identifiers; use case folding for caseless matching and locale-aware collation for sorting. Case conversion is locale-dependent (Turkish dotless i) and not always length-preserving.
+- *Security*: homoglyph attacks, invisible and bidirectional control characters, overlong encodings, and mixed-script identifiers; validate and normalize untrusted text at the boundary. Always treat byte strings from the outside as untrusted until decoded and validated.
+- *Practice*: use UTF-8 everywhere; decode at the edges and work with proper text types inside; never guess encodings (declare them); store as bytes only what is bytes.
+
+#+begin_src python
+import unicodedata
+
+def utf8_encode(cp):
+    if 0xD800 <= cp <= 0xDFFF or cp > 0x10FFFF:
+        raise ValueError("not a Unicode scalar value")
+    if cp < 0x80:
+        return bytes([cp])
+    if cp < 0x800:
+        return bytes([0xC0 | cp >> 6, 0x80 | cp & 0x3F])
+    if cp < 0x10000:
+        return bytes([0xE0 | cp >> 12, 0x80 | (cp >> 6) & 0x3F, 0x80 | cp & 0x3F])
+    return bytes([0xF0 | cp >> 18, 0x80 | (cp >> 12) & 0x3F, 0x80 | (cp >> 6) & 0x3F, 0x80 | cp & 0x3F])
+
+for ch in "aé€😀":
+    assert utf8_encode(ord(ch)) == ch.encode("utf-8")
+assert [len(ch.encode()) for ch in "aé€😀"] == [1, 2, 3, 4]
+
+s = "😀"
+assert len(s) == 1 and len(s.encode("utf-8")) == 4 and len(s.encode("utf-16-le")) // 2 == 2   # code points / bytes / UTF-16 units
+assert len("\U0001F1E7\U0001F1F7") == 2                                  # flag of Brazil: two code points, one grapheme
+assert "é" != "e\u0301" and unicodedata.normalize("NFC", "e\u0301") == "é"
+try:
+    b"\xc0\xaf".decode("utf-8")                                          # overlong encoding of "/" must be rejected
+    raise AssertionError("overlong encoding accepted")
+except UnicodeDecodeError:
+    pass
+#+end_src
+
+** 5. Time and dates
+- *Clocks*: a /wall clock/ (calendar time) can jump (NTP corrections, daylight saving, administrators); a /monotonic clock/ only moves forward and is for measuring durations. Never compute elapsed time from wall-clock differences.
+- *Unix time* counts seconds since 1970-01-01 00:00:00 UTC and ignores leap seconds (a leap second repeats or smears). A signed 32-bit count overflows on 2038-01-19 03:14:07 UTC; use 64-bit.
+- *Time zones* are political: offsets and daylight-saving rules change by law; store the instant in UTC and the zone identifier (an IANA name such as =America/Sao_Paulo=) when local-time semantics matter (recurring meetings, billing days). A fixed offset is not a zone.
+- *Formats*: ISO 8601 and the RFC 3339 profile (=2026-10-10T14:30:00Z=) are unambiguous, sortable as strings, and widely supported.
+- *Pitfalls*: assuming days have 24 hours, months have 30 days, years have 365 days; local times that do not exist or occur twice at DST changes; =date-only= values interpreted as midnight in a zone; floating-point timestamps losing sub-millisecond precision; parsing locale-formatted dates; comparing naive and aware times.
+- *Distributed systems*: wall clocks on different machines disagree; use logical clocks or consensus for ordering (=12_concurrency.org=).
+
+#+begin_src python
+import datetime as dt
+assert dt.datetime.fromtimestamp(2**31 - 1, dt.timezone.utc).isoformat() == "2038-01-19T03:14:07+00:00"
+a = dt.datetime(2026, 3, 8, 12, tzinfo=dt.timezone.utc)
+assert (a + dt.timedelta(days=1)).isoformat() == "2026-03-09T12:00:00+00:00"   # UTC days are always 24 h
+#+end_src
+
+** 6. Identifiers
+- *Auto-increment integers*: compact, ordered, guessable; need a coordinator in distributed systems.
+- *Random UUIDs* (v4, 122 random bits): collision-free in practice (birthday bound, see =01_discrete-mathematics.org=), but random inserts scatter across B-tree pages and hurt locality.
+- *Time-ordered identifiers* (UUIDv7 as defined in RFC 9562, ULID, Snowflake-style ids): a timestamp prefix keeps inserts roughly sequential and allows sorting by creation time, at the cost of leaking creation time and needing care when clocks go backward.
+- *Content-addressed ids* (hash of the content: Git objects, container layers, IPFS) give deduplication and integrity checking; changing content changes the id.
+- Never use sequential ids as the only authorization check; never expose internal ids if enumeration is a risk. Represent 64-bit ids as strings in JSON consumed by JavaScript, since doubles lose integer precision above 2^53.
+
+** 7. Serialization and schema evolution
+Data crosses boundaries (processes, machines, versions of code), so its representation is an API.
+| Format              | Style                                | Notes                                                                   |
+|---------------------+--------------------------------------+-------------------------------------------------------------------------|
+| JSON (RFC 8259)     | Text, self-describing                | Ubiquitous and readable; numbers have no defined precision (doubles in JavaScript); no binary type; duplicate keys undefined; large integers and dates need conventions |
+| XML, YAML, TOML     | Text                                 | XML heavy; YAML has surprising implicit typing and many parsers; TOML for configuration |
+| CBOR, MessagePack   | Binary, schemaless                   | Compact JSON-like data model with binary strings                        |
+| Protocol Buffers    | Binary, schema                       | Field numbers and varints; compatible evolution rules; code generation  |
+| Avro                | Binary, schema carried or registered | Reader and writer schemas resolved at read time; common in data pipelines |
+| FlatBuffers, Cap'n Proto | Binary, zero-copy               | Read in place without parsing; layout constraints                       |
+| Apache Arrow, Parquet | Columnar                           | Analytics: compression, vectorized scans                                |
+| ASN.1 (DER), X.509  | Binary                               | Used in certificates; strict encodings for signing                      |
+
+Principles:
+- *Schema evolution*: design for old readers with new data and new readers with old data. Safe changes: add optional fields with defaults, never reuse a field number or name for a different meaning, avoid changing types, deprecate before removing. Know your format's rules (Protocol Buffers: do not renumber fields; treat enum unknowns safely).
+- *Self-describing versus schema-based*: self-describing is easy to debug and bulky; schema-based is compact and fast, requires schema distribution and versioning discipline.
+- *Canonical encoding*: signing and hashing require a unique byte representation for a value (sorted keys, normalized numbers and strings); JSON and many formats are not canonical by default (use a defined canonicalization or a format designed for it).
+- *Byte order and widths*: specify them in the format (network byte order, fixed-width or varint integers); never rely on in-memory layout.
+- *Validation and limits*: bound sizes, nesting depth, and counts before parsing untrusted input; reject unknown critical fields; beware parser differentials (two parsers reading the same bytes differently) in security-sensitive code.
+- *Text versus binary*: text costs bytes and parse time and wins on debuggability and interoperability; binary wins on size and speed. Measure before switching, and compress at the transport level where appropriate.
+
+** 8. Information, compression, and error detection
+- *Entropy* H = -sum p(x) log2 p(x) is the average information per symbol: a lower bound (in bits) on lossless coding for a source. Data with patterns has low entropy and compresses; random or encrypted data does not (and /must/ compress before encrypting, not after).
+- *Huffman coding* assigns shorter codes to frequent symbols: optimal among prefix codes with an integer number of bits per symbol; average length is within one bit of entropy. *Arithmetic coding and ANS* approach entropy more closely. *LZ77/LZ78 families* (DEFLATE in gzip and zlib, LZ4, Zstandard) replace repeated substrings with references; modern codecs combine them with entropy coding. Trade-offs: ratio versus speed versus memory. *Columnar layout* and *dictionary/delta/run-length encoding* make analytic data compress well.
+- *Checksums, CRCs, and hashes*: a CRC detects accidental errors (burst errors in storage and networks) with a cheap computation; non-cryptographic hashes (xxHash, MurmurHash) are for hash tables and fingerprints; cryptographic hashes (SHA-2, SHA-3, BLAKE3) resist adversaries. Do not use a CRC for security or a cryptographic hash where a CRC suffices.
+- *Error-correcting codes*: parity bits detect single-bit errors; Hamming codes correct them; Reed-Solomon and LDPC codes correct bursts (storage, QR codes, networking, ECC memory). Erasure coding stores data with less overhead than replication.
+- *Base encodings*: hexadecimal doubles size; Base64 expands by 4/3 (3 bytes become 4 characters); use the URL-safe alphabet in URLs; encoding is not encryption.
+
+#+begin_src python
+import math, heapq, collections, zlib, base64
+
+def entropy(s):
+    n = len(s)
+    return -sum(c / n * math.log2(c / n) for c in collections.Counter(s).values())
+
+def huffman_lengths(s):
+    heap = [(w, i, {ch: 0}) for i, (ch, w) in enumerate(collections.Counter(s).items())]
+    heapq.heapify(heap)
+    nxt = len(heap)
+    while len(heap) > 1:
+        w1, _, a = heapq.heappop(heap)
+        w2, _, b = heapq.heappop(heap)
+        merged = {k: v + 1 for k, v in {**a, **b}.items()}
+        heapq.heappush(heap, (w1 + w2, nxt, merged))
+        nxt += 1
+    return heap[0][2]
+
+text = "abracadabra"
+lengths = huffman_lengths(text)
+avg = sum(lengths[ch] for ch in text) / len(text)
+assert entropy(text) <= avg < entropy(text) + 1                  # within one bit of entropy
+
+assert zlib.crc32(b"hello") == 0x3610A686
+assert len(base64.b64encode(bytes(30))) == 40                    # 4/3 expansion
+repetitive = b"ab" * 5000
+assert len(zlib.compress(repetitive)) < len(repetitive) // 20    # patterns compress
+#+end_src
+
+** 9. Layout and performance
+- *Struct layout*: field order changes size through padding; hot fields together; consider =u32= indices in place of pointers.
+- *Row-oriented versus columnar*: row layout suits transactional access to whole records; columnar suits scans of a few attributes across many rows and compresses better (Parquet, Arrow, column stores).
+- *Array of structs versus struct of arrays* (=11_memory-management.org=): choose by access pattern.
+- *Tagging tricks*: pointer tagging (spare low bits), NaN boxing (smuggle values in double NaN payloads), small-string optimization, interning, and tagged unions keep dynamic values compact.
+- *Bitmaps and succinct structures*: bitsets, Roaring bitmaps, wavelet trees, rank/select structures store large sets in little space.
+- *Memory-mapped and zero-copy formats*: files laid out so they can be used in place (FlatBuffers, Arrow, SSTables) skip parsing, at the cost of stricter layout and versioning.
+- *Parsing cost*: JSON parsing is often the bottleneck of services; streaming and SIMD parsers help; do not parse what you only forward.
+
+** 10. Staff-level pitfalls in data modeling
+- *Primitive obsession*: raw strings and integers for money, units, ids, emails, and timestamps; use dedicated types (=10_type-systems.org=). Mars Climate Orbiter was lost partly through a unit mismatch between systems.
+- *Boundary conversions*: JavaScript numbers (doubles) versus 64-bit ids; database decimal versus float; Excel and CSV silently reformatting data; locale decimal commas; time zones lost when dates are stored as strings.
+- *Lossy round trips*: serialize, deserialize, and compare as a property test for every format you own.
+- *Nulls and defaults*: distinguish "absent", "null", and "default"; schema languages differ.
+- *Irreversible choices*: identifier schemes, time representation, and partition keys are expensive to change; decide with the migration cost in mind.
+- *Migration discipline*: expand then contract (add the new field, dual write, backfill, switch readers, remove the old); version APIs and data; keep readers tolerant and writers conservative.
+
+** 11. Self-check
+1. Why does =0.1 + 0.2 != 0.3= in binary floating point? What is the next double after 1.0, and what is the spacing near 10^16?
+2. A service stores money as =double=. Describe two failures that will appear and how you would migrate.
+3. Explain the difference between a byte, a code point, and a grapheme cluster, and give a bug caused by confusing each pair.
+4. Compute the two's complement encoding of -37 in 8 bits and the result of 100 + 100 in an 8-bit signed integer.
+5. You must add a field to a Protocol Buffers message used by many services. What rules keep the rollout safe?
+6. A scheduled job runs daily at 02:30 local time. What goes wrong on days when daylight-saving time starts or ends, and how do you design around it?
+7. Why can UUID v4 primary keys slow inserts into a B-tree-indexed table, and what are alternatives?
+8. When does compressing before encrypting leak information? (Search for the CRIME and BREACH attacks.)
+
+** 12. Exercises
+- Warm-up: write functions to print the bit fields of float and double values and decode them manually; verify against =struct=.
+- Core: implement UTF-8 encode and decode with full validation (overlong, surrogates, range) and fuzz it against your language's decoder.
+- Core: implement Base64 and varints; test round trips with random data.
+- Core: implement Huffman coding with canonical codes and a bit-level writer; compare with =zlib=.
+- Core: implement a tiny schema-based binary serializer with field tags and compatible evolution; write the compatibility tests (old reader with new data and vice versa).
+- Stretch: implement Kahan and pairwise summation and measure the errors on adversarial inputs; implement exact decimal arithmetic with integers.
+- Stretch: implement a ring buffer and an on-disk record format with checksums and crash-safe appends; test by truncating the file at every byte offset.
+- Stretch: implement a LEB128-based columnar encoding with delta and run-length compression and compare with Parquet on a sample dataset.
+
+** 13. Resources
+- Goldberg, /What Every Computer Scientist Should Know About Floating-Point Arithmetic/ (ACM Computing Surveys, 1991; reproduced as an appendix of Sun/Oracle's numerical computation guide): https://docs.oracle.com/cd/E19957-01/816-2464/ncg_goldberg.html
+- IETF RFC 3629, /UTF-8, a transformation format of ISO 10646/: https://www.rfc-editor.org/rfc/rfc3629 ; the Unicode Standard and its technical reports on normalization and security.
+- Bryant and O'Hallaron, /Computer Systems: A Programmer's Perspective/, chapter 2 (representing and manipulating information); Warren, /Hacker's Delight/; Kleppmann, /Designing Data-Intensive Applications/, chapter 4 (encoding and evolution).
+- IEEE 754-2019 (floating-point arithmetic standard); RFC 8259 (JSON); RFC 3339 (timestamps); RFC 9562 (UUIDs); the Protocol Buffers documentation on updating message types.
+- Drepper, /What Every Programmer Should Know About Memory/: http://people.redhat.com/drepper/cpumemory.pdf
+- MIT /Mathematics for Computer Science/ for the counting behind collisions and codes: https://ocw.mit.edu/courses/6-042j-mathematics-for-computer-science-spring-2015/resources/mit6_042js15_textbook_pdf/
+
+** What to remember
+- Two's complement, endianness, and alignment are the vocabulary of binary data; encode byte order explicitly.
+- Floats are inexact by design: tolerances, stable formulas, and decimal or integer types for money.
+- Text has three lengths; use UTF-8 and normalize at the boundary.
+- Store instants in UTC with a zone name when needed; measure intervals with a monotonic clock.
+- Serialization formats are APIs: design for evolution, canonical encoding, and bounded parsing.

@@ -1,0 +1,204 @@
+#+title: Rust Iterators
+#+startup: overview
+
+* Rust Iterators
+Iterators are Rust's idiom for loops over data. They are lazy, composable, and compile to the same machine code as hand-written loops.
+
+** 1. The Iterator trait
+#+begin_src rust
+trait Iterator {
+    type Item;
+    fn next(&mut self) -> Option<Self::Item>;       // everything else builds on this
+    // ... dozens of provided methods
+}
+#+end_src
+
+An iterator yields =Some(item)= until it is exhausted, then =None=. A =for= loop is sugar over =IntoIterator=:
+
+#+begin_src rust
+for x in collection { body }
+// is roughly
+let mut it = IntoIterator::into_iter(collection);
+while let Some(x) = it.next() { body }
+#+end_src
+
+** 2. Three ways to iterate a collection
+#+begin_src rust
+let mut v = vec![1, 2, 3];
+
+for x in v.iter()      { }    // x: &i32       shared references; v remains usable
+for x in v.iter_mut()  { *x += 1; }   // x: &mut i32   exclusive references
+for x in v.into_iter() { }    // x: i32        takes ownership; v is moved
+
+for x in &v     { }           // same as v.iter()
+for x in &mut v { }           // same as v.iter_mut()
+for x in v      { }           // same as v.into_iter()
+#+end_src
+
+Know which one you have: =iter()= on a =Vec<String>= yields =&String=, so closures receive references, and you may need =cloned()=, =copied()=, or a dereference.
+
+** 3. Adaptors (lazy)
+Adaptors return a new iterator and do no work until consumed.
+
+#+begin_src rust
+let v = vec![1, 2, 3, 4, 5, 6];
+
+v.iter().map(|x| x * 2);                    // transform
+v.iter().filter(|x| **x % 2 == 0);          // keep matching (x: &&i32 here)
+v.iter().enumerate();                       // (index, item)
+v.iter().zip(w.iter());                     // pairs, stops at the shorter
+v.iter().skip(2).take(3);                   // slice of the stream
+v.iter().rev();                             // reverse (double-ended)
+v.iter().chain(w.iter());                   // concatenate
+v.iter().step_by(2);
+v.iter().take_while(|x| **x < 4);
+v.iter().skip_while(|x| **x < 4);
+v.iter().copied();                          // &i32 -> i32 (Copy types)
+v.iter().cloned();                          // &T -> T (Clone types)
+v.iter().peekable();                        // look at the next item without consuming it
+v.iter().flat_map(|x| vec![*x; 2]);         // map then flatten
+nested.iter().flatten();                    // one level of nesting
+v.iter().scan(0, |acc, x| { *acc += x; Some(*acc) });   // running state
+v.iter().inspect(|x| println!("{x}"));      // debug without changing the stream
+v.windows(2);                               // slice method: overlapping windows
+v.chunks(3);                                // slice method: non-overlapping chunks
+#+end_src
+
+Nothing above has run yet: an unused adaptor chain triggers a =#[must_use]= warning.
+
+** 4. Consumers
+#+begin_src rust
+let v = vec![3, 1, 4, 1, 5];
+
+v.iter().sum::<i32>();                      // 14
+v.iter().product::<i32>();
+v.iter().count();                           // 5
+v.iter().min();   v.iter().max();           // Option<&i32>
+v.iter().min_by_key(|x| (**x - 3).abs());
+v.iter().max_by(|a, b| a.cmp(b));
+v.iter().any(|&x| x > 4);                   // true
+v.iter().all(|&x| x > 0);                   // true
+v.iter().find(|&&x| x > 3);                 // Some(&4)
+v.iter().position(|&x| x == 4);             // Some(2)
+v.iter().fold(0, |acc, x| acc + x);         // 14
+v.iter().copied().reduce(|a, b| a.max(b));  // Some(5): no initial value
+v.iter().last();
+v.iter().nth(2);
+v.iter().for_each(|x| println!("{x}"));
+#+end_src
+
+Floats have no =Ord=, so use =max_by(|a, b| a.partial_cmp(b).unwrap())= or =max_by(f64::total_cmp)= (with =copied()= or a dereference as needed).
+
+** 5. collect
+=collect= builds a collection from an iterator; the target type is chosen by annotation.
+
+#+begin_src rust
+use std::collections::{HashMap, HashSet};
+
+let doubled: Vec<i32> = v.iter().map(|x| x * 2).collect();
+let set: HashSet<i32> = v.iter().copied().collect();
+let text: String = vec!["a", "b"].into_iter().collect();           // "ab"
+let map: HashMap<_, _> = names.iter().zip(ages.iter()).collect();  // from (key, value) pairs
+let squares = (1..=3).map(|x| x * x).collect::<Vec<_>>();         // turbofish instead
+
+let parsed: Result<Vec<i32>, _> = "1 2 x".split(' ').map(str::parse::<i32>).collect();
+// Err at the first failure; Ok(vec) only if every item parses
+
+let all: Option<Vec<i32>> = vec![Some(1), Some(2)].into_iter().collect();   // Some([1, 2])
+
+let (evens, odds): (Vec<i32>, Vec<i32>) = v.iter().partition(|x| **x % 2 == 0);
+let (a, b): (Vec<_>, Vec<_>) = pairs.into_iter().unzip();
+#+end_src
+
+Collecting into =Result<Vec<_>, E>= or =Option<Vec<_>>= is the idiomatic way to stop at the first error.
+
+** 6. Writing your own iterator
+#+begin_src rust
+struct Countdown(u32);
+
+impl Iterator for Countdown {
+    type Item = u32;
+    fn next(&mut self) -> Option<u32> {
+        if self.0 == 0 { None } else { self.0 -= 1; Some(self.0 + 1) }
+    }
+}
+
+let v: Vec<u32> = Countdown(3).collect();            // [3, 2, 1]
+let s: u32 = Countdown(4).filter(|n| n % 2 == 0).sum();
+#+end_src
+
+Implement =Iterator= and you get every adaptor and consumer for free. To make =for x in &my_collection= work, implement =IntoIterator= for =&MyCollection=. Return an iterator without naming its type:
+
+#+begin_src rust
+fn evens(limit: u32) -> impl Iterator<Item = u32> {
+    (0..limit).filter(|n| n % 2 == 0)
+}
+
+fn lines_of<'a>(text: &'a str) -> impl Iterator<Item = &'a str> + 'a {
+    text.lines().map(|l| l.trim())
+}
+#+end_src
+
+Sources of iterators without a collection: =std::iter::repeat(x)=, =repeat_with=, =once=, =empty=, =from_fn(|| ...)=, =successors(first, |prev| ...)=.
+
+** 7. Laziness and performance
+- Adaptors do nothing until a consumer pulls items; a chain runs element by element with no intermediate collections.
+- The optimizer inlines the closures and typically removes bounds checks, so an iterator chain is as fast as a manual loop (and often faster).
+- Do not =collect()= in the middle of a chain unless you need the collection; collecting to a =Vec= to call =.len()= or iterate again wastes allocation.
+- Iterators can be infinite; pair them with =take=, =take_while=, or =find=.
+- Side effects inside =map= happen only when consumed; use =for= or =for_each= for effects.
+- For CPU-bound work on large data, the =rayon= crate turns =.iter()= into =.par_iter()= with the same adaptors.
+
+** 8. Borrowing and reference pitfalls
+#+begin_src rust
+let mut v = vec![1, 2, 3];
+
+let big: Vec<&i32> = v.iter().filter(|x| **x > 1).collect();     // closure gets &&i32
+let big: Vec<i32>  = v.iter().copied().filter(|x| *x > 1).collect();   // simpler after copied()
+let big: Vec<i32>  = v.iter().filter(|&&x| x > 1).copied().collect();  // pattern in the closure
+
+for x in v.iter() {
+    // v.push(*x);        // error: v is borrowed by the iterator
+}
+
+v.retain(|x| *x != 2);          // remove in place (on a mutable vec)
+let drained: Vec<i32> = v.drain(..).collect();      // take all items out, leaving v empty
+#+end_src
+
+The borrow checker forbids mutating a collection while an iterator over it is alive (C's iterator invalidation). Use =retain=, =drain=, indices, or collect the changes first and apply them afterwards.
+
+** 9. Recipes
+#+begin_src rust
+// word frequencies
+let mut freq: HashMap<&str, usize> = HashMap::new();
+for w in text.split_whitespace() { *freq.entry(w).or_insert(0) += 1; }
+
+// top 3 by count
+let mut pairs: Vec<_> = freq.into_iter().collect();
+pairs.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
+let top: Vec<_> = pairs.into_iter().take(3).collect();
+
+// sort by a key; remove duplicates
+v.sort_by_key(|x| std::cmp::Reverse(*x));
+v.sort(); v.dedup();
+
+// adjacent pairs
+let diffs: Vec<i32> = v.windows(2).map(|w| w[1] - w[0]).collect();
+
+// parse lines of numbers, propagating errors
+let nums: Vec<i32> = input.lines().map(|l| l.trim().parse()).collect::<Result<_, _>>()?;
+
+// index and value
+for (i, ch) in "héllo".chars().enumerate() { }
+
+// min and max in one pass
+let (lo, hi) = v.iter().fold((i32::MAX, i32::MIN), |(lo, hi), &x| (lo.min(x), hi.max(x)));
+#+end_src
+
+** What to remember
+- =iter()=, =iter_mut()=, =into_iter()= yield references, mutable references, and owned values.
+- Adaptors are lazy; consumers (=collect=, =sum=, =for=) run the chain.
+- =collect= needs a target type; =Result<Vec<_>, E>= stops at the first error.
+- Implement =next= and the whole adaptor library is yours.
+- Closures over =iter()= receive references (=&&T= for =filter=); use =copied()= or patterns.
+- Chains compile to tight loops; do not collect needlessly.

@@ -1,0 +1,219 @@
+#+title: Rust Modules, Crates, and Conditional Compilation
+#+startup: overview
+
+* Rust Modules, Crates, and Conditional Compilation
+Where C has header files and the preprocessor, Rust has a module tree, visibility rules, and attribute-based conditional compilation.
+
+** 1. Packages, crates, and modules
+- A *package* is what =Cargo.toml= describes. It holds one or more crates.
+- A *crate* is one compilation unit: a library (=src/lib.rs=) or a binary (=src/main.rs=, or files in =src/bin/=).
+- A *module* is a namespace inside a crate; modules form a tree rooted at the crate root.
+
+#+begin_src text
+demo/
+├── Cargo.toml
+└── src/
+    ├── main.rs          # binary crate root
+    ├── lib.rs           # library crate root (optional; shares the package)
+    ├── config.rs        # mod config;
+    ├── net/
+    │   ├── mod.rs       # mod net;   (or net.rs next to a net/ directory)
+    │   └── tcp.rs       # mod tcp; declared inside net
+    └── bin/
+        └── tool.rs      # an extra binary
+#+end_src
+
+** 2. Declaring modules
+A file is part of the crate only if some =mod= declaration names it. Writing a file does not include it.
+
+#+begin_src rust
+// src/main.rs or src/lib.rs
+mod config;              // loads src/config.rs (or src/config/mod.rs)
+mod net;                 // loads src/net.rs or src/net/mod.rs
+mod util {               // an inline module
+    pub fn double(x: i32) -> i32 { x * 2 }
+}
+
+// src/net.rs (or src/net/mod.rs)
+pub mod tcp;             // loads src/net/tcp.rs
+#+end_src
+
+Since the 2018 edition, =src/net.rs= together with a =src/net/= directory is the preferred layout; the older =net/mod.rs= still works. A forgotten =mod= line is the most common reason for "unresolved import" or for a file that seems to be ignored.
+
+** 3. Paths and use
+#+begin_src rust
+crate::config::load();           // absolute path from the crate root
+self::helper();                  // relative to the current module
+super::shared();                 // the parent module
+std::collections::HashMap::new();// path into the standard library
+
+use std::collections::{HashMap, HashSet};     // bring names into scope
+use std::io::{self, Read};                    // self: the module itself plus Read
+use std::fmt::Result as FmtResult;            // rename
+use crate::net::tcp::*;                       // glob: avoid except in preludes and tests
+
+pub use crate::net::tcp::Connection;          // re-export: make it part of this module's API
+#+end_src
+
+=use= creates a name alias in the current scope; it does not load or run anything. Import types and traits by name, but call functions through their module (=config::load()= reads better than =load()=). Names from outside the crate begin with the crate name (=serde::Serialize=); add the crate in =Cargo.toml= first.
+
+** 4. Visibility
+Everything is private to its module by default. Privacy is by module, not by type:
+
+| Modifier         | Visible to                                          |
+|------------------+-----------------------------------------------------|
+| (none)           | The current module and its descendants              |
+| =pub=            | Everyone who can reach the module                   |
+| =pub(crate)=     | The whole crate                                     |
+| =pub(super)=     | The parent module                                   |
+| =pub(in path)=   | A specific ancestor module                          |
+
+#+begin_src rust
+mod bank {
+    pub struct Account {
+        pub owner: String,          // fields are private unless marked pub
+        balance: i64,
+    }
+
+    impl Account {
+        pub fn new(owner: &str) -> Self { Account { owner: owner.into(), balance: 0 } }
+        pub fn balance(&self) -> i64 { self.balance }
+    }
+
+    pub enum Kind { Checking, Savings }    // all variants of a pub enum are public
+}
+#+end_src
+
+A struct with a private field cannot be built with a struct literal outside its module, so constructors (=new=) enforce invariants. A child module can see its parent's private items; a parent cannot see its child's private items.
+
+** 5. Designing a public API
+- Expose a small surface from the crate root with =pub use=, hiding the internal module layout so you can reorganize without breaking users.
+- Mark enums and structs that may grow with =#[non_exhaustive]=; downstream crates must then handle unknown variants or fields.
+- Keep helper modules private, or =pub(crate)=.
+- Document every public item (=///=) and add examples as doc tests.
+- Follow semver: removing or changing public items needs a major version bump (=0.x= releases treat minor bumps as breaking).
+
+** 6. Conditional compilation
+=#[cfg(...)]= includes or removes an item at compile time, replacing =#ifdef=. =cfg!(...)= yields a boolean constant.
+
+#+begin_src rust
+#[cfg(target_os = "linux")]
+fn platform() -> &'static str { "linux" }
+
+#[cfg(not(target_os = "linux"))]
+fn platform() -> &'static str { "other" }
+
+#[cfg(all(unix, target_pointer_width = "64"))]
+mod fast_path { }
+
+#[cfg(debug_assertions)]
+fn trace(msg: &str) { eprintln!("{msg}"); }
+#[cfg(not(debug_assertions))]
+fn trace(_: &str) {}
+
+if cfg!(windows) { /* both branches are type-checked */ }
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]   // apply an attribute conditionally
+struct Config { port: u16 }
+
+#[cfg(test)]
+mod tests { /* compiled only for cargo test */ }
+#+end_src
+
+Common predicates: =unix=, =windows=, =target_os=, =target_arch=, =target_pointer_width=, =target_endian=, =debug_assertions=, =test=, =feature = "name"=, combined with =all()=, =any()=, =not()=. A =#[cfg]= item is removed before type checking, so it need not compile on other platforms, while code in an =if cfg!(...)= branch must compile everywhere.
+
+| C preprocessor                  | Rust                                            |
+|---------------------------------+-------------------------------------------------|
+| =#ifdef __linux__=              | =#[cfg(target_os = "linux")]=                   |
+| =#ifdef NDEBUG=                 | =#[cfg(debug_assertions)]=                      |
+| =-DFEATURE=                     | =--features feature=                            |
+| =#define MAX 100=                | =const MAX: u32 = 100;=                         |
+| function-like macro             | Generic function, or =macro_rules!= (see =11_macros.org=) |
+| =#include "x.h"=                | =mod x;= plus =use=                             |
+
+** 7. Cargo features
+Features are named, additive switches for optional code and dependencies.
+
+#+begin_src toml
+[features]
+default = ["json"]
+json = ["dep:serde_json"]
+tls = []
+
+[dependencies]
+serde_json = { version = "1", optional = true }
+#+end_src
+
+#+begin_src rust
+#[cfg(feature = "json")]
+pub mod json;
+#+end_src
+
+#+begin_src sh
+cargo build --features tls
+cargo build --no-default-features --features json
+#+end_src
+
+Features must be /additive/: enabling one must never break code that works without it, since Cargo unifies the features requested by every crate in the dependency graph.
+
+** 8. Dependencies and workspaces
+#+begin_src toml
+[dependencies]
+serde = { version = "1", features = ["derive"] }   # semver-compatible: ^1
+rand = "0.8"                                       # shorthand for ^0.8
+mylib = { path = "../mylib" }                      # local crate
+other = { git = "https://example.com/other.git" }  # git dependency
+
+[dev-dependencies]
+criterion = "0.5"                                  # only for tests, examples, benches
+
+[build-dependencies]
+cc = "1"                                           # used by build.rs
+#+end_src
+
+- =Cargo.lock= pins exact versions: commit it for binaries (and for reproducible CI); libraries commonly leave it out of version control.
+- =cargo add serde=, =cargo update=, and =cargo tree= (shows the dependency graph, =-d= shows duplicates) manage dependencies.
+- A *workspace* shares one lock file and one =target/= directory among several crates:
+
+#+begin_src toml
+# Cargo.toml at the root
+[workspace]
+members = ["app", "core", "tools/*"]
+resolver = "2"
+
+[workspace.dependencies]
+serde = "1"
+
+# member's Cargo.toml
+[dependencies]
+serde = { workspace = true }
+#+end_src
+
+- A *build script* =build.rs= runs before compilation and can compile C code (with the =cc= crate), generate files, or emit =cargo:rustc-cfg=...= lines (see =13_unsafe-and-ffi.org=).
+
+** 9. Constants, statics, and const fn
+#+begin_src rust
+pub const MAX_CONN: usize = 128;          // inlined at each use
+pub static VERSION: &str = "1.0";         // one memory location
+const fn square(n: u32) -> u32 { n * n }  // callable in constant contexts
+const SQ: u32 = square(12);
+static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+#+end_src
+
+Use =const= for values, =static= for a single shared location. A =static= must be =Sync=; mutable global state goes through atomics, =Mutex=, or =OnceLock=. Avoid =static mut=, which is =unsafe= to touch.
+
+** 10. Troubleshooting
+| Symptom                                   | Likely cause                                            |
+|-------------------------------------------+---------------------------------------------------------|
+| "unresolved import" / "file not found for module" | Missing =mod= declaration or wrong file path     |
+| "function is private"                     | Missing =pub= (or =pub(crate)=) on the item or its module |
+| "cannot find crate"                       | Dependency not in =Cargo.toml=                          |
+| Unexpected extra features enabled         | Another crate in the graph enabled them (=cargo tree -e features=) |
+| A =#[cfg]= block never compiles           | Feature or target name misspelled; check =cargo build -v= |
+
+** What to remember
+- A file joins the crate only through a =mod= declaration; =use= only creates names.
+- Privacy is per module; =pub(crate)= is the middle ground; re-export with =pub use= to shape the API.
+- =#[cfg]= removes code before type checking; =cfg!= is a constant boolean and both branches compile.
+- Features are additive; =Cargo.lock= pins versions; workspaces share builds.
+- Use =const= for values and =OnceLock= / atomics / =Mutex= for globals.

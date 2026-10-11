@@ -1,0 +1,252 @@
+#+title: Learn C++
+#+startup: overview
+
+* Learn C++
+Target: C++20. Where a feature needs a newer standard, it is marked.
+
+** 1. Program and build
+#+begin_src cpp
+#include <iostream>
+
+int main() {
+    std::cout << "hello\n";
+}
+#+end_src
+
+#+begin_src sh
+c++ -std=c++20 -Wall -Wextra -Wpedantic -g hello.cpp -o hello
+#+end_src
+
+=std::print= / =std::println= (=<print>=) arrive in C++23. C++ is not a superset of C: it is a different language that shares much of the syntax, and C idioms (=malloc=, raw arrays, =char *= strings) are usually the wrong tool.
+
+** 2. Types, auto, and initialization
+#+begin_src cpp
+int    a = 42;
+double d = 3.14;
+bool   ok = true;
+auto   x = 10;          /* deduced as int */
+auto   s = std::string{"hi"};
+
+int b{5};               /* brace initialization */
+int c = 3.5;            /* allowed: truncates to 3 */
+int e{3.5};             /* error: braces forbid narrowing */
+#+end_src
+
+Prefer brace initialization: it rejects narrowing conversions and avoids the "most vexing parse". Use =auto= when the type is obvious or noisy, not to hide it.
+
+** 3. References and pointers
+#+begin_src cpp
+int x = 10;
+int &r = x;        /* reference: another name for x; must be bound at init */
+r = 20;            /* x is now 20 */
+int *p = &x;       /* pointer: can be null and can be reseated */
+#+end_src
+
+References cannot be null or reseated. Prefer them for parameters; use pointers when "no object" is a valid state. Prefer =nullptr= over =NULL= or =0=.
+
+#+begin_src cpp
+void print(const std::string &s);   /* read-only, no copy */
+void fill(std::vector<int> &v);     /* modifies caller's vector */
+void take(std::string s);           /* by value: a copy, or a move */
+#+end_src
+
+** 4. const and constexpr
+#+begin_src cpp
+const int limit = 100;               /* cannot be modified */
+constexpr int sq(int n) { return n * n; }
+constexpr int k = sq(8);             /* computed at compile time */
+static_assert(k == 64);
+#+end_src
+
+A =const= member function promises not to modify the object:
+
+#+begin_src cpp
+struct Counter {
+    int n = 0;
+    int get() const { return n; }
+    void inc() { ++n; }
+};
+#+end_src
+
+** 5. Functions
+#+begin_src cpp
+int add(int a, int b) { return a + b; }
+double add(double a, double b) { return a + b; }   /* overload */
+
+void greet(const std::string &name, const std::string &hi = "Hello");
+#+end_src
+
+Overloads are chosen at compile time by argument types. Default arguments are filled in at the call site.
+
+** 6. Classes and structs
+=struct= and =class= differ only in default access (public vs private).
+
+#+begin_src cpp
+class Account {
+public:
+    Account(std::string owner, long cents)
+        : owner_(std::move(owner)), cents_(cents) {}
+
+    long balance() const { return cents_; }
+    void deposit(long c) { cents_ += c; }
+
+private:
+    std::string owner_;
+    long cents_;
+};
+
+Account a{"Ada", 1000};
+a.deposit(500);
+#+end_src
+
+Members are initialized in declaration order, not in the order written in the initializer list. Mark single-argument constructors =explicit= unless you want implicit conversion.
+
+** 7. RAII and the rule of zero
+Resources (memory, files, locks, sockets) are tied to object lifetime: acquired in the constructor, released in the destructor, which runs automatically at scope exit, including during exceptions.
+
+#+begin_src cpp
+{
+    std::ifstream f("data.txt");     /* opened */
+    std::lock_guard lock(mtx);       /* locked */
+}                                    /* both released here */
+#+end_src
+
+- *Rule of zero*: if all members manage themselves (=std::string=, =std::vector=, smart pointers), write none of the special members.
+- *Rule of five*: if you write any of destructor, copy constructor, copy assignment, move constructor, or move assignment, consider all five.
+
+** 8. Smart pointers
+#+begin_src cpp
+#include <memory>
+
+auto p = std::make_unique<Widget>(1, 2);   /* sole owner */
+auto q = std::move(p);                     /* ownership transferred; p is now null */
+
+auto s = std::make_shared<Widget>(1, 2);   /* shared ownership, ref-counted */
+#+end_src
+
+Avoid raw =new= / =delete=. Default to =unique_ptr=; use =shared_ptr= only when ownership is genuinely shared. A raw pointer or reference is fine for non-owning access.
+
+** 9. Move semantics
+A move transfers a resource instead of copying it.
+
+#+begin_src cpp
+std::vector<int> a = {1, 2, 3};
+std::vector<int> b = std::move(a);   /* b takes a's buffer */
+/* a is valid but unspecified: assign to it or destroy it, do not read it */
+#+end_src
+
+=std::move= does not move anything by itself; it casts to an rvalue reference so that the move constructor or assignment can be selected. Returning a local by value is already optimized (copy elision or move): write =return result;=, not =return std::move(result);=.
+
+** 10. Containers and algorithms
+#+begin_src cpp
+#include <vector>
+#include <string>
+#include <unordered_map>
+#include <algorithm>
+
+std::vector<int> v = {3, 1, 2};
+v.push_back(4);
+std::sort(v.begin(), v.end());
+
+std::unordered_map<std::string, int> m;
+m["a"] = 1;                              /* inserts a default value if missing */
+if (auto it = m.find("b"); it != m.end()) { /* found */ }
+
+for (int n : v) { /* iterate by value */ }
+for (auto &n : v) { n *= 2; }            /* by reference to modify */
+#+end_src
+
+Default to =std::vector=. Other common choices: =std::array= (fixed size), =std::map= (ordered), =std::unordered_map= (hashed), =std::set=.
+
+C++20 ranges:
+
+#+begin_src cpp
+#include <ranges>
+
+auto evens = v | std::views::filter([](int n) { return n % 2 == 0; })
+               | std::views::transform([](int n) { return n * n; });
+#+end_src
+
+** 11. Lambdas
+#+begin_src cpp
+auto add = [](int a, int b) { return a + b; };
+
+int factor = 3;
+auto scale = [factor](int x) { return x * factor; };   /* capture by value */
+auto bump  = [&factor]() { ++factor; };                /* capture by reference */
+#+end_src
+
+A lambda that captures by reference must not outlive the variables it refers to.
+
+** 12. Templates and concepts
+#+begin_src cpp
+template <typename T>
+T max_of(T a, T b) { return a < b ? b : a; }
+
+max_of(3, 4);        /* T = int */
+max_of(2.5, 1.0);    /* T = double */
+#+end_src
+
+Templates are instantiated at compile time for each type used. C++20 concepts state the requirements:
+
+#+begin_src cpp
+#include <concepts>
+
+template <std::integral T>
+T twice(T x) { return x * 2; }
+
+template <typename T>
+concept Printable = requires(T t) { std::cout << t; };
+#+end_src
+
+** 13. Strings and string_view
+#+begin_src cpp
+std::string s = "hello";
+s += " world";
+s.substr(0, 5);                    /* "hello" */
+
+void f(std::string_view sv);       /* non-owning view: no copy */
+#+end_src
+
+=std::string_view= does not own its characters. Do not let it outlive the string it points to, and do not store one that refers to a temporary.
+
+** 14. Error handling
+#+begin_src cpp
+#include <optional>
+#include <stdexcept>
+
+std::optional<int> parse(std::string_view s);   /* value or nothing */
+
+if (auto n = parse("42")) { use(*n); }
+
+void check(int x) {
+    if (x < 0) throw std::invalid_argument("negative");
+}
+
+try { check(-1); }
+catch (const std::exception &e) { std::cerr << e.what() << '\n'; }
+#+end_src
+
+Throw by value, catch by const reference. =std::expected<T, E>= (value or error) is C++23. Destructors must not throw.
+
+** 15. Common pitfalls
+- *Dangling references*: returning a reference to a local, or holding a reference or =string_view= to a temporary.
+- *Iterator invalidation*: =push_back= on a =vector= may invalidate all iterators and references into it.
+- *Slicing*: passing a derived object by value as its base type discards the derived part. Use references or pointers for polymorphism.
+- *Non-virtual destructor*: deleting a derived object through a base pointer needs =virtual ~Base()=.
+- *Undefined behavior* still exists: out-of-bounds =operator[]=, signed overflow, use after free, data races.
+- *Implicit conversions*: mark constructors =explicit=; beware bool/pointer/integer conversions.
+
+** 16. Tools
+#+begin_src sh
+c++ -std=c++20 -Wall -Wextra -g -fsanitize=address,undefined prog.cpp -o prog
+clang-tidy prog.cpp --
+#+end_src
+
+** What to remember
+- Prefer value types, RAII, and the standard library to manual memory management.
+- Pass by const reference to read, by reference to modify, by value to take or copy.
+- Default to =std::vector=, =std::string=, =unique_ptr=.
+- A move leaves the source valid but unspecified.
+- Templates are checked at instantiation; concepts make requirements explicit.
+- Compile with warnings and sanitizers; C++ does not remove undefined behavior.

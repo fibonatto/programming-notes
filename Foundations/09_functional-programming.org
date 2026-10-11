@@ -1,0 +1,247 @@
+#+title: Functional Programming
+#+startup: overview
+
+* Functional Programming
+** 0. Staff-level lens
+Functional programming (FP) is less a language choice than a set of habits that pay off in every language: immutability, pure functions, explicit effects, composition, and data modeled with sum types. At Staff scope you will:
+- apply FP principles to make large systems easier to test, reason about, and run concurrently, even in an object-oriented or imperative codebase;
+- recognize the cost model of immutability (allocation, GC pressure, copying) and when to localize mutation;
+- read and design abstractions such as Option/Result, map/flat-map pipelines, and effect boundaries;
+- evaluate languages (Haskell, OCaml, Scala, Lean, Clojure, Elixir, Rust's functional subset, TypeScript with fp libraries) for the right problems.
+Companion files: =10_type-systems.org= (the types that make FP safe), =08_paradigms.org=, =12_concurrency.org=, =07_theory-of-computation.org= (lambda calculus).
+
+** 1. Core ideas
+- *Pure function*: its result depends only on its arguments, and it has no observable side effects. *Referential transparency*: a call can be replaced by its value without changing behavior.
+- *Immutability*: values do not change; "updating" produces a new value. Eliminates a class of aliasing and ordering bugs.
+- *First-class and higher-order functions*: functions are values, passed to and returned from other functions (map, filter, fold, compose).
+- *Algebraic data types and pattern matching*: model data as sums (one of several variants) and products (several fields); consume it by exhaustive matching.
+- *Recursion and folds* replace loops; *laziness* (optional) separates producing from consuming.
+- *Effects at the edges*: keep the core pure; push I/O, time, randomness, and mutation to a thin outer layer ("functional core, imperative shell").
+
+** 2. Lambda calculus
+The lambda calculus is the smallest universal programming language (equivalent in power to Turing machines): terms are variables, abstractions (lambda x. e), and applications (e1 e2). Computation is /beta-reduction/: (lambda x. e) a reduces to e with a substituted for x (renaming bound variables to avoid capture: /alpha-conversion/).
+- *Evaluation strategies*: normal order (leftmost-outermost), call-by-name, call-by-value (arguments evaluated first; most languages), call-by-need (lazy with sharing; Haskell).
+- *Church encodings*: numbers, booleans, and pairs can be encoded as functions; a numeral n is "apply f n times".
+- *Fixed-point combinators* (Y, and its strict-language variant Z) give recursion without named recursion.
+- The /Church-Rosser theorem/ says reduction order does not change the normal form when one exists. The /simply typed/ lambda calculus is strongly normalizing but not Turing-complete (see =10_type-systems.org=).
+
+#+begin_src python
+zero = lambda f: lambda x: x
+succ = lambda n: lambda f: lambda x: f(n(f)(x))
+add = lambda m: lambda n: lambda f: lambda x: m(f)(n(f)(x))
+mul = lambda m: lambda n: lambda f: m(n(f))
+to_int = lambda n: n(lambda k: k + 1)(0)
+
+two = succ(succ(zero)); three = succ(two)
+assert to_int(add(two)(three)) == 5 and to_int(mul(two)(three)) == 6
+
+# Z combinator: recursion from nothing but lambdas (the strict-evaluation variant of Y)
+Z = lambda f: (lambda x: f(lambda v: x(x)(v)))(lambda x: f(lambda v: x(x)(v)))
+fact = Z(lambda rec: lambda n: 1 if n == 0 else n * rec(n - 1))
+assert fact(5) == 120
+#+end_src
+
+** 3. Folds, recursion schemes, and tail calls
+Most list processing is one of: *map* (transform each element), *filter*, and *fold* (reduce to a single value). A fold replaces each constructor of the data type with an operation: foldr f z [a, b, c] = f a (f b (f c z)). Anything defined by structural recursion on a list is a fold (a /catamorphism/); the dual, *unfold*, builds structures from a seed; generalizations are called recursion schemes.
+- *Left versus right fold*: right folds are lazy-friendly (they can short-circuit on infinite input); left folds with a strict accumulator run in constant space; a lazy left fold builds a chain of thunks.
+- *Tail calls*: a call in tail position can reuse the stack frame. Scheme, OCaml, and Haskell guarantee or optimize this; Python and most JVM languages do not, so deep recursion needs loops or trampolines; Rust and C compilers may optimize but do not guarantee it.
+- *Fusion*: compilers can merge map/filter/fold chains into one loop (Haskell's foldr/build, Rust's iterator adaptors).
+
+** 4. Algebraic data types
+#+begin_src text
+-- Haskell
+data Shape = Circle Double | Rect Double Double            -- sum of products
+
+area :: Shape -> Double
+area (Circle r) = pi * r * r
+area (Rect w h) = w * h
+
+data Maybe a = Nothing | Just a                            -- absence as a value
+data Either e a = Left e | Right a                         -- failure as a value
+#+end_src
+Engineering payoffs:
+- /Make illegal states unrepresentable/: model a connection as =Disconnected | Connecting of Attempt | Connected of Session= instead of a record with nullable fields and a status flag that can disagree.
+- Exhaustive matching turns a new variant into a compile error everywhere it matters.
+- =Option= / =Result= replace null and exceptions in the type signature, so callers cannot forget the failure case.
+- Immutable records with updates ("copy with") keep values safe to share.
+
+** 5. Abstractions: functor, applicative, monad
+These are interfaces (type classes, traits) for "computation in a context". They are patterns to learn by example, not mysticism.
+| Abstraction  | Operation                                      | Meaning                                                      |
+|--------------+------------------------------------------------+--------------------------------------------------------------|
+| Functor      | map: (a -> b) -> F a -> F b                    | Transform the contents, keep the shape                       |
+| Applicative  | pure, and apply: F (a -> b) -> F a -> F b      | Combine independent computations in a context                |
+| Monad        | return, and bind: F a -> (a -> F b) -> F b     | Sequence computations where later ones depend on earlier results |
+| Monoid       | empty and combine, with associativity          | Aggregate: sums, concatenation, merges (parallel-friendly)   |
+| Foldable / Traversable | fold, traverse                       | Reduce a structure; map with effects and collect the context |
+
+*Laws* make the abstractions reliable: functor identity and composition; monad left identity (return a >>= f is f a), right identity (m >>= return is m), and associativity. Code written against the interface works for every instance (Maybe, lists, Either, parsers, state, I/O, asynchronous tasks, probability distributions).
+
+Familiar instances in mainstream languages: =Option.map= / =flatMap=; =Promise.then= (a monad-like bind); iterator chains; =Result= with =?= (Rust) as monadic sequencing for errors; LINQ; async/await as syntax for monadic sequencing.
+
+#+begin_src python
+# Option as a monad: None means failure; bind short-circuits.
+def bind_opt(m, f):
+    return None if m is None else f(m)
+
+def safe_div(a, b):
+    return None if b == 0 else a / b
+
+assert bind_opt(safe_div(10, 2), lambda x: safe_div(x, 5)) == 1.0
+assert bind_opt(safe_div(10, 0), lambda x: safe_div(x, 5)) is None
+unit = lambda x: x
+f = lambda x: safe_div(x, 4)
+assert bind_opt(unit(8), f) == f(8)                       # left identity
+assert bind_opt(safe_div(8, 2), unit) == safe_div(8, 2)   # right identity
+
+# State monad: a computation is a function from a state to (result, new state).
+def unit_s(x): return lambda s: (x, s)
+def bind_s(m, f): return lambda s: (lambda r: f(r[0])(r[1]))(m(s))
+get = lambda s: (s, s)
+put = lambda v: lambda s: (None, v)
+
+def tick():
+    return bind_s(get, lambda n: bind_s(put(n + 1), lambda _: unit_s(n)))
+
+prog = bind_s(tick(), lambda a: bind_s(tick(), lambda b: unit_s((a, b))))
+assert prog(10) == ((10, 11), 12)                         # state threaded without mutation
+#+end_src
+
+** 6. Purity, effects, and state
+Real programs need effects. FP languages manage them explicitly:
+- *The I/O monad* (Haskell): an action of type =IO a= is a description of an effect; only the runtime executes it. Purity is preserved because evaluation never performs effects.
+- *Effect systems and algebraic effects* (Koka, OCaml 5 effect handlers, Eff, research languages): declare and handle effects compositionally, an alternative to monad transformers.
+- *State without mutation*: thread state through functions (State monad), or keep mutation local and encapsulated (Haskell's =ST=, Rust's ownership) so that it cannot leak.
+- *Architectures*: the Elm architecture and Redux (a pure =update: (state, event) -> state= plus effect descriptions), event sourcing (state is a fold over an append-only log), CQRS, and reactive pipelines are FP ideas applied to systems.
+- *Persistent data structures* (=05_data-structures.org=) make "copy on update" affordable through structural sharing.
+
+** 7. Laziness
+Lazy evaluation (call-by-need) delays computing a value until it is demanded, then caches it.
+- Benefits: define infinite structures (=take 5 (iterate (*2) 1)=), compose pipelines without intermediate lists, avoid unnecessary work, write control-flow combinators as ordinary functions (the =myIf= example in the Haskell notes).
+- Costs: unpredictable evaluation order complicates reasoning about space and time; /space leaks/ (thunk chains from lazy accumulators); harder profiling; interaction with side effects (hence purity). Strictness annotations and strict data fields repair hot spots.
+- Strict languages offer opt-in laziness (iterators, generators, =Lazy<T>=, streams).
+
+** 8. Equational reasoning, parametricity, and testing
+- *Equational reasoning*: because of purity you can substitute equals for equals to prove properties and to refactor safely (map f . map g equals map (f . g)).
+- *Parametricity* ("theorems for free", Wadler): a polymorphic function's type restricts its behavior: any function of type =[a] -> [a]= can only rearrange, drop, or duplicate elements, never inspect them.
+- *Property-based testing* (QuickCheck and descendants: Hypothesis, proptest, fast-check): state laws as properties (reverse (reverse xs) == xs; sorted output is a permutation of the input) and let the framework generate hundreds of cases and shrink counterexamples. This is the cheapest formal-ish technique and works in every language.
+
+#+begin_src python
+import random
+
+def prop_reverse_involution(xs):
+    return list(reversed(list(reversed(xs)))) == xs
+
+def prop_sort_ok(xs):
+    out = sorted(xs)
+    return all(a <= b for a, b in zip(out, out[1:])) and sorted(out) == out and len(out) == len(xs)
+
+random.seed(8)
+for _ in range(500):
+    xs = [random.randint(-50, 50) for _ in range(random.randint(0, 30))]
+    assert prop_reverse_involution(xs) and prop_sort_ok(xs)
+#+end_src
+
+** 9. Parser combinators
+A parser is a function from input to parsed values plus remaining input; combinators build bigger parsers from smaller ones (sequence, alternative, many). They show monads in action and give readable, composable grammars (=07_theory-of-computation.org=).
+
+#+begin_src python
+def sat(pred):
+    return lambda s: [(s[0], s[1:])] if s and pred(s[0]) else []
+
+def ret(v):
+    return lambda s: [(v, s)]
+
+def bind(p, f):
+    return lambda s: [x for v, r in p(s) for x in f(v)(r)]
+
+def alt(p, q):
+    return lambda s: p(s) or q(s)
+
+def many(p):
+    def parse(s):
+        out = []
+        while (r := p(s)):
+            v, s = r[0]
+            out.append(v)
+        return [(out, s)]
+    return parse
+
+digit = sat(str.isdigit)
+number = bind(digit, lambda d: bind(many(digit), lambda ds: ret(int(d + "".join(ds)))))
+tok = lambda c: sat(lambda x: x == c)
+
+def chainl(p, op):                                    # p (op p)*, left associative
+    def parse(s):
+        r = p(s)
+        if not r:
+            return []
+        acc, s = r[0]
+        while True:
+            o = op(s)
+            if not o:
+                break
+            f, s2 = o[0]
+            r2 = p(s2)
+            if not r2:
+                break
+            v, s = r2[0]
+            acc = f(acc, v)
+        return [(acc, s)]
+    return parse
+
+def expr(s):
+    plus = bind(tok("+"), lambda _: ret(lambda a, b: a + b))
+    minus = bind(tok("-"), lambda _: ret(lambda a, b: a - b))
+    return chainl(term, alt(plus, minus))(s)
+
+def term(s):
+    return chainl(factor, bind(tok("*"), lambda _: ret(lambda a, b: a * b)))(s)
+
+def factor(s):
+    paren = bind(tok("("), lambda _: bind(expr, lambda v: bind(tok(")"), lambda _: ret(v))))
+    return alt(number, paren)(s)
+
+assert expr("2+3*4") == [(14, "")] and expr("(1+2)*3") == [(9, "")] and expr("10-4-3") == [(3, "")]
+#+end_src
+
+** 10. FP in mainstream engineering
+- Every major language now has lambdas, map/filter/reduce, immutable collections or conventions, and Option/Result idioms. Rust's iterators, enums, and pattern matching, TypeScript's discriminated unions, Kotlin and Swift value types, and Java records and sealed interfaces carry FP ideas into mainstream code.
+- *Concurrency*: immutable data can be shared across threads without locks; pure functions can run in any order or in parallel (map-reduce, rayon-style data parallelism).
+- *Costs to manage*: allocation rates and GC pauses (=11_memory-management.org=); deep recursion without tail-call guarantees; copying large structures instead of using persistent ones; abstraction overhead when a hot loop would be clearer; unfamiliar idioms in teams without training.
+- *Pragmatic style*: pure core, effects at the boundary; immutability by default with local mutation where measured; algebraic types for domain modeling; small composable functions; avoid abstraction for its own sake (a monad transformer stack that nobody on the team can debug is a liability).
+
+** 11. Functional languages and dependently typed programming
+- *Haskell*: lazy, pure, strong static types with inference; type classes. *OCaml / F# / Standard ML*: strict, with a strong module system. *Scala*: functional and object-oriented on the JVM. *Clojure*: Lisp with persistent data structures and a concurrency focus. *Elixir / Erlang*: functional core with actors. *Lean 4*: a functional language and a proof assistant; see /Functional Programming in Lean/.
+- *Dependent types* (Lean, Agda, Idris, Rocq) let types mention values, so a function can return a vector of exactly length n or carry a proof that its output is sorted. Programs and proofs live in the same language (=10_type-systems.org=, =02_logic-and-proofs.org=).
+
+** 12. Self-check
+1. Refactor a function that mutates a shared map into a pure fold and discuss what you gained and lost.
+2. Prove, by structural induction, that map f (xs ++ ys) equals map f xs ++ map f ys.
+3. Explain why a lazy left fold over a million integers can run out of memory and how to fix it.
+4. Show that Option's bind satisfies the monad laws.
+5. What does "functional core, imperative shell" look like for a payment-processing service? Which parts are pure?
+6. Why can any function with the type =forall a. [a] -> [a]= not depend on the values in the list?
+
+** 13. Exercises
+- Warm-up: implement map, filter, fold, zip, and flatten yourself, first by recursion and then with folds.
+- Core: implement an immutable list and an immutable binary tree with insert, and prove or test their properties with randomized properties.
+- Core: build a parser-combinator library and an expression evaluator (or extend the one above to support unary minus and exponentiation).
+- Core: implement a State, a Reader, and a Writer monad in your language of choice and use them to thread configuration, logging, and counters through a computation.
+- Stretch: implement a small lazy list and the sieve of Eratosthenes with it; then do it in a strict language with generators.
+- Stretch: write an interpreter for the untyped lambda calculus with de Bruijn indices and normal-order reduction.
+- Stretch: read the first six chapters of /Functional Programming in Lean/ and write verified list functions.
+
+** 14. Resources
+- Abelson and Sussman, /Structure and Interpretation of Computer Programs/ (the classic; the JavaScript edition is available free online): https://sicp.sourceacademy.org/sicpjs.pdf
+- /Functional Programming in Lean/ and /Theorem Proving in Lean 4/ (free; functional programming with dependent types): https://lean-lang.org/learn
+- Pierce et al., /Software Foundations/, volume 1 (functional programming and proof in Rocq/Coq): https://softwarefoundations.cis.upenn.edu/
+- Felleisen et al., /How to Design Programs/ (a systematic, recursion-first approach); Hutton, /Programming in Haskell/ (and the Hutton-Meijer paper on monadic parser combinators); Okasaki, /Purely Functional Data Structures/; Hughes, /Why Functional Programming Matters/ (paper); Wadler, /Theorems for Free!/ (paper).
+- Nystrom, /Crafting Interpreters/ for implementing closures and environments: https://craftinginterpreters.com
+
+** What to remember
+- Pure core, effects at the edges; immutability by default; model data with sum types.
+- Folds subsume loops; the monad laws make sequencing predictable.
+- Laziness is powerful and risky; know the space-leak failure mode.
+- Property-based tests are the cheapest high-value formal technique.
+- Immutability costs allocation; persistent structures and local mutation keep it affordable.

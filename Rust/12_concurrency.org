@@ -1,0 +1,242 @@
+#+title: Rust Concurrency
+#+startup: overview
+
+* Rust Concurrency
+Rust prevents data races at compile time: the ownership and borrowing rules, together with the =Send= and =Sync= traits, make unsynchronized shared mutation a type error. Deadlocks, logic races, and starvation are still possible. The memory model matches C11/C++11 (the C concurrency notes explain the underlying ideas).
+
+** 1. Threads
+#+begin_src rust
+use std::thread;
+
+let handle = thread::spawn(|| {
+    println!("in a thread");
+    42
+});
+let result = handle.join().unwrap();          // wait; Err if the thread panicked
+#+end_src
+
+A spawned thread may outlive the function that created it, so its closure must own its data (=move=) and satisfy ='static=:
+
+#+begin_src rust
+let v = vec![1, 2, 3];
+let h = thread::spawn(move || {               // v is moved into the thread
+    println!("{v:?}");
+});
+h.join().unwrap();
+// println!("{v:?}");                         // error: v was moved
+#+end_src
+
+*Scoped threads* (=thread::scope=, stable since 1.63) are joined before the scope ends, so they may borrow locals:
+
+#+begin_src rust
+let v = vec![1, 2, 3, 4];
+let (a, b) = v.split_at(2);
+
+let (sa, sb) = thread::scope(|s| {
+    let ha = s.spawn(|| a.iter().sum::<i32>());
+    let hb = s.spawn(|| b.iter().sum::<i32>());
+    (ha.join().unwrap(), hb.join().unwrap())
+});
+// sa == 3, sb == 7
+#+end_src
+
+Dropping a =JoinHandle= detaches the thread; the program does not wait for detached threads when =main= returns. Threads have a 2 MiB default stack (configurable with =thread::Builder=).
+
+** 2. Shared state: Arc and Mutex
+#+begin_src rust
+use std::sync::{Arc, Mutex};
+use std::thread;
+
+fn main() {
+    let counter = Arc::new(Mutex::new(0u64));
+    let mut handles = Vec::new();
+
+    for _ in 0..4 {
+        let c = Arc::clone(&counter);
+        handles.push(thread::spawn(move || {
+            for _ in 0..100_000 {
+                *c.lock().unwrap() += 1;
+            }
+        }));
+    }
+    for h in handles { h.join().unwrap(); }
+
+    println!("{}", *counter.lock().unwrap());    // 400000
+}
+#+end_src
+
+- =Arc<T>= is an atomically reference-counted pointer: cloning it gives each thread an owner.
+- =Mutex<T>= /owns/ the data it protects. You can reach the data only through the guard that =lock()= returns, so it is impossible to forget to lock (unlike a C mutex next to a variable).
+- The guard unlocks when it is dropped, at the end of its scope; keep the scope small. To release early, wrap the use in a block or call =drop(guard)=.
+- =lock()= returns =Result=: if a thread panicked while holding the lock, the mutex is /poisoned/ and =lock()= returns =Err=. =unwrap()= propagates the panic; use =unwrap_or_else(|e| e.into_inner())= to recover the data.
+- =RwLock<T>= allows many readers or one writer.
+- Deadlock is still your problem: acquire several locks in one consistent order, and never hold a guard while calling unknown code or blocking.
+
+** 3. Message passing
+#+begin_src rust
+use std::sync::mpsc;
+use std::thread;
+
+let (tx, rx) = mpsc::channel();               // multiple producers, single consumer
+
+for id in 0..3 {
+    let tx = tx.clone();
+    thread::spawn(move || {
+        tx.send(id * 10).unwrap();            // moves the value into the channel
+    });
+}
+drop(tx);                                      // drop the original sender, or the loop below never ends
+
+let mut got: Vec<i32> = rx.iter().collect();   // ends when every sender is dropped
+got.sort();                                    // [0, 10, 20]
+#+end_src
+
+- Sending moves ownership, so the sender cannot touch the value afterwards: data is handed off, not shared.
+- =recv()= blocks, =try_recv()= does not, =recv_timeout(d)= waits up to a limit; =send= fails if the receiver is gone.
+- =mpsc::sync_channel(n)= has a bounded buffer and blocks senders when it is full, giving back-pressure. Unbounded channels can grow without limit.
+- Prefer channels when work flows in one direction (pipeline, worker pool); prefer a mutex for a shared table everyone updates. The =crossbeam-channel= crate adds multi-consumer and =select=.
+
+** 4. Condition variables
+#+begin_src rust
+use std::sync::{Arc, Condvar, Mutex};
+use std::thread;
+
+let pair = Arc::new((Mutex::new(false), Condvar::new()));
+let pair2 = Arc::clone(&pair);
+
+thread::spawn(move || {
+    let (lock, cv) = &*pair2;
+    *lock.lock().unwrap() = true;
+    cv.notify_one();
+});
+
+let (lock, cv) = &*pair;
+let mut ready = lock.lock().unwrap();
+while !*ready {
+    ready = cv.wait(ready).unwrap();           // releases the lock while waiting
+}
+#+end_src
+
+Always wait in a loop on the predicate (or use =cv.wait_while(guard, |r| !*r)=): wake-ups can be spurious. The pattern is the same as in C.
+
+** 5. Atomics
+For a single shared integer or flag, atomics avoid a lock.
+
+#+begin_src rust
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::Arc;
+
+static HITS: AtomicUsize = AtomicUsize::new(0);
+HITS.fetch_add(1, Ordering::SeqCst);
+let n = HITS.load(Ordering::SeqCst);
+
+let ready = Arc::new(AtomicBool::new(false));
+// writer:  data written first, then
+ready.store(true, Ordering::Release);
+// reader:
+while !ready.load(Ordering::Acquire) { std::hint::spin_loop(); }
+// ... everything the writer did before the Release store is now visible
+#+end_src
+
+| Ordering   | Guarantee                                                             |
+|------------+-----------------------------------------------------------------------|
+| =SeqCst=   | One total order of all =SeqCst= operations; the safe default          |
+| =Acquire=  | On a load: later accesses are not moved before it                     |
+| =Release=  | On a store: earlier accesses are not moved after it                   |
+| =AcqRel=   | Both, for read-modify-write operations                                |
+| =Relaxed=  | Atomicity only, no ordering with other memory; for counters and stats |
+
+There are also =compare_exchange= and =fetch_*= families. Use =SeqCst= unless you can justify a weaker order. Atomics protect one variable; invariants across several need a mutex.
+
+** 6. Send and Sync
+These marker traits are what make the guarantees work. The compiler derives them from a type's fields.
+
+- =T: Send=: ownership of a =T= can move to another thread.
+- =T: Sync=: a =&T= can be shared among threads (equivalently, =&T: Send=).
+
+| Type                    | Send | Sync | Why                                             |
+|-------------------------+------+------+-------------------------------------------------|
+| =i32=, =String=, =Vec<T>= | yes  | yes  | plain owned data                              |
+| =Rc<T>=                 | no   | no   | non-atomic reference count                      |
+| =Arc<T>=                | if =T: Send + Sync= | if =T: Send + Sync= | atomic count          |
+| =Cell<T>=, =RefCell<T>= | yes  | no   | unsynchronized interior mutability              |
+| =Mutex<T>=              | if =T: Send= | if =T: Send= | the lock provides the synchronization   |
+| raw pointers            | no   | no   | the compiler cannot reason about them           |
+| =MutexGuard<T>=         | no   | yes  | must unlock on the thread that locked           |
+
+The error "=Rc<...>= cannot be sent between threads safely" means: use =Arc= (and =Mutex= if you mutate). Implementing =Send= or =Sync= by hand needs =unsafe impl=: you are promising the compiler it is sound.
+
+** 7. Thread-locals and one-time initialization
+#+begin_src rust
+use std::cell::Cell;
+use std::sync::OnceLock;
+
+thread_local! {
+    static DEPTH: Cell<u32> = Cell::new(0);   // one copy per thread
+}
+DEPTH.with(|d| d.set(d.get() + 1));
+
+static CONFIG: OnceLock<String> = OnceLock::new();
+let c = CONFIG.get_or_init(|| String::from("loaded once"));
+#+end_src
+
+** 8. Data parallelism with rayon
+#+begin_src rust
+use rayon::prelude::*;
+
+let total: u64 = (0..1_000_000u64).into_par_iter().map(|x| x * x % 7).sum();
+let sorted = { let mut v = data.clone(); v.par_sort(); v };
+let lens: Vec<usize> = words.par_iter().map(|w| w.len()).collect();
+#+end_src
+
+=rayon= (a crate) spreads iterator adaptors across a work-stealing thread pool, so you change =iter()= to =par_iter()= and keep the code. It pays off for CPU-bound work on large inputs; for small inputs the overhead dominates, so measure.
+
+** 9. Async in one page
+=async fn= returns a /future/: a state machine that does nothing until polled. =.await= suspends it until the awaited future completes, letting the thread run other tasks. An /executor/ (a runtime such as =tokio=) polls many futures on a few threads.
+
+#+begin_src rust
+// requires: tokio = { version = "1", features = ["full"] }
+#[tokio::main]
+async fn main() {
+    let a = tokio::spawn(async { fetch("a").await });
+    let b = tokio::spawn(async { fetch("b").await });
+    let (ra, rb) = (a.await.unwrap(), b.await.unwrap());
+}
+#+end_src
+
+- Choose async for many mostly-waiting tasks (network servers, thousands of connections); choose threads (or =rayon=) for CPU-bound work or a few long-running tasks.
+- Futures run on a runtime that is not in =std=; the major runtimes are =tokio=, =async-std=, and =smol=.
+- Do not block inside async code (=thread::sleep=, heavy computation, blocking I/O); use the runtime's async equivalents or =spawn_blocking=.
+- Do not hold a =std::sync::MutexGuard= across an =.await=; futures that do so are not =Send=. Use =tokio::sync::Mutex= or restructure.
+- Tasks spawned with =tokio::spawn= must be ='static= and =Send=, like threads.
+
+** 10. Hazards the compiler does not catch
+| Hazard                    | Mitigation                                                             |
+|---------------------------+------------------------------------------------------------------------|
+| Deadlock                  | Lock ordering; one lock at a time; =try_lock=; keep critical sections small |
+| Logic race (check, then act, in separate critical sections) | Do the check and the act under one lock |
+| Lost updates with atomics | Use =fetch_add= / =compare_exchange=, not load-then-store              |
+| Unbounded channels        | Use =sync_channel= for back-pressure                                   |
+| =Arc= reference cycles    | Use =Weak= for back-references                                         |
+| Poisoned mutex            | Decide a recovery policy; do not just =unwrap= everywhere               |
+| False sharing             | Pad hot per-thread data to a cache line (=#[repr(align(64))]=)         |
+| Blocking in async code    | =spawn_blocking=, async I/O                                            |
+
+** 11. Tools
+#+begin_src sh
+cargo test                                         # tests run in parallel threads by default
+cargo test -- --test-threads=1                     # serialize when tests share state
+cargo +nightly miri test                           # detects UB, including some data races in unsafe code
+RUSTFLAGS="-Zsanitizer=thread" cargo +nightly run --target x86_64-unknown-linux-gnu   # ThreadSanitizer
+#+end_src
+
+The =loom= crate model-checks concurrent code by exploring interleavings; it is worth using for lock-free structures. In gdb, =thread apply all bt= shows what every thread is doing in a hung program.
+
+** What to remember
+- The compiler rejects data races; =Send= and =Sync= encode what may cross threads.
+- =thread::spawn= needs owned (=move=) data; =thread::scope= lets threads borrow.
+- =Arc<Mutex<T>>= for shared mutable state; the mutex owns the data and the guard unlocks on drop.
+- Channels hand off ownership; bound them when producers can outrun consumers.
+- Atomics for single values, =SeqCst= by default; wait on condvars in a loop.
+- Async is for many waiting tasks, not for speed on its own; never block inside it.
+- Deadlocks and logic races remain your job.

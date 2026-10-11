@@ -1,0 +1,296 @@
+#+title: Learn Haskell
+#+startup: overview
+
+* Learn Haskell
+** 1. GHC, GHCi, and projects
+#+begin_src sh
+ghci                     # interactive REPL
+ghc -O2 Main.hs          # compile
+runghc Main.hs           # run without producing a binary
+cabal init && cabal run  # project with dependencies
+#+end_src
+
+Useful GHCi commands:
+
+#+begin_src haskell
+:load Main.hs
+:reload
+:type map        -- :t is the short form
+:info Maybe
+:quit
+#+end_src
+
+=--= starts a line comment; ={- ... -}= is a block comment.
+
+** 2. Expressions and application
+Function application is juxtaposition, binds tighter than any operator, and associates to the left.
+
+#+begin_src haskell
+1 + 2 * 3             -- 7
+max 3 4               -- 4
+max 3 4 + 1           -- 5, parsed as (max 3 4) + 1
+negate (abs (-3))     -- parentheses group; they are not call syntax
+negate $ abs $ (-3)   -- $ applies the function on its left to everything on its right
+(f . g) x             -- composition: f (g x)
+#+end_src
+
+There are no statements: everything is an expression with a value and a type.
+
+** 3. Types
+#+begin_src haskell
+42        :: Int        -- fixed-width, machine integer
+42        :: Integer    -- arbitrary precision
+3.14      :: Double
+True      :: Bool
+'a'       :: Char
+"hello"   :: String     -- String is [Char], a linked list
+(1, "a")  :: (Int, String)
+[1, 2, 3] :: [Int]
+()        :: ()         -- the unit type
+#+end_src
+
+Types are inferred, but top-level definitions should carry a signature. Names of types and constructors start with an uppercase letter; type variables and values with lowercase.
+
+** 4. Functions and currying
+#+begin_src haskell
+square :: Int -> Int
+square x = x * x
+
+add :: Int -> Int -> Int
+add x y = x + y
+
+inc :: Int -> Int
+inc = add 1               -- partial application
+#+end_src
+
+=Int -> Int -> Int= means =Int -> (Int -> Int)=: every function takes one argument and may return another function. Anonymous functions and operator sections:
+
+#+begin_src haskell
+\x -> x * x
+map (\x -> x * x) [1, 2, 3]   -- [1,4,9]
+map (* 2) [1, 2, 3]           -- [2,4,6]
+map (subtract 1) [1, 2, 3]    -- [0,1,2]; (- 1) would be the number -1
+(`div` 2) 10                  -- 5
+#+end_src
+
+** 5. Lists
+#+begin_src haskell
+[1, 2, 3]
+1 : [2, 3]                -- cons
+[1, 2] ++ [3, 4]          -- append, O(length of the left list)
+head [1, 2, 3]            -- 1, partial: crashes on []
+tail [1, 2, 3]            -- [2,3]
+[1 .. 5]                  -- [1,2,3,4,5]
+[x * x | x <- [1 .. 5], odd x]   -- [1,9,25]
+zip [1, 2, 3] "abc"       -- [(1,'a'),(2,'b'),(3,'c')]
+#+end_src
+
+Lists are singly linked: access by index (=!!=) is O(n). Prefer =Data.Vector= or =Data.Array= for indexed access.
+
+** 6. Pattern matching, guards, where
+#+begin_src haskell
+sumList :: [Int] -> Int
+sumList []       = 0
+sumList (x : xs) = x + sumList xs
+
+classify :: Int -> String
+classify n
+  | n < 0     = "negative"
+  | n == 0    = "zero"
+  | otherwise = "positive"
+
+bmi :: Double -> Double -> Double
+bmi w h = w / h ^ 2
+
+area :: Double -> Double
+area r = pi * sq
+  where sq = r * r
+
+describe :: Int -> String
+describe n = case n of
+  0 -> "zero"
+  _ | even n    -> "even"
+    | otherwise -> "odd"
+
+let y = 3 in y * y          -- let ... in is an expression
+#+end_src
+
+Clauses are tried top to bottom. A function is /total/ if every input matches some clause; GHC can warn about missing cases with =-Wall=.
+
+** 7. Laziness
+Expressions are evaluated only when their value is needed.
+
+#+begin_src haskell
+take 5 [1 ..]                              -- [1,2,3,4,5]; the list is infinite
+
+fibs :: [Integer]
+fibs = 0 : 1 : zipWith (+) fibs (tail fibs)
+
+fst (1, undefined)                         -- 1; undefined is never forced
+#+end_src
+
+Laziness enables infinite structures and compositional pipelines, but it can also build up unevaluated thunks and leak memory. Use strict folds (=foldl'=) and strict fields when accumulating.
+
+** 8. Data types
+#+begin_src haskell
+data Color = Red | Green | Blue
+  deriving (Show, Eq, Ord, Enum, Bounded)
+
+data Shape
+  = Circle Double
+  | Rect Double Double
+  deriving (Show, Eq)
+
+area :: Shape -> Double
+area (Circle r) = pi * r * r
+area (Rect w h) = w * h
+
+data Point = Point { px :: Double, py :: Double }
+  deriving (Show, Eq)
+
+p  = Point { px = 1, py = 2 }
+p' = p { px = 10 }               -- record update creates a new value
+
+newtype UserId = UserId Int      -- distinct type, no runtime overhead
+type Name = String               -- alias only
+#+end_src
+
+All values are immutable; "updating" a record builds a new one. A =data= type with several constructors is a sum type.
+
+** 9. Type classes
+A type class declares an interface; instances provide the implementation.
+
+#+begin_src haskell
+class Describable a where
+  describe :: a -> String
+
+instance Describable Color where
+  describe Red = "warm"
+  describe _   = "cool"
+
+instance Describable Bool where
+  describe True  = "yes"
+  describe False = "no"
+#+end_src
+
+Constraints appear before ~=>~ in a signature:
+
+#+begin_src haskell
+largest :: Ord a => [a] -> a
+largest = maximum
+
+showAll :: (Show a) => [a] -> [String]
+showAll = map show
+#+end_src
+
+Common classes: =Eq=, =Ord=, =Show=, =Read=, =Enum=, =Bounded=, =Num=, =Functor=, =Applicative=, =Monad=, =Semigroup=, =Monoid=, =Foldable=, =Traversable=.
+
+** 10. Maybe and Either
+There is no null and no exceptions in ordinary pure code.
+
+#+begin_src haskell
+data Maybe a      = Nothing | Just a
+data Either e a   = Left e  | Right a
+
+safeDiv :: Int -> Int -> Maybe Int
+safeDiv _ 0 = Nothing
+safeDiv a b = Just (a `div` b)
+
+parseAge :: Int -> Either String Int
+parseAge n
+  | n < 0     = Left "negative age"
+  | otherwise = Right n
+
+case safeDiv 10 2 of
+  Nothing -> "undefined"
+  Just q  -> show q
+#+end_src
+
+By convention =Left= carries the error and =Right= the success. Helpers: =maybe=, =fromMaybe= (=Data.Maybe=), =either=.
+
+** 11. Higher-order functions and folds
+#+begin_src haskell
+map    (+ 1) [1, 2, 3]            -- [2,3,4]
+filter even [1, 2, 3, 4]          -- [2,4]
+foldr  (+) 0 [1, 2, 3]            -- 6
+sum    [1, 2, 3]                  -- 6
+all    even [2, 4]                -- True
+any    odd  [2, 4]                -- False
+
+import Data.List (foldl')
+foldl' (+) 0 [1 .. 1000000]       -- strict left fold
+#+end_src
+
+=foldr f z [a,b,c]= is =f a (f b (f c z))=. =foldl'= accumulates from the left and forces the accumulator at each step. Plain =foldl= builds thunks. Recent GHC versions also export =foldl'= from the Prelude.
+
+** 12. Functor, Applicative, Monad
+These classes describe computations in a context (=Maybe=, lists, =IO=, ...).
+
+#+begin_src haskell
+fmap (+ 1) (Just 2)               -- Just 3
+(+ 1) <$> Just 2                  -- same, infix
+(+) <$> Just 1 <*> Just 2         -- Just 3: Applicative applies a function in a context
+Just 3 >>= \x -> safeDiv 12 x     -- Just 4: Monad chains dependent steps
+#+end_src
+
+=do= notation is syntax for =>>== chains:
+
+#+begin_src haskell
+calc :: Int -> Int -> Int -> Maybe Int
+calc a b c = do
+  x <- safeDiv a b      -- if Nothing, the whole block is Nothing
+  y <- safeDiv x c
+  return (x + y)
+#+end_src
+
+The same =do= block works for lists, =Either e=, parsers, state, and =IO=. Each monad defines what "chaining" means.
+
+** 13. IO
+Pure functions cannot perform effects. Effects are values of type =IO a=, and they run only when reached from =main=.
+
+#+begin_src haskell
+main :: IO ()
+main = do
+  putStrLn "Name?"
+  name <- getLine               -- <- extracts a result from an IO action
+  let greeting = "Hello, " ++ name
+  putStrLn greeting
+  mapM_ print [1, 2, 3]
+#+end_src
+
+=<-= is for actions, =let= is for pure values. There is no way to "run" an =IO= value inside a pure function; this is what keeps the purity guarantee.
+
+** 14. Modules and imports
+#+begin_src haskell
+module Main (main) where
+
+import Data.List (sort, nub)
+import Data.Maybe (fromMaybe)
+import qualified Data.Map.Strict as Map
+
+ages :: Map.Map String Int
+ages = Map.fromList [("ada", 36), ("alan", 41)]
+
+Map.lookup "ada" ages            -- Just 36
+Map.insertWith (+) "ada" 1 ages  -- returns a new map
+#+end_src
+
+Import containers qualified to avoid clashes with Prelude names (=lookup=, =filter=, =map=). =Data.Map= is a persistent balanced tree: updates return new maps and share structure with the old one.
+
+** 15. Common pitfalls
+- *Partial functions*: =head=, =tail=, =fromJust=, =!!=, and incomplete patterns crash at run time. Pattern match, or use =Maybe=.
+- *Space leaks*: lazy accumulators (=foldl=, repeated =modifyIORef=) build thunks. Use =foldl'=, bang patterns, or strict fields.
+- *Indentation is syntax*: =do=, =where=, =let=, =of= use layout. Align items in a block consistently and use spaces, not tabs.
+- *Negative literals*: write =f (-1)=, not =f -1=.
+- *String is a list*: for real text use =Data.Text=; for bytes use =Data.ByteString=.
+- *Type defaulting*: =show (2 ^ 64)= defaults to =Integer=; add annotations when you need =Int=.
+- *Error messages*: read the types in them; they are the fastest feedback loop.
+
+** What to remember
+- Everything is an expression; functions are curried and applied by juxtaposition.
+- Data is immutable; "change" means build a new value.
+- Pattern matching on algebraic data types is the main control structure.
+- Type classes give ad hoc polymorphism; constraints go before ~=>~.
+- =Maybe= and =Either= replace null and exceptions in pure code.
+- Effects live in =IO= (or other monads) and are sequenced with =do=.
+- Evaluation is lazy: powerful, but watch accumulators.

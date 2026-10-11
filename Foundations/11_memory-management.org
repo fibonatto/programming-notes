@@ -1,0 +1,212 @@
+#+title: Memory Management
+#+startup: overview
+
+* Memory Management
+** 0. Staff-level lens
+Most production incidents involving "performance" or "stability" touch memory: latency spikes from garbage collection, OOM kills, leaks that appear after a week, fragmentation, cache misses, and security bugs from memory unsafety. At Staff scope you will:
+- understand the hardware path (caches, virtual memory) well enough to predict why one layout is 10x faster than another;
+- choose and tune a memory-management strategy (manual, ownership, reference counting, tracing GC, arenas) for a service's latency and footprint targets;
+- diagnose leaks and growth in production with the right tools and a clear mental model of what the process, the runtime, and the container each count;
+- weigh the security cost of memory-unsafe code against alternatives.
+Companion files: =05_data-structures.org= (layouts), =03_data-representation.org=, =12_concurrency.org= (memory models), and the memory file in the C notes and the ownership file in the Rust notes.
+
+** 1. The memory hierarchy
+Faster storage is smaller and costs more; programs run well when their working set stays in the faster levels. Orders of magnitude (hardware varies; use them for intuition, not for prediction):
+| Level                          | Typical latency      | Typical size            |
+|--------------------------------+----------------------+-------------------------|
+| Registers                      | under 1 ns           | a few hundred bytes     |
+| L1 cache                       | about 1 ns           | tens of KB per core     |
+| L2 cache                       | a few ns             | hundreds of KB to MB    |
+| L3 cache (shared)              | 10 to 40 ns          | tens of MB              |
+| Main memory (DRAM)             | about 100 ns         | GBs to TBs              |
+| NVMe SSD                       | 50 to 100 microseconds | TBs                   |
+| Network round trip, same datacenter | about 0.5 ms    |                         |
+| Spinning disk seek             | about 10 ms          | TBs                     |
+| Cross-continent network round trip | 100+ ms          |                         |
+- Data moves in *cache lines* (commonly 64 bytes). Sequential access benefits from hardware prefetching; random pointer chasing pays full DRAM latency for each hop.
+- *Bandwidth versus latency*: streaming loops are limited by bandwidth; pointer-heavy code by latency.
+- *Multicore*: each core has private caches; a *cache-coherence protocol* (MESI and relatives) keeps them consistent. Writing to a line another core has cached forces invalidations (*false sharing* when unrelated variables share a line).
+- *NUMA*: on multi-socket machines, memory attached to another socket is slower; pin threads and memory together for latency-sensitive services.
+
+#+begin_src c
+/* Traversal order changes speed by large factors: same work, different cache behavior. */
+#define _POSIX_C_SOURCE 199309L
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+
+#define N 4096
+
+static double now(void) {
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (double)t.tv_sec + (double)t.tv_nsec * 1e-9;
+}
+
+int main(void) {
+    int *a = malloc(sizeof(int) * (size_t)N * N);
+    if (a == NULL) return 1;
+    for (size_t i = 0; i < (size_t)N * N; i++) a[i] = 1;
+
+    long sum = 0;
+    double t0 = now();
+    for (int i = 0; i < N; i++)                 /* row-major: consecutive addresses */
+        for (int j = 0; j < N; j++)
+            sum += a[(size_t)i * N + j];
+    double t1 = now();
+    for (int j = 0; j < N; j++)                 /* column-major: stride of N ints */
+        for (int i = 0; i < N; i++)
+            sum += a[(size_t)i * N + j];
+    double t2 = now();
+
+    printf("row %.3f s, column %.3f s (sum %ld)\n", t1 - t0, t2 - t1, sum);
+    free(a);
+    return 0;
+}
+#+end_src
+
+Build with =cc -O1 -o trav trav.c= and run it; expect the column traversal to be several times slower on typical hardware. Try changing N and watch behavior at cache-size boundaries.
+
+** 2. Virtual memory and the process address space
+- Each process sees a private *virtual address space*; the MMU and OS map /pages/ (typically 4 KiB) to physical frames through *page tables*, cached by the *TLB*. A TLB miss costs a page-table walk; huge pages (2 MiB or 1 GiB) reduce misses for large working sets.
+- A *page fault* occurs when a page is not mapped or resident: the OS allocates a zeroed page (minor fault), reads it from disk (major fault), or kills the process (invalid access).
+- Typical layout: text (code), data and BSS (globals), heap (grows up via =brk= or =mmap=), memory-mapped regions and shared libraries, thread stacks (grow down). *ASLR* randomizes bases to hinder exploits.
+- *Overcommit*: Linux may promise more virtual memory than exists; allocation succeeds and the failure arrives later, when pages are touched, as an OOM kill. Memory limits in containers (cgroups) enforce a hard cap that kills the process when it is exceeded.
+- *Measures*: VSZ (virtual size) is rarely the useful number; RSS (resident set) counts physical pages including shared ones; PSS divides shared pages among processes; "working set" is the pages actively used. Container accounting may include page cache; read the platform's definition before alerting on it.
+- =mmap= maps files or anonymous memory; it supports shared memory between processes and zero-copy file access, with surprises (page faults on first touch, I/O errors surfacing as signals).
+
+** 3. Manual allocation and allocators
+=malloc= and =free= (C), =new= and =delete= (C++) hand control to the programmer. An allocator manages blocks obtained from the OS (=brk=, =mmap=):
+- *Free lists and size classes*: requests round up to a size class; each class keeps a list of free blocks (segregated fits). Large requests go directly to =mmap=.
+- *Fragmentation*: /internal/ (wasted space inside blocks from rounding) and /external/ (free memory split into pieces too small to satisfy a request). Long-running processes with mixed lifetimes suffer most.
+- *Concurrency*: global locks are slow; modern allocators use per-thread caches and per-core arenas (glibc ptmalloc arenas, jemalloc, tcmalloc, mimalloc). Choice of allocator can change throughput, footprint, and fragmentation by large factors for allocation-heavy services; measure before switching.
+- *Alternatives to general-purpose allocation*:
+  - *Arena / region / bump allocators*: allocate by advancing a pointer; free everything at once (per request, per frame, per compilation unit). Extremely fast; no per-object free; lifetime is the arena's.
+  - *Pool / slab allocators*: fixed-size object pools with O(1) allocate/free and no external fragmentation (kernel slab caches).
+  - *Stack allocation* and small-object optimizations (short-string and small-vector inline buffers).
+- *Bug classes*: leaks, use-after-free, double free, buffer overflow, uninitialized reads, invalid free. They are undefined behavior (see the C notes) and the main source of exploitable vulnerabilities in C and C++ code.
+
+** 4. Ownership, RAII, and regions
+- *RAII* (C++): a resource's lifetime is tied to an object's scope; destructors release it, including on exceptions. Smart pointers: =unique_ptr= (sole owner), =shared_ptr= (reference counted).
+- *Ownership and borrowing* (Rust): every value has one owner; references borrow under compile-time rules; the compiler inserts drops. No GC and no run-time overhead, and use-after-free, double free, and data races are rejected statically in safe code. Cost: some designs (graphs, intrusive structures, self-references) require indices, arenas, =Rc=/=Arc=, or =unsafe=.
+- *Region-based memory management* groups allocations by lifetime region; Rust lifetimes and arena crates are practical forms.
+- *Escape analysis* (JVM, Go): the compiler proves an object does not outlive its function and allocates it on the stack, removing GC work.
+
+** 5. Automatic memory management
+*Reference counting* (RC): each object stores a count of references; it is freed when the count hits zero (Swift ARC, Python, Rust =Rc=/=Arc=, C++ =shared_ptr=, COM, Objective-C).
+- Pros: deterministic destruction, incremental cost, simple.
+- Cons: counts cost time (atomic updates on shared objects are expensive and contended); *cycles are never freed* without a backup collector or weak references; cascading frees cause pauses; poor locality.
+
+*Tracing garbage collection* finds live objects by reachability from /roots/ (stack, registers, globals) and reclaims the rest:
+| Algorithm                | Idea                                                       | Properties                                               |
+|--------------------------+------------------------------------------------------------+----------------------------------------------------------|
+| Mark-sweep               | Mark reachable objects, sweep unmarked ones to free lists  | Simple; fragmentation; cost proportional to heap size    |
+| Mark-compact             | Mark, then slide live objects together                     | No fragmentation; extra passes                           |
+| Copying (semispace)      | Copy live objects to a fresh space; discard the old one    | Allocation is a pointer bump; cost proportional to live data; needs 2x space |
+| Generational             | Young objects die young (/weak generational hypothesis/): collect a small young generation often, old generation rarely | Big win for typical programs; needs write barriers to track old-to-young pointers |
+| Incremental / concurrent | Interleave collection with the program (tri-color marking) | Shorter pauses; needs read or write barriers; more overhead |
+| Reference counting plus cycle detection | RC with a tracing backup                     | Used by CPython                                          |
+Throughput, pause time, and footprint trade off against each other: you can usually improve two at the cost of the third. Modern production collectors (JVM's G1, ZGC, and Shenandoah; Go's concurrent collector; the .NET GC) emphasize low pauses with concurrent marking and sometimes concurrent compaction.
+
+*Practical GC engineering*:
+- *Allocation rate and live-set size* drive GC cost. Reduce allocation in hot paths (reuse buffers, avoid boxing, use primitive arrays), and watch the live heap after full collections.
+- *Pauses versus throughput*: batch jobs want throughput; interactive services want bounded pauses. Match the collector and heap size to the container's memory limit and CPU quota.
+- Leaks in GC languages are still leaks: unintentionally reachable objects (unbounded caches, listener registries, thread-local data, static collections, goroutines or tasks that never finish).
+- Finalizers and weak references are for rare cases; do not use them to manage scarce resources (files, sockets); use explicit scoping (=try-with-resources=, =defer=, =with=).
+
+#+begin_src python
+# Reference counting leaks cycles; tracing finds them.
+class Heap:
+    def __init__(self):
+        self.objects, self.roots, self.next_id = {}, set(), 0
+    def alloc(self, refs=()):
+        i = self.next_id
+        self.next_id += 1
+        self.objects[i] = list(refs)
+        return i
+    def refcounts(self):
+        rc = {o: 0 for o in self.objects}
+        for refs in self.objects.values():
+            for r in refs:
+                rc[r] += 1
+        for r in self.roots:
+            rc[r] += 1
+        return rc
+    def mark_sweep(self):
+        marked, stack = set(), list(self.roots)
+        while stack:
+            o = stack.pop()
+            if o not in marked:
+                marked.add(o)
+                stack.extend(self.objects[o])
+        freed = sorted(o for o in self.objects if o not in marked)
+        for o in freed:
+            del self.objects[o]
+        return freed
+
+h = Heap()
+a = h.alloc()
+b = h.alloc([a])
+h.objects[a].append(b)                  # cycle a <-> b
+h.roots.add(a)
+assert h.refcounts()[a] == 2            # root + b
+h.roots.discard(a)                      # drop the only external reference
+rc = h.refcounts()
+assert rc[a] == 1 and rc[b] == 1        # counts never reach zero: reference counting leaks the cycle
+assert h.mark_sweep() == [a, b]         # tracing sees both unreachable and frees them
+#+end_src
+
+** 6. Memory safety and security
+- *Spatial safety*: no access outside an object's bounds (buffer overflows). *Temporal safety*: no access after the object's lifetime ends (use-after-free). Memory-safe languages (Rust, Go, Java, Python, C#, Swift) enforce both in safe code.
+- A large fraction of severe security vulnerabilities in large C and C++ codebases are memory-safety bugs (several vendors have published figures of roughly two thirds or more); this is a main reason for migrating critical components to memory-safe languages.
+- *Mitigations* for unsafe code: stack canaries, non-executable stacks (NX/DEP), ASLR, control-flow integrity, hardened allocators, bounds-checked containers, compiler hardening flags, sanitizers (ASan, UBSan, MSan, TSan) in testing, fuzzing, and hardware features (memory tagging, pointer authentication, CHERI capabilities).
+- *Defense in depth*: sandboxing, privilege separation, and memory-safe parsers for untrusted input.
+
+** 7. Performance engineering for memory
+- *Locality*: keep hot data contiguous and small; prefer arrays and indices to pointer graphs; split hot and cold fields (struct of arrays); compact structures (smaller integer types, packed flags); align to cache lines when needed.
+- *Avoid false sharing*: pad per-thread counters; shard hot counters.
+- *Reduce allocation*: pool or reuse objects, preallocate, use arenas for request-scoped data, avoid temporary strings and boxed numbers in loops.
+- *Prefetching and batching*: process data in batches that fit in cache; software prefetch only after measuring.
+- *TLB and huge pages*: large heaps benefit from huge pages (transparent huge pages can also cause latency spikes; test).
+- *Measure*: =perf stat= and =perf record= for cache-miss counters, =valgrind --tool=cachegrind= and =massif=, heap profilers (pprof for Go, async-profiler and JFR for the JVM, =heaptrack= and jemalloc profiling for native code), allocation tracers, and flame graphs. Establish a baseline, change one thing at a time.
+
+** 8. Diagnosing leaks and growth in production
+1. *Define the symptom*: steady growth, step growth, sawtooth, or fragmentation (RSS grows while live data does not).
+2. *Pick the right counter*: process RSS, runtime heap in use, GC live-set after a full collection, native (off-heap) memory, mapped files, thread stacks, container working set.
+3. *Take two heap profiles* some time apart and diff them; find the allocation sites and the retaining paths of the growing objects.
+4. *Common causes*: unbounded caches or maps keyed by user or request, missing eviction, listeners or callbacks never unregistered, long-lived references to large buffers (a slice keeping a huge array alive), thread/goroutine/task leaks, connection pools without limits, fragmentation from mixed-lifetime allocations, a native library leaking outside the managed heap.
+5. *Mitigate and prevent*: bound every cache and queue; add memory limits and alerts on the right metric; run soak tests; restart policies as a stopgap (not a fix); add heap-profile endpoints and ship runtime metrics.
+6. *Capacity*: size memory limits from measured peak plus headroom; account for GC overhead (copying collectors need extra space); load-test at the limit.
+
+** 9. Self-check
+1. Explain why =for i, for j: a[i][j]= and =for j, for i: a[i][j]= differ in speed in a row-major language, and by roughly how much.
+2. A JVM service has p99 latency spikes every few minutes. How do you find out whether GC is responsible, and what would you tune?
+3. Compare arenas, reference counting, and tracing GC for a compiler's AST nodes.
+4. Why does reference counting leak cycles, and how do Python, Swift, and Rust each address it?
+5. What is the weak generational hypothesis, and what program behavior violates it?
+6. A container is OOM-killed though the heap profile shows 40% of the limit used. Name five places the rest may be.
+7. What is false sharing, how do you detect it, and how do you fix it?
+
+** 10. Exercises
+- Warm-up: write the traversal benchmark above, plot time versus N, and find the cache-size boundaries.
+- Core: implement an arena allocator and a fixed-size pool allocator in C or Rust; compare with =malloc= on an allocation-heavy workload.
+- Core: implement a mark-sweep collector for a toy Lisp-like object model (see the garbage-collection chapter of /Crafting Interpreters/), then add a copying collector.
+- Core: write a program with a deliberate leak in your favorite managed language; find it with a heap profiler.
+- Stretch: add generational collection with a write barrier to the toy collector and measure pause times.
+- Stretch: read the first chapters of the Garbage Collection Handbook and implement the tri-color invariant check as a test.
+- Stretch: read the relevant sections of Drepper's paper and reproduce its false-sharing and cache-associativity experiments.
+
+** 11. Resources
+- Arpaci-Dusseau and Arpaci-Dusseau, /Operating Systems: Three Easy Pieces/ (free; virtualization of memory: address spaces, paging, TLBs, swapping): https://pages.cs.wisc.edu/~remzi/OSTEP/
+- Drepper, /What Every Programmer Should Know About Memory/ (CPU caches, virtual memory, NUMA, programmer-visible effects): http://people.redhat.com/drepper/cpumemory.pdf
+- Jones, Hosking, Moss, /The Garbage Collection Handbook: The Art of Automatic Memory Management/ (2nd ed., 2023; the standard reference on algorithms and engineering trade-offs).
+- Nystrom, /Crafting Interpreters/, the chapter on garbage collection (a working mark-sweep collector in C): https://craftinginterpreters.com
+- Bryant and O'Hallaron, /Computer Systems: A Programmer's Perspective/ (memory hierarchy, linking, dynamic allocation, virtual memory).
+- ACM/IEEE-CS/AAAI /Computer Science Curricula 2023/ for the systems and architecture knowledge areas: https://csed.acm.org/wp-content/uploads/2024/05/The-Report.pdf
+
+** What to remember
+- Cache lines and pages govern performance: locality first, then algorithms' constants.
+- Manual, ownership, RC, and tracing GC trade determinism, pauses, throughput, and safety; arenas fit lifetime-grouped data.
+- RC leaks cycles; tracing GC costs pauses or barriers; both can leak through unintended reachability.
+- Diagnose with the right counter and heap-profile diffs, not with RSS alone.
+- Memory unsafety is a security risk; sanitizers, fuzzing, and memory-safe languages reduce it.

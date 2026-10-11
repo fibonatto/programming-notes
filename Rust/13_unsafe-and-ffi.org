@@ -1,0 +1,213 @@
+#+title: Rust Unsafe and FFI
+#+startup: overview
+
+* Rust Unsafe and FFI
+Safe Rust guarantees memory safety and the absence of data races. =unsafe= is a marked escape hatch for things the compiler cannot verify: talking to C, implementing low-level data structures, and squeezing out performance. Inside it the guarantees become *your* obligation.
+
+** 1. What unsafe allows
+An =unsafe= block unlocks five operations, and nothing else:
+
+1. Dereference a raw pointer.
+2. Call an =unsafe= function or method (including foreign functions).
+3. Access or modify a mutable =static=.
+4. Implement an =unsafe= trait (for example =Send=, =Sync=).
+5. Access a field of a =union=.
+
+The borrow checker, type checker, and bounds checks still run inside =unsafe=. It does not turn Rust into C; it lets you assert facts the compiler cannot check.
+
+#+begin_src rust
+let x = 5;
+let p = &x as *const i32;          // creating a raw pointer is safe
+let v = unsafe { *p };             // dereferencing it is not
+
+unsafe fn dangerous(p: *const i32) -> i32 { unsafe { *p } }   // caller must uphold the contract
+let v2 = unsafe { dangerous(p) };
+#+end_src
+
+** 2. Soundness and safety contracts
+A function is /sound/ if no use of it from safe code can cause undefined behavior. The craft is to confine =unsafe= to a small module and expose a safe API whose checks establish the preconditions.
+
+#+begin_src rust
+/// # Safety
+/// `ptr` must be valid for reads of `len` consecutive `u8` values
+/// and must not be mutated for the duration of the call.
+pub unsafe fn checksum(ptr: *const u8, len: usize) -> u32 {
+    let bytes = unsafe { std::slice::from_raw_parts(ptr, len) };
+    bytes.iter().fold(0u32, |a, &b| a.wrapping_add(b as u32))
+}
+
+pub fn checksum_slice(data: &[u8]) -> u32 {
+    // SAFETY: a slice is valid for reads of data.len() bytes.
+    unsafe { checksum(data.as_ptr(), data.len()) }
+}
+#+end_src
+
+- Document an =unsafe fn= with a =# Safety= section listing what the caller must guarantee.
+- Put a =// SAFETY:= comment on each =unsafe= block explaining why the preconditions hold.
+- Keep blocks as small as possible; do the safe work outside them.
+- Crates that need no unsafe code can say so: =#![forbid(unsafe_code)]=.
+- Edition 2024: the =unsafe_op_in_unsafe_fn= lint warns when an =unsafe fn= body performs unsafe operations without an inner =unsafe {}= block, so the above style is the default there.
+
+** 3. Undefined behavior in Rust
+Even in =unsafe=, these are undefined behavior:
+
+- Dereferencing a null, dangling, or misaligned pointer.
+- Reading uninitialized memory as a value of a type that does not allow it.
+- Producing an invalid value: a =bool= other than 0 or 1, an invalid =char=, an invalid enum discriminant, a null or dangling reference, a reference to a =!= or an uninhabited type.
+- Violating the aliasing rules: a live =&mut T= must be unique; a live =&T= must not see mutation (except through =UnsafeCell=).
+- Data races.
+- Out-of-bounds access, including via unchecked indexing (=get_unchecked=).
+- Calling a function through the wrong ABI or with the wrong signature.
+- Unwinding out of a function with a non-unwinding ABI (such as plain =extern "C"=) used across FFI.
+
+Creating a reference to a =static mut= is also denied by default in edition 2024; use atomics, =Mutex=, or =OnceLock= instead of =static mut=.
+
+** 4. Raw pointers
+#+begin_src rust
+use std::ptr;
+
+let mut a = [1, 2, 3, 4];
+let p: *mut i32 = a.as_mut_ptr();
+
+unsafe {
+    *p.add(1) = 20;                   // pointer arithmetic in units of i32
+    let second = p.add(1).read();     // read without creating a reference
+    p.add(2).write(30);
+    ptr::swap(p, p.add(3));
+}
+// a == [4, 20, 30, 1]
+
+let n: *const i32 = ptr::null();
+n.is_null();                          // true: raw pointers can be null
+
+use std::ptr::NonNull;
+let nn: NonNull<i32> = NonNull::new(p).unwrap();   // never null; Option<NonNull<T>> is pointer-sized
+#+end_src
+
+Pointer arithmetic must stay within one allocated object (or one past its end), as in C. Use =read_unaligned= / =write_unaligned= for data that may be misaligned. =ptr::copy_nonoverlapping= is =memcpy=, =ptr::copy= is =memmove=.
+
+** 5. Uninitialized memory and transmute
+#+begin_src rust
+use std::mem::MaybeUninit;
+
+let mut buf: [MaybeUninit<u8>; 4] = [MaybeUninit::uninit(); 4];
+for (i, slot) in buf.iter_mut().enumerate() { slot.write(i as u8); }
+let bytes: [u8; 4] = unsafe { std::mem::transmute(buf) };   // all slots were written
+#+end_src
+
+=MaybeUninit<T>= is the only correct way to hold not-yet-initialized memory; =mem::uninitialized()= is deprecated and unsound. =mem::transmute= reinterprets bits and is easy to misuse: prefer =from_ne_bytes=, =to_bits=, =as= casts, or =bytemuck=-style safe wrappers.
+
+** 6. Calling C from Rust
+#+begin_src rust
+use std::ffi::{CStr, CString};
+use std::os::raw::{c_char, c_int};
+
+unsafe extern "C" {                          // edition 2024; before that: extern "C" { ... }
+    fn abs(x: c_int) -> c_int;
+    fn strlen(s: *const c_char) -> usize;
+    fn getenv(name: *const c_char) -> *const c_char;
+}
+
+fn c_strlen(s: &str) -> Result<usize, std::ffi::NulError> {
+    let c = CString::new(s)?;                // adds a NUL terminator; fails on interior NULs
+    Ok(unsafe { strlen(c.as_ptr()) })        // c is alive for the whole call
+}
+
+fn env_var(name: &str) -> Option<String> {
+    let key = CString::new(name).ok()?;
+    let p = unsafe { getenv(key.as_ptr()) };
+    if p.is_null() { return None; }
+    Some(unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned())
+}
+#+end_src
+
+Rules:
+- Foreign functions are =unsafe= to call: the compiler cannot check their signatures. A wrong declaration is undefined behavior.
+- Use C-compatible types: =c_int=, =c_char=, =c_void=, raw pointers, and =#[repr(C)]= structs.
+- =CString= owns a NUL-terminated buffer, =CStr= borrows one. Never pass =s.as_ptr()= of a Rust =&str= to C: it is not NUL-terminated.
+- Link a library with =#[link(name = "m")]= on the =extern= block, or from a =build.rs=. The standard C library is linked already.
+- Wrap each foreign call in a small safe function that checks arguments and converts results, as above.
+
+#+begin_src rust
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+struct Point { x: f64, y: f64 }          // same layout and field order as the C struct
+
+#[repr(u8)]
+enum Mode { Read = 0, Write = 1 }        // fixed integer representation
+#+end_src
+
+=#[repr(C)]= fixes field order and padding like C; =#[repr(transparent)]= gives a wrapper the layout of its single field; plain =#[repr(Rust)]= (the default) may reorder.
+
+** 7. Exposing Rust to C
+#+begin_src rust
+#[unsafe(no_mangle)]                     // before edition 2024: #[no_mangle]
+pub extern "C" fn rs_add(a: i32, b: i32) -> i32 { a + b }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rs_new_counter() -> *mut u64 {
+    Box::into_raw(Box::new(0u64))        // give ownership to C
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rs_free_counter(p: *mut u64) {
+    if !p.is_null() { drop(unsafe { Box::from_raw(p) }); }    // take ownership back and drop
+}
+#+end_src
+
+#+begin_src toml
+# Cargo.toml
+[lib]
+crate-type = ["cdylib", "staticlib"]     # shared or static library for C to link
+#+end_src
+
+- Define who allocates and who frees every pointer that crosses the boundary: memory from =Box::into_raw= must be freed by =Box::from_raw=, never by C's =free=.
+- A panic must not unwind into C: catch it with =std::panic::catch_unwind= at the boundary, or compile with =panic = "abort"=, or declare the function =extern "C-unwind"=.
+- =cbindgen= generates a C header from the Rust declarations.
+- Callbacks from C use =extern "C" fn= pointers with an explicit =void *= user-data argument, as in C.
+
+#+begin_src rust
+type Callback = extern "C" fn(value: i32, user: *mut std::ffi::c_void);
+
+extern "C" fn print_value(v: i32, _user: *mut std::ffi::c_void) { println!("{v}"); }
+#+end_src
+
+** 8. Generating bindings and building C code
+- =bindgen= reads C headers and generates the =extern= declarations and =#[repr(C)]= types. The convention is a separate =foo-sys= crate containing only raw bindings and a safe =foo= crate on top.
+- The =cc= crate compiles C/C++ sources from =build.rs=:
+
+#+begin_src rust
+// build.rs
+fn main() {
+    cc::Build::new().file("src/helper.c").compile("helper");
+    println!("cargo:rerun-if-changed=src/helper.c");
+}
+#+end_src
+
+- Use =pkg-config= (via the =pkg-config= crate) to find system libraries.
+
+** 9. Checking unsafe code
+| Tool                                  | What it finds                                          |
+|---------------------------------------+--------------------------------------------------------|
+| =cargo +nightly miri test=            | Undefined behavior in the code paths your tests run: invalid pointers, aliasing violations, uninitialized reads, leaks (Rust-only; cannot run real FFI) |
+| AddressSanitizer / ThreadSanitizer    | Memory errors and races, including across FFI (nightly: =RUSTFLAGS=-Zsanitizer=address=) |
+| =valgrind=                            | Memory errors in the final binary                      |
+| =cargo geiger=                        | Counts =unsafe= use in your dependency tree            |
+| =#![forbid(unsafe_code)]=             | Guarantees a crate has none                            |
+| Clippy lints                          | =clippy::missing_safety_doc=, =clippy::undocumented_unsafe_blocks= |
+
+Test the safe wrapper hard (including with Miri), since a bug in it is a memory bug in every user.
+
+** 10. Rules of thumb
+- First look for a safe solution: standard library types (=Vec=, =Cell=, =RefCell=, =Arc=, =split_at_mut=) already encapsulate most needs.
+- Prefer a well-reviewed crate (=bytemuck=, =zerocopy=, =libc=, =memmap2=) to your own =unsafe=.
+- One invariant per =unsafe= block, written down.
+- Never use =unsafe= to silence a borrow-checker error; the error usually points at a real aliasing problem.
+- Treat every =extern= declaration as part of your trusted base: copy signatures from the header exactly, or generate them.
+
+** What to remember
+- =unsafe= unlocks five operations; the compiler still checks everything else.
+- Build a safe API around each unsafe core; document =# Safety= and write =// SAFETY:=.
+- Rust's undefined behavior list includes invalid values and aliasing violations, not just bad pointers.
+- FFI: =extern "C"=, =#[repr(C)]=, =CString= / =CStr=, and explicit ownership across the boundary; do not let panics cross it.
+- Use Miri and sanitizers; use =forbid(unsafe_code)= wherever you can.

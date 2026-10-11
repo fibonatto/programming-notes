@@ -1,0 +1,191 @@
+#+title: The C Standard Library
+#+startup: overview
+
+* The C Standard Library
+** 1. Headers at a glance
+| Header                                          | Provides                                                              |
+|-------------------------------------------------+-----------------------------------------------------------------------|
+| =<stddef.h>=                                    | =size_t=, =ptrdiff_t=, =NULL=, =offsetof=, =max_align_t=              |
+| =<stdint.h>=                                    | Fixed-width integers, =SIZE_MAX=, =INTPTR_MAX=                        |
+| =<inttypes.h>=                                  | =PRId64=, =strtoimax=                                                 |
+| =<limits.h>=                                    | =INT_MAX=, =CHAR_BIT=, ...                                            |
+| =<float.h>=                                     | =DBL_EPSILON=, =FLT_MAX=, ...                                         |
+| =<stdbool.h>=                                   | =bool=, =true=, =false=                                               |
+| =<stdlib.h>=                                    | Allocation, conversions, =qsort=, =bsearch=, =exit=, =getenv=, =rand= |
+| =<string.h>=                                    | Memory and string functions                                           |
+| =<stdio.h>=                                     | Streams and formatted I/O (see =07_io-and-errors.org=)                |
+| =<ctype.h>=                                     | Character classification                                              |
+| =<math.h>=                                      | Math functions (link with =-lm= on Linux)                             |
+| =<time.h>=                                      | Time and date                                                         |
+| =<errno.h>=                                     | =errno=, =EINVAL=, ...                                                |
+| =<assert.h>=                                    | =assert=, =static_assert=                                             |
+| =<stdarg.h>=                                    | Variadic argument access                                              |
+| =<setjmp.h>=                                    | Non-local jumps                                                       |
+| =<signal.h>=                                    | Signal handling                                                       |
+| =<locale.h>=                                    | Locale (affects =printf=, =ctype=, =strtod=)                          |
+| =<stdatomic.h>=, =<threads.h>=                  | Atomics and threads (see =11_concurrency.org=)                        |
+| =<stdckdint.h>=                                 | C23: checked integer arithmetic (=ckd_add= ...)                       |
+| =<wchar.h>=, =<uchar.h>=, =<wctype.h>=          | Wide and Unicode characters                                           |
+| =<complex.h>=, =<tgmath.h>=, =<fenv.h>=         | Complex numbers, generic math, floating-point environment             |
+| =<iso646.h>=, =<stdalign.h>=, =<stdnoreturn.h>= | Spelling aliases, alignment, =noreturn=                               |
+
+POSIX adds more (=<unistd.h>=, =<fcntl.h>=, =<pthread.h>=, =<sys/stat.h>=, =<dirent.h>=, ...), which are not part of ISO C.
+
+** 2. <string.h>
+#+begin_src c
+strlen(s);                    /* length without the '\0'; O(n) */
+strcmp(a, b);                 /* <0, 0, >0; equal iff 0 */
+strncmp(a, b, n);
+strchr(s, c);  strrchr(s, c); /* first/last occurrence of a char, or NULL */
+strstr(hay, needle);          /* substring search, or NULL */
+strspn(s, accept);  strcspn(s, reject);
+memchr(p, c, n);
+#+end_src
+
+Functions to be careful with:
+
+| Function           | Problem                                                                                                               |
+|--------------------+-----------------------------------------------------------------------------------------------------------------------|
+| =strcpy=, =strcat= | No bounds check: overflows if the destination is too small                                                            |
+| =strncpy=          | Does not NUL-terminate if the source is =n= or longer; pads with zeros up to =n= otherwise. It is not a "safe strcpy" |
+| =strncat=          | Appends at most =n= characters /plus/ a NUL; =n= is not the buffer size                                               |
+| =strtok=           | Modifies its input and keeps hidden static state; not reentrant. Use =strtok_r= (POSIX) or =strsep=                   |
+| =strdup=           | POSIX, standard in C23; the result must be =free=d                                                                    |
+
+A bounded copy that always terminates:
+
+#+begin_src c
+size_t copy_str(char *dst, size_t dstsz, const char *src) {
+    size_t len = strlen(src);
+    if (dstsz > 0) {
+        size_t n = len < dstsz - 1 ? len : dstsz - 1;
+        memcpy(dst, src, n);
+        dst[n] = '\0';
+    }
+    return len;               /* >= dstsz means truncated */
+}
+#+end_src
+
+=strlcpy= and =strlcat= (BSD, glibc 2.38+) do this, but are not in ISO C. Often =snprintf(dst, size, "%s", src)= is the simplest correct option.
+
+** 3. <stdlib.h>
+*** Number parsing
+#+begin_src c
+char *end;
+errno = 0;
+long v = strtol(s, &end, 10);
+if (end == s)               { /* no digits */ }
+else if (*end != '\0')      { /* trailing garbage */ }
+else if (errno == ERANGE)   { /* overflow: v is LONG_MAX or LONG_MIN */ }
+
+double d = strtod(s, &end);
+unsigned long long u = strtoull(s, &end, 16);
+#+end_src
+
+Avoid =atoi= and =atof=: they report no errors, and overflow is undefined. =strtol= takes a base (use =0= to accept =0x= and =0= prefixes).
+
+*** Sorting and searching
+#+begin_src c
+int cmp_int(const void *a, const void *b) {
+    int x = *(const int *)a, y = *(const int *)b;
+    return (x > y) - (x < y);             /* never x - y: it can overflow */
+}
+
+qsort(arr, n, sizeof arr[0], cmp_int);
+int key = 7;
+int *hit = bsearch(&key, arr, n, sizeof arr[0], cmp_int);   /* NULL if missing; array must be sorted */
+#+end_src
+
+=qsort= is not stable and its comparator must define a consistent ordering (otherwise behavior is undefined). Sorting structs by a string field uses the same pattern with =strcmp=.
+
+*** Random numbers
+=rand()= returns an integer in [0, =RAND_MAX=] (at least 32767), with low and unspecified quality. =srand(seed)= seeds it. Use it for toys; for statistics use a proper generator (such as xoshiro or PCG you implement), and for security use =getrandom=, =arc4random=, or =/dev/urandom=, never =rand=. Computing a bounded value with =rand() % n= is biased.
+
+*** Environment and process
+#+begin_src c
+const char *home = getenv("HOME");        /* NULL if unset; do not modify the string */
+atexit(cleanup);
+exit(EXIT_FAILURE);
+int status = system("ls");                /* runs a shell command: avoid with untrusted input */
+#+end_src
+
+** 4. <ctype.h>
+#+begin_src c
+isdigit((unsigned char)c);   isalpha((unsigned char)c);   isspace((unsigned char)c);
+toupper((unsigned char)c);   tolower((unsigned char)c);
+#+end_src
+
+Pass a value representable as =unsigned char= (or =EOF=); a negative =char= is undefined behavior. The functions are locale-dependent and work on single bytes, so they do not understand UTF-8 multi-byte characters.
+
+** 5. <math.h>
+#+begin_src c
+sqrt(x);  pow(x, y);  fabs(x);  floor(x);  ceil(x);  round(x);  fmod(x, y);
+sin(x);  cos(x);  atan2(y, x);  exp(x);  log(x);  log10(x);  hypot(x, y);
+isnan(x);  isinf(x);  isfinite(x);
+#+end_src
+
+- Link with =-lm= on Linux.
+- =abs= and =labs= are for integers (=<stdlib.h>=); =fabs= is for doubles (=<math.h>=).
+- Domain errors (=sqrt(-1)=, =log(0)=) return NaN or infinity and may set =errno= or floating-point flags; check inputs if it matters.
+- =float= variants end in =f= (=sqrtf=), and =long double= variants in =l=.
+
+** 6. <time.h>
+#+begin_src c
+#include <time.h>
+
+time_t now = time(NULL);                       /* seconds since the epoch (usually) */
+clock_t c0 = clock();                          /* CPU time used by the process, not wall time */
+double secs = (double)(clock() - c0) / CLOCKS_PER_SEC;
+
+struct tm tm_utc;
+gmtime_r(&now, &tm_utc);                       /* POSIX; thread-safe */
+char out[64];
+strftime(out, sizeof out, "%Y-%m-%d %H:%M:%S", &tm_utc);
+
+struct timespec ts;
+timespec_get(&ts, TIME_UTC);                   /* C11: sub-second wall time */
+clock_gettime(CLOCK_MONOTONIC, &ts);           /* POSIX: use this to measure elapsed time */
+#+end_src
+
+- =gmtime= and =localtime= return a pointer to a shared static object; use =gmtime_r= / =localtime_r= (POSIX) in threaded code.
+- The epoch and the width of =time_t= are not fixed by ISO C (64-bit nearly everywhere today).
+- Wall-clock time can jump (NTP, daylight saving); measure intervals with a monotonic clock.
+- =difftime(t1, t0)= subtracts two =time_t= values portably.
+
+** 7. <stdarg.h> and <signal.h> briefly
+Variadic functions are covered in =03_functions.org=. Signals:
+
+#+begin_src c
+#include <signal.h>
+
+static volatile sig_atomic_t stop;
+
+static void on_sigint(int sig) { (void)sig; stop = 1; }
+
+int main(void) {
+    signal(SIGINT, on_sigint);               /* sigaction is more reliable on POSIX */
+    while (!stop) { /* work */ }
+}
+#+end_src
+
+A signal handler may only call async-signal-safe functions (not =printf= or =malloc=) and may only portably touch =volatile sig_atomic_t= objects. The usual pattern: set a flag in the handler and act on it in the main loop.
+
+** 8. <stdckdint.h> (C23)
+#+begin_src c
+#include <stdckdint.h>
+
+int r;
+if (ckd_add(&r, a, b)) { /* overflow; r holds the wrapped result */ }
+ckd_mul(&size, n, elem_size);                /* safe size computations for allocation */
+#+end_src
+
+** 9. Annex K and other things you will see
+Annex K (=strcpy_s=, =fopen_s=, ...) is optional and almost unimplemented outside MSVC; do not rely on it. POSIX supplies the rest of a typical systems API (sockets, =mmap=, =fork=, threads), and libraries such as libc extensions (=getline=, =strlcpy=, =asprintf=) vary by platform.
+
+** What to remember
+- Know the dangerous string functions and their safe alternatives (=snprintf=, =memcpy= with explicit lengths).
+- Parse numbers with =strtol= / =strtod=, check =end= and =errno=; avoid =atoi=.
+- Comparators for =qsort= use comparison, not subtraction.
+- =isalpha= and friends need =unsigned char=.
+- Measure elapsed time with a monotonic clock; use the =_r= variants of time functions in threaded code.
+- =rand()= is not a good random number generator.

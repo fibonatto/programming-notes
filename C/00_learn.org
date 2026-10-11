@@ -1,0 +1,282 @@
+#+title: Learn C
+#+startup: overview
+
+* Learn C
+** 1. Program structure
+A C program is a set of functions. Execution starts at =main=.
+
+#+begin_src c
+#include <stdio.h>
+
+int main(void) {
+    printf("hello\n");
+    return 0;
+}
+#+end_src
+
+Compile with warnings enabled and a fixed standard:
+
+#+begin_src sh
+cc -std=c17 -Wall -Wextra -Wpedantic -g hello.c -o hello
+#+end_src
+
+Reaching the end of =main= returns 0 (since C99); every other function needs an explicit =return=.
+
+** 2. Types and sizes
+#+begin_src c
+#include <stdint.h>
+#include <stddef.h>
+
+int      i = 42;
+double   d = 3.14;
+char     c = 'a';          /* a small integer, not a "character type" in the Lisp sense */
+uint8_t  b = 255;          /* exact width: <stdint.h> */
+int64_t  big = 1LL << 40;
+size_t   n = sizeof(int);  /* unsigned, result of sizeof */
+#+end_src
+
+- =int=, =long=, =char= have implementation-defined sizes. Use =<stdint.h>= when width matters.
+- Print =size_t= with =%zu=, =int64_t= with =PRId64= from =<inttypes.h>=.
+- Signed overflow is undefined behavior. Unsigned overflow wraps modulo 2^N.
+- Whether plain =char= is signed is implementation-defined.
+
+** 3. Expressions and operators
+#+begin_src c
+7 / 2        /* 3: integer division truncates toward zero (C99+) */
+-7 / 2       /* -3 */
+-7 % 2       /* -1: the sign follows the dividend */
+7 / 2.0      /* 3.5 */
+#+end_src
+
+- Small integer types are promoted to =int= before arithmetic.
+- Mixing signed and unsigned converts to unsigned: =-1 < 1u= is false.
+- Any nonzero scalar is true; =0= is false. Comparisons yield =int= 0 or 1.
+- =&&= and =||= short-circuit. The evaluation order of function arguments and of most operands is unspecified.
+
+** 4. Control flow
+#+begin_src c
+if (x > 0) { ... } else if (x == 0) { ... } else { ... }
+
+for (int i = 0; i < n; i++) { ... }
+while (cond) { ... }
+do { ... } while (cond);
+
+switch (kind) {
+case 1:  f(); break;       /* without break, control falls through */
+case 2:  g(); break;
+default: h();
+}
+#+end_src
+
+Always use braces. =goto= exists and is conventionally used for cleanup paths.
+
+** 5. Functions
+#+begin_src c
+int square(int x) {
+    return x * x;
+}
+
+void swap(int *a, int *b) {
+    int t = *a;
+    *a = *b;
+    *b = t;
+}
+#+end_src
+
+Arguments are always passed by value. To let a function modify the caller's variable, pass a pointer. A function must be declared (a prototype) before it is called:
+
+#+begin_src c
+int square(int x);   /* declaration, usually in a header */
+#+end_src
+
+=int f()= (empty parentheses) does not mean "no parameters" before C23. Write =int f(void)=.
+
+** 6. Pointers and arrays
+#+begin_src c
+int x = 10;
+int *p = &x;     /* p holds the address of x */
+*p = 20;         /* x is now 20 */
+
+int a[4] = {1, 2, 3, 4};
+a[1];            /* same as *(a + 1) */
+#+end_src
+
+An array expression decays to a pointer to its first element in most contexts. Pointer arithmetic scales by the element size.
+
+#+begin_src c
+void f(int a[]) {
+    sizeof(a);          /* sizeof(int *): the parameter is really a pointer */
+}
+
+int a[4];
+sizeof(a) / sizeof(a[0]);   /* 4, only valid where a is a real array */
+#+end_src
+
+Pass the length separately: =void f(int *a, size_t n)=. Pointer arithmetic outside an array (or one past its end) is undefined behavior.
+
+** 7. Strings
+A string is a =char= array terminated by ='\0'=.
+
+#+begin_src c
+char s[] = "abc";          /* 4 bytes: 'a' 'b' 'c' '\0', modifiable copy */
+const char *t = "abc";     /* points to a string literal: do not modify */
+
+strlen(s);                 /* 3, excludes the terminator */
+strcmp(s, "abc") == 0;     /* compare contents, never use == */
+#+end_src
+
+=strcpy=, =strcat=, and =gets= do not check bounds. Prefer =snprintf= and explicit lengths:
+
+#+begin_src c
+char buf[32];
+int n = snprintf(buf, sizeof buf, "%s-%d", name, id);
+if (n < 0 || (size_t)n >= sizeof buf) { /* truncated or error */ }
+#+end_src
+
+** 8. Structs, unions, enums
+#+begin_src c
+struct point {
+    double x;
+    double y;
+};
+
+struct point p = { .x = 1.0, .y = 2.0 };   /* designated initializers */
+p.x = 3.0;
+
+struct point *q = &p;
+q->y = 4.0;                                /* same as (*q).y */
+#+end_src
+
+#+begin_src c
+typedef struct point Point;
+
+enum color { RED, GREEN, BLUE };           /* integer constants 0, 1, 2 */
+
+union value {                              /* members share storage */
+    int    i;
+    float  f;
+};
+#+end_src
+
+Struct layout includes padding, so =sizeof(struct)= can exceed the sum of the members. Structs are copied by assignment and passed by value.
+
+** 9. Dynamic memory
+#+begin_src c
+#include <stdlib.h>
+
+int *a = malloc(n * sizeof *a);
+if (a == NULL) { /* handle failure */ }
+a[0] = 1;
+free(a);
+a = NULL;
+#+end_src
+
+- Every successful =malloc=, =calloc=, or =realloc= needs exactly one =free=.
+- =calloc(n, size)= zero-fills and checks the multiplication for overflow.
+- Never use memory after =free= and never free twice.
+- =realloc= can fail and leave the original block valid, so do not overwrite the only pointer:
+
+#+begin_src c
+int *tmp = realloc(a, new_n * sizeof *a);
+if (tmp == NULL) { free(a); return -1; }
+a = tmp;
+#+end_src
+
+** 10. Undefined behavior
+The compiler assumes it never happens, and the result can be anything. Common sources:
+
+| Cause                                        | Example                    |
+|----------------------------------------------+----------------------------|
+| Signed integer overflow                      | =INT_MAX + 1=              |
+| Out-of-bounds access                         | =a[n]= on =int a[n]=       |
+| Null or dangling pointer dereference         | use after =free=           |
+| Reading an uninitialized automatic variable  | =int x; return x;=         |
+| Shift by negative or >= width                | =1 << 32= on 32-bit =int=  |
+| Modifying an object twice without sequencing | =i = i++ + 1=              |
+| Violating strict aliasing                    | reading a =float= as =int= |
+| Modifying a string literal                   | ~char *s = "a"; s[0]='b';~ |
+
+Tests that "work" do not rule out UB. Use the sanitizers (section 15).
+
+** 11. const, static, extern
+#+begin_src c
+const int limit = 100;        /* cannot be modified through this name */
+const char *p;                /* pointer to const char */
+char *const q = buf;          /* const pointer to char */
+
+static int counter;           /* file scope: internal linkage */
+void f(void) {
+    static int calls = 0;     /* function scope: persists between calls */
+    calls++;
+}
+
+extern int shared;            /* declared here, defined in another file */
+#+end_src
+
+Globals and =static= variables are zero-initialized; automatic (local) variables are not.
+
+** 12. The preprocessor
+#+begin_src c
+#include <stdio.h>       /* system header */
+#include "mylib.h"       /* local header */
+
+#define MAX 100
+#define SQUARE(x) ((x) * (x))
+
+#ifndef MYLIB_H
+#define MYLIB_H
+/* header contents */
+#endif
+#+end_src
+
+Macros are textual substitution. Parenthesize the parameters and the whole body, and remember that arguments can be evaluated more than once: =SQUARE(i++)= is undefined behavior. Prefer =static inline= functions and =enum= constants when possible.
+
+** 13. Function pointers
+#+begin_src c
+int add(int a, int b) { return a + b; }
+
+int (*op)(int, int) = add;
+op(2, 3);                       /* 5 */
+
+int cmp(const void *a, const void *b) {
+    int x = *(const int *)a, y = *(const int *)b;
+    return (x > y) - (x < y);   /* avoids overflow from x - y */
+}
+qsort(arr, n, sizeof arr[0], cmp);
+#+end_src
+
+** 14. I/O and errors
+#+begin_src c
+#include <errno.h>
+#include <string.h>
+
+FILE *f = fopen("data.txt", "r");
+if (f == NULL) {
+    fprintf(stderr, "open: %s\n", strerror(errno));
+    return 1;
+}
+char line[256];
+while (fgets(line, sizeof line, f) != NULL) {
+    /* process line */
+}
+fclose(f);
+#+end_src
+
+C has no exceptions. Functions signal failure through return values (=NULL=, =-1=, an error code) and sometimes =errno=. Check them.
+
+** 15. Tools
+#+begin_src sh
+cc -std=c17 -Wall -Wextra -g -fsanitize=address,undefined hello.c -o hello
+valgrind ./hello       # alternative on Linux
+gdb ./hello
+#+end_src
+
+AddressSanitizer catches out-of-bounds access, use after free, and leaks. UBSan catches signed overflow, bad shifts, and null dereferences at run time.
+
+** What to remember
+- Everything is passed by value; pointers are how you share or mutate.
+- An array is not a pointer, but it decays into one almost everywhere.
+- Strings are NUL-terminated arrays; check bounds yourself.
+- You own the memory you allocate: free once, never use after.
+- Undefined behavior is not an error message; it is a license for the compiler.
+- Compile with =-Wall -Wextra= and test under sanitizers.

@@ -1,0 +1,212 @@
+#+title: Rust Functions
+#+startup: overview
+
+* Rust Functions
+** 1. Define a function
+#+begin_src rust
+fn square(x: i32) -> i32 {
+    x * x
+}
+
+square(5);   // 25
+#+end_src
+
+Parameter and return types are mandatory in signatures (types are inferred only inside bodies). The last expression, without a semicolon, is the return value; =return= is for early exits. A function with no =->= returns =()=. Functions may be defined in any order within a module.
+
+** 2. Parameters: move, borrow, mutate
+The parameter type says what the function does with the argument.
+
+#+begin_src rust
+fn consume(s: String) { }          // takes ownership: caller can no longer use s
+fn read(s: &String) { }            // shared borrow: read-only
+fn change(s: &mut String) { }      // exclusive borrow: may modify
+
+let mut s = String::from("hi");
+read(&s);
+change(&mut s);
+consume(s);                        // s is moved here
+#+end_src
+
+Prefer the most general borrowed type in parameters: =&str= rather than =&String=, =&[T]= rather than =&Vec<T>=, so callers can pass either form.
+
+There is no overloading, no default arguments, and no named arguments. Substitutes: different function names, =Option<T>= parameters, or a config struct with =Default=:
+
+#+begin_src rust
+#[derive(Default)]
+struct Options { port: u16, tls: bool }
+
+fn connect(host: &str, opts: Options) { }
+
+connect("example.com", Options { port: 443, ..Default::default() });
+#+end_src
+
+** 3. Return values
+#+begin_src rust
+fn divmod(a: i32, b: i32) -> (i32, i32) {
+    (a / b, a % b)
+}
+
+let (q, r) = divmod(17, 5);   // q == 3, r == 2
+#+end_src
+
+Several results go in a tuple or a small struct. Failure goes in the return type:
+
+#+begin_src rust
+fn checked(a: i32, b: i32) -> Option<i32> { a.checked_div(b) }
+fn parse(s: &str) -> Result<i32, std::num::ParseIntError> { s.parse() }
+#+end_src
+
+Integer division by zero panics. A function that never returns has type =!=:
+
+#+begin_src rust
+fn fail(msg: &str) -> ! {
+    panic!("{msg}")
+}
+#+end_src
+
+A function cannot return a reference to a local variable; the borrow checker rejects it.
+
+** 4. Closures
+A closure is an anonymous function that can capture variables from its environment.
+
+#+begin_src rust
+let add = |a: i32, b: i32| a + b;
+add(2, 3);                        // 5
+
+let k = 10;
+let scale = |x: i32| x * k;       // borrows k
+
+let mut count = 0;
+let mut inc = || count += 1;      // mutably borrows count; the binding must be mut
+inc();
+inc();
+// count == 2 once inc is no longer used
+
+let s = String::from("hi");
+let owns = move || s.len();       // move: the closure takes ownership of s
+#+end_src
+
+Parameter and return types are usually inferred. Each closure has its own unique, unnameable type.
+
+** 5. Fn, FnMut, FnOnce
+The compiler assigns each closure the most permissive of three traits, based on what its body does with captured values.
+
+| Trait    | Called how            | Closure body...                         |
+|----------+-----------------------+-----------------------------------------|
+| =Fn=     | =&self=, many times   | only reads captured values              |
+| =FnMut=  | =&mut self=, many times | mutates captured values               |
+| =FnOnce= | =self=, at most once  | moves a captured value out              |
+
+Every =Fn= is also =FnMut= and =FnOnce=; every =FnMut= is also =FnOnce=. Use the loosest bound the function needs: =FnOnce= if it calls the closure once, =FnMut= if it calls it repeatedly and allows mutation, =Fn= if callers must be able to share it.
+
+** 6. Functions that take functions
+#+begin_src rust
+fn apply<F: Fn(i32) -> i32>(f: F, x: i32) -> i32 { f(x) }          // static dispatch
+
+fn apply2(f: impl Fn(i32) -> i32, x: i32) -> i32 { f(x) }          // same, shorter
+
+fn apply_dyn(f: &dyn Fn(i32) -> i32, x: i32) -> i32 { f(x) }       // dynamic dispatch
+
+fn double(x: i32) -> i32 { x * 2 }
+apply(double, 4);                  // named functions work too
+apply(|x| x + 1, 4);               // so do closures
+#+end_src
+
+Generic bounds are monomorphized: one specialized copy per closure type, no call overhead. =&dyn Fn= and =Box<dyn Fn>= use one copy and a virtual call, and allow storing different closures in one place.
+
+A plain function pointer has the type =fn(i32) -> i32=; it can hold named functions and non-capturing closures.
+
+#+begin_src rust
+let f: fn(i32) -> i32 = double;
+let v: Vec<i32> = [1, 2, 3].iter().copied().map(double).collect();   // [2, 4, 6]
+#+end_src
+
+** 7. Returning closures
+#+begin_src rust
+fn make_adder(n: i32) -> impl Fn(i32) -> i32 {
+    move |x| x + n
+}
+
+fn make_boxed(n: i32) -> Box<dyn Fn(i32) -> i32> {
+    Box::new(move |x| x + n)
+}
+
+let add5 = make_adder(5);
+add5(10);                          // 15
+#+end_src
+
+=move= is needed because =n= would otherwise be borrowed from a stack frame that is gone. Use =impl Fn= when one concrete closure type is returned; use =Box<dyn Fn>= when different branches return different closures.
+
+** 8. Methods and associated functions
+#+begin_src rust
+struct Counter { n: u32 }
+
+impl Counter {
+    fn new() -> Self { Counter { n: 0 } }          // associated function: Counter::new()
+    fn get(&self) -> u32 { self.n }                // reads
+    fn inc(&mut self) { self.n += 1; }             // mutates
+    fn into_inner(self) -> u32 { self.n }          // consumes the value
+}
+
+let mut c = Counter::new();
+c.inc();
+c.get();           // 1
+#+end_src
+
+The first parameter, =self=, =&self=, or =&mut self=, makes a function a method callable with dot syntax. =Counter::get(&c)= is the same call written out.
+
+** 9. Generic functions and trait bounds
+#+begin_src rust
+fn largest<T: PartialOrd + Copy>(xs: &[T]) -> T {
+    let mut m = xs[0];
+    for &x in xs { if x > m { m = x; } }
+    m
+}
+
+fn describe<T>(x: T) -> String
+where
+    T: std::fmt::Debug + Clone,
+{
+    format!("{:?}", x.clone())
+}
+#+end_src
+
+Without a bound, a generic parameter has no operations beyond moving it. =largest= panics on an empty slice; a safer signature returns =Option<T>=.
+
+** 10. Recursion and iteration
+#+begin_src rust
+fn fact(n: u64) -> u64 {
+    if n <= 1 { 1 } else { n * fact(n - 1) }
+}
+
+fn sum(xs: &[i32]) -> i32 {
+    xs.iter().sum()
+}
+#+end_src
+
+Rust does not guarantee tail-call optimization, and deep recursion can overflow the stack. Iterators and loops are idiomatic for linear traversals; use recursion for trees and divide-and-conquer. Overflow in =fact= panics in debug builds and wraps in release builds.
+
+** 11. Functions versus macros
+Function arguments are evaluated before the call. A macro such as =println!= or =vec!= receives tokens and can accept a variable number of arguments or generate code (see =11_macros.org=). To delay evaluation with a function, pass a closure:
+
+#+begin_src rust
+fn choose<T>(c: bool, a: impl FnOnce() -> T, b: impl FnOnce() -> T) -> T {
+    if c { a() } else { b() }
+}
+
+choose(ok, || expensive(), || cheap());   // only one closure runs
+#+end_src
+
+** Quick reference
+| Form                    | Purpose                                         |
+|-------------------------+-------------------------------------------------|
+| =fn f(x: T) -> U=       | Define a function                               |
+| =&T=, =&mut T=, =T=     | Borrow, mutably borrow, or take ownership       |
+| =F: Fn(A) -> R=         | Accept a callable, static dispatch              |
+| =&dyn Fn(A) -> R=       | Accept a callable, dynamic dispatch             |
+| =impl Fn(A) -> R=       | Return one concrete closure type                |
+| =Box<dyn Fn(A) -> R>=   | Return or store different closures              |
+| =fn(A) -> R=            | Function pointer type                           |
+| =self=, =&self=, =&mut self= | Method receivers                           |
+
+Closures are written =|x| expr=; prefixing =move= makes the closure take ownership of what it uses.

@@ -1,0 +1,240 @@
+#+title: Discrete Mathematics for Engineers
+#+startup: overview
+
+* Discrete Mathematics for Engineers
+** 0. Staff-level lens
+Discrete mathematics is the vocabulary behind algorithms, databases, distributed systems, cryptography, and capacity planning. At Staff scope the goal is not to solve contest problems but to:
+- turn a vague engineering question ("will two ids ever collide?", "how many replicas survive two failures?") into a counting or probability statement you can compute;
+- recognize when a problem is secretly a graph, a partial order, or a modular-arithmetic problem;
+- estimate orders of magnitude quickly and defend the estimate;
+- read the proofs in design documents and papers well enough to spot an unstated assumption.
+
+Companion texts: Mathematics for Computer Science (Lehman, Leighton, Meyer; free from MIT OpenCourseWare) and Discrete Mathematics: An Open Introduction (Levin; free online). See the resource list at the end.
+
+** 1. Sets, relations, and functions
+- A /set/ is a collection with no duplicates and no order. Operations: union, intersection, difference, complement, product, power set (size 2^n for n elements).
+- A /relation/ on a set A is a subset of A x A. Properties: reflexive, symmetric, antisymmetric, transitive.
+  - *Equivalence relation* (reflexive, symmetric, transitive) partitions the set into classes: "same hash bucket", "same connected component", "equal modulo n".
+  - *Partial order* (reflexive, antisymmetric, transitive): "depends on", "is a prefix of", "happens before". A /total order/ adds comparability of any two elements.
+- A /function/ f: A -> B assigns one output per input. *Injective* (one-to-one), *surjective* (onto), *bijective* (both). A bijection implies equal cardinality, which is how counting arguments work.
+- *Pigeonhole principle*: putting n+1 items into n boxes forces a box with two items. It proves that any lossless compression has inputs it cannot shrink, and that hash collisions are unavoidable when the key space exceeds the table.
+
+Engineering uses: relational databases are sets and relations; build systems are partial orders (dependency DAGs); consistency models are orders over operations.
+
+** 2. Counting
+| Situation                               | Count                      |
+|-----------------------------------------+----------------------------|
+| Ordered choices, repetition allowed     | n^k                        |
+| Arrangements of k from n, no repetition | n! / (n-k)!                |
+| Subsets of size k (unordered)           | C(n, k) = n! / (k! (n-k)!) |
+| Multisets of size k from n kinds        | C(n+k-1, k)                |
+| Permutations of n items                 | n!                         |
+| Subsets of an n-set                     | 2^n                        |
+
+Tools worth owning:
+- *Rule of sum and product*, and the habit of counting the complement ("at least one" = total minus "none").
+- *Inclusion-exclusion*: |A union B| = |A| + |B| - |A intersect B|, generalized with alternating signs.
+- *Double counting*: count one set two ways and equate (handshake lemma: the sum of degrees is twice the number of edges).
+- *Stirling's approximation*: ln n! is about n ln n - n. It explains why sorting by comparisons needs about n log2 n comparisons: there are n! orderings, and each comparison at best halves the possibilities, so at least log2(n!) comparisons are required.
+- *Binomial theorem*: (x + y)^n = sum over k of C(n,k) x^k y^(n-k).
+
+#+begin_src python
+import math
+
+# Derangements (permutations with no fixed point) via inclusion-exclusion.
+def derangements(n):
+    return sum((-1) ** k * math.factorial(n) // math.factorial(k) for k in range(n + 1))
+
+assert [derangements(n) for n in range(6)] == [1, 0, 1, 2, 9, 44]
+assert math.comb(52, 5) == 2598960            # poker hands
+assert math.log2(math.factorial(10)) < 22     # at least ~22 comparisons to sort 10 items
+#+end_src
+
+** 3. Number theory and modular arithmetic
+Modular arithmetic is arithmetic on a clock: a is congruent to b modulo m when m divides a - b. It underlies hashing, checksums, cyclic buffers, cryptography, and random number generation.
+
+- *gcd and the Euclidean algorithm*: gcd(a, b) = gcd(b, a mod b); takes O(log min(a, b)) steps. The /extended/ algorithm finds x, y with ax + by = gcd(a, b).
+- *Modular inverse*: a has an inverse modulo m iff gcd(a, m) = 1; compute it with the extended algorithm.
+- *Fast exponentiation* (square-and-multiply): a^e mod m in O(log e) multiplications.
+- *Fermat's little theorem*: if p is prime and p does not divide a, then a^(p-1) is congruent to 1 modulo p. *Euler's theorem* generalizes it with phi(m).
+- *Chinese remainder theorem*: congruences modulo pairwise coprime moduli combine into one congruence modulo their product.
+- *Primality*: trial division is exponential in the number of digits; Miller-Rabin is a fast randomized test (deterministic for fixed base sets below a bound).
+- *RSA in one paragraph*: choose primes p, q; n = pq; pick e coprime to phi(n); d is the inverse of e modulo phi(n); encrypt c = m^e mod n; decrypt m = c^d mod n. Security rests on the apparent difficulty of factoring n. Do not implement cryptography yourself for production: use vetted libraries.
+
+#+begin_src python
+def egcd(a, b):
+    """Return (g, x, y) with a*x + b*y == g == gcd(a, b)."""
+    if b == 0:
+        return (a, 1, 0)
+    g, x, y = egcd(b, a % b)
+    return (g, y, x - (a // b) * y)
+
+def modinv(a, m):
+    g, x, _ = egcd(a % m, m)
+    if g != 1:
+        raise ValueError("no inverse")
+    return x % m
+
+def modpow(base, exp, mod):
+    result, base = 1, base % mod
+    while exp > 0:
+        if exp & 1:
+            result = result * base % mod
+        base = base * base % mod
+        exp >>= 1
+    return result
+
+def crt(rems, mods):
+    x, m = 0, 1
+    for r, mi in zip(rems, mods):
+        t = (r - x) * modinv(m, mi) % mi
+        x += m * t
+        m *= mi
+    return x % m
+
+def is_prime(n):
+    if n < 2:
+        return False
+    small = (2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37)
+    for p in small:
+        if n % p == 0:
+            return n == p
+    d, s = n - 1, 0
+    while d % 2 == 0:
+        d //= 2
+        s += 1
+    for a in small:                       # deterministic for n < 3.3e24
+        x = pow(a, d, n)
+        if x in (1, n - 1):
+            continue
+        for _ in range(s - 1):
+            x = x * x % n
+            if x == n - 1:
+                break
+        else:
+            return False
+    return True
+
+assert egcd(240, 46)[0] == 2 and modinv(3, 11) == 4
+assert modpow(2, 10, 1000) == 24 and modpow(7, 560, 561) == 1   # 561 is a Carmichael number
+assert crt([2, 3, 2], [3, 5, 7]) == 23
+assert [p for p in range(30) if is_prime(p)] == [2, 3, 5, 7, 11, 13, 17, 19, 23, 29]
+assert is_prime(2**61 - 1) and not is_prime(561)
+#+end_src
+
+** 4. Graph theory
+A graph G = (V, E) has vertices and edges (directed or undirected, possibly weighted). Vocabulary every engineer should own: path, cycle, connected component, degree, tree (connected and acyclic; n-1 edges), forest, DAG, bipartite graph, subgraph, spanning tree, clique, independent set, matching, coloring.
+
+Facts worth memorizing:
+- A graph is *bipartite* iff it has no odd cycle (two-colorable).
+- An undirected graph has an *Eulerian circuit* iff it is connected (ignoring isolated vertices) and every vertex has even degree. Finding a *Hamiltonian* cycle, by contrast, is NP-complete (see =04_complexity.org=).
+- A directed graph has a *topological order* iff it is a DAG. Dependency resolution, build ordering, and task scheduling all reduce to this.
+- A tree on n vertices has n-1 edges; adding any edge creates exactly one cycle.
+- *Hall's theorem*: a bipartite graph has a matching saturating one side iff every subset S of that side has at least |S| neighbors. It explains assignment problems (tasks to workers) and when they are infeasible.
+- Planar graphs satisfy Euler's formula V - E + F = 2 (connected case); 4 colors suffice.
+
+Where graphs hide in practice: package and module dependency graphs, call graphs, network topology, social/knowledge graphs, state machines (states and transitions), the happens-before relation in concurrent traces, data lineage, and Kubernetes-style resource graphs. Algorithms on graphs are in =06_algorithms.org=; representation choices are in =05_data-structures.org=.
+
+#+begin_src python
+from collections import deque
+
+def is_bipartite(adj):
+    color = {}
+    for s in adj:
+        if s in color:
+            continue
+        color[s] = 0
+        q = deque([s])
+        while q:
+            u = q.popleft()
+            for v in adj[u]:
+                if v not in color:
+                    color[v] = 1 - color[u]
+                    q.append(v)
+                elif color[v] == color[u]:
+                    return False
+    return True
+
+square = {0: [1, 3], 1: [0, 2], 2: [1, 3], 3: [2, 0]}
+triangle = {0: [1, 2], 1: [0, 2], 2: [0, 1]}
+assert is_bipartite(square) and not is_bipartite(triangle)
+#+end_src
+
+** 5. Probability
+Probability turns uncertainty into numbers you can reason about: failure rates, collision odds, sampling error, randomized algorithms.
+
+- A /probability space/ has outcomes, events, and a measure P. *Conditional probability*: P(A | B) = P(A and B) / P(B). *Bayes' rule*: P(A | B) = P(B | A) P(A) / P(B). Neglecting the base rate P(A) is the classic mistake in alerting and diagnostics: a test with 99% accuracy for a 1-in-10,000 event is mostly false positives.
+- *Independence*: P(A and B) = P(A) P(B). Failures of replicas are often /not/ independent (shared rack, shared bug, shared deployment), which is why "three nines times three replicas" estimates are optimistic.
+- *Random variable*, *expectation*, and *variance*. *Linearity of expectation* holds even without independence and is the most powerful single tool: the expected number of fixed points of a random permutation is 1, for every n.
+- Common distributions: Bernoulli, binomial, geometric (waiting time), Poisson (rare events per interval), uniform, exponential (memoryless waiting), normal (sums of many small effects). Latency distributions are usually heavy-tailed: do not average them (see the percentile discussion in =12_concurrency.org=).
+- *Tail bounds*: Markov (P(X >= a) <= E[X] / a), Chebyshev (deviation by k standard deviations has probability at most 1/k^2), and Chernoff-style bounds (exponentially small tails for sums of independent bounded variables) justify why sampling and randomized load balancing work.
+- *Birthday paradox*: with n items thrown uniformly into d slots, the collision probability is roughly 1 - exp(-n(n-1) / 2d). Collisions become likely around n = sqrt(d). For 64-bit random ids, expect a collision after about 2^32 ids, not 2^64.
+- *Coupon collector*: collecting all n types takes about n H_n draws (H_n is the harmonic number, about ln n + 0.577).
+
+#+begin_src python
+import math, random
+
+def p_collision(n, d):
+    p = 1.0
+    for i in range(n):
+        p *= (d - i) / d
+    return 1 - p
+
+assert abs(p_collision(23, 365) - 0.5073) < 1e-3
+assert abs((1 - math.exp(-23 * 22 / (2 * 365))) - 0.5) < 0.01
+
+# Linearity of expectation: expected fixed points of a random permutation is 1.
+random.seed(1)
+trials, total = 20000, 0
+for _ in range(trials):
+    perm = list(range(10))
+    random.shuffle(perm)
+    total += sum(1 for i, x in enumerate(perm) if i == x)
+assert abs(total / trials - 1.0) < 0.05
+
+# Coupon collector for n = 6 (a die): expected rolls = 6 * H_6 = 14.7
+h6 = sum(1 / k for k in range(1, 7))
+assert abs(6 * h6 - 14.7) < 1e-9
+#+end_src
+
+** 6. Sums, series, and recurrences
+You need these to analyze loops and recursion (see =04_complexity.org= for solving recurrences).
+- Arithmetic series: 1 + 2 + ... + n = n(n+1)/2. Geometric series: 1 + r + ... + r^(n-1) = (r^n - 1)/(r - 1); for r = 2 the last term outweighs all earlier ones combined, the reason dynamic-array doubling is amortized O(1).
+- Harmonic series: H_n = 1 + 1/2 + ... + 1/n is about ln n. It appears in quicksort's analysis, coupon collecting, and sieve-of-Eratosthenes complexity.
+- *Recurrences* define sequences from earlier terms: Fibonacci F(n) = F(n-1) + F(n-2) grows like phi^n with phi about 1.618; solving by guess-and-verify (induction), by recursion trees, or by characteristic equations.
+- *Induction* proves statements about all natural numbers or recursive structures (see =02_logic-and-proofs.org=).
+
+** 7. Just enough linear algebra and calculus
+Not covered here in depth, but know the following exist and where they matter:
+- Matrices as linear maps; matrix multiplication cost O(n^3) naively; powers of an adjacency matrix count paths; eigenvectors underlie PageRank and spectral clustering; ML and graphics are linear algebra.
+- Derivatives and gradients for optimization (gradient descent); integrals for expected values of continuous variables; Big-O is a statement about limits.
+The CS2023 curriculum report treats mathematics as increasingly central to computer science, including probability, statistics, and linear algebra.
+
+** 8. Self-check
+You should be able to answer without notes:
+1. How many 64-bit random ids can you generate before the collision probability reaches 1 in a million? (Hint: use the birthday approximation and solve for n.)
+2. Prove that any comparison sort needs at least log2(n!) comparisons in the worst case.
+3. Given a build graph with 10,000 nodes, what property guarantees a valid build order, and how do you detect a violation?
+4. A health check has a 1% false-positive rate and the true failure rate is 1 in 10,000. If it alarms, what is the probability a failure is real?
+5. Why can independence assumptions make an availability estimate wrong by orders of magnitude?
+6. Compute 7^(10^18) mod 13 by hand using Fermat's little theorem.
+
+** 9. Exercises
+- Warm-up: implement =nCk= mod a prime using the modular inverse; check against =math.comb=.
+- Core: implement a Bloom filter false-positive estimator and compare it with measurement (see =05_data-structures.org=).
+- Core: write a program that, given a dependency graph, outputs a topological order or a cycle (see =06_algorithms.org=).
+- Stretch: implement RSA with tiny primes using only the functions above, then break it by factoring and see why key size matters.
+- Stretch: work through two chapters of the MIT text (counting and probability) with all exercises.
+
+** 10. Resources
+- Lehman, Leighton, Meyer, /Mathematics for Computer Science/ (free PDF): https://ocw.mit.edu/courses/6-042j-mathematics-for-computer-science-spring-2015/resources/mit6_042js15_textbook_pdf/ . The OCW course page for the Fall 2010 offering lists the chapters (proofs, graph theory, number theory, counting, probability): https://www.ocw.mit.edu/courses/6-042j-mathematics-for-computer-science-fall-2010/pages/readings
+- Levin, /Discrete Mathematics: An Open Introduction/ (free, interactive, with exercises and solutions): https://discrete.openmathbooks.org/
+- Erickson, /Algorithms/ (free) uses these tools throughout: https://jeffe.cs.illinois.edu/teaching/algorithms/
+- Knuth, Graham, Patashnik, /Concrete Mathematics/ (book) for sums, recurrences, and generating functions.
+- ACM/IEEE-CS/AAAI, /Computer Science Curricula 2023/ for how the field frames its mathematical foundations: https://csed.acm.org/wp-content/uploads/2024/05/The-Report.pdf
+
+** What to remember
+- Count the complement; use linearity of expectation; use the birthday bound for collisions; use Bayes for diagnostics.
+- Modular arithmetic: gcd, inverses, fast exponentiation, CRT.
+- Graph vocabulary is a shared language for dependency, ordering, and flow problems.
+- Independence assumptions are where probability estimates quietly go wrong.

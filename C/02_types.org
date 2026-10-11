@@ -1,0 +1,246 @@
+#+title: C Types
+#+startup: overview
+
+* C Types
+** 1. Integer types and sizes
+The standard guarantees only minimum ranges:
+
+| Type        | Minimum width | Typical (LP64: Linux/macOS 64-bit) | Typical (LLP64: Windows 64-bit) |
+|-------------+---------------+------------------------------------+---------------------------------|
+| =char=      |        8 bits |                                  8 |                               8 |
+| =short=     |            16 |                                 16 |                              16 |
+| =int=       |            16 |                                 32 |                              32 |
+| =long=      |            32 |                                 64 |                              32 |
+| =long long= |            64 |                                 64 |                              64 |
+| pointer     | not specified |                                 64 |                              64 |
+
+=CHAR_BIT= (=<limits.h>=) is the number of bits in a byte (8 on every mainstream platform). =sizeof= yields the size in bytes, as a =size_t=; =sizeof(char)= is 1 by definition.
+
+When the width matters, use =<stdint.h>=:
+
+#+begin_src c
+#include <stdint.h>
+
+int8_t   a;  uint8_t  b;       /* exact width; optional types, present on all mainstream platforms */
+int32_t  c;  uint32_t d;
+int64_t  e;  uint64_t f;
+int_least16_t g;               /* smallest type with at least 16 bits */
+int_fast32_t  h;               /* fastest type with at least 32 bits */
+intmax_t i;  uintmax_t j;      /* widest types */
+intptr_t k;  uintptr_t l;      /* hold a pointer value (optional) */
+size_t    m;                   /* result of sizeof; unsigned */
+ptrdiff_t n;                   /* difference of two pointers; signed */
+#+end_src
+
+Limits: =INT_MAX=, =UINT_MAX=, =LONG_MAX=, =LLONG_MAX= (=<limits.h>=); =INT32_MAX=, =UINT64_MAX=, =SIZE_MAX= (=<stdint.h>=).
+
+Since C23, signed integers must use two's complement. Before that, it was nearly universal in practice.
+
+** 2. Signed overflow and unsigned wrap
+- Signed integer overflow is *undefined behavior*. The compiler may assume it never happens, which can delete your overflow checks.
+- Unsigned arithmetic is defined modulo 2^N and wraps.
+
+#+begin_src c
+int x = INT_MAX;
+x + 1;                          /* UB */
+
+unsigned u = UINT_MAX;
+u + 1;                          /* 0, well defined */
+
+if (a > INT_MAX - b) { /* would overflow */ }   /* check before adding, for non-negative b */
+#+end_src
+
+Safe options: check before the operation, use wider types, or use =<stdckdint.h>= (C23) / =__builtin_add_overflow= (GCC/Clang):
+
+#+begin_src c
+int r;
+if (__builtin_add_overflow(a, b, &r)) { /* overflow */ }
+/* C23: if (ckd_add(&r, a, b)) { ... } */
+#+end_src
+
+** 3. Integer promotions and the usual arithmetic conversions
+Operands narrower than =int= are first /promoted/ to =int= (or =unsigned int= if =int= cannot hold all values). Then, for a binary operator with different types, the /usual arithmetic conversions/ bring both to a common type:
+
+1. If either is floating point, convert to the wider floating type.
+2. Otherwise promote both. If the types match, done.
+3. If both are signed or both unsigned, convert to the one with greater rank.
+4. If the unsigned one has rank at least that of the signed one, convert to the unsigned type.
+5. If the signed type can represent all values of the unsigned type, convert to the signed type.
+6. Otherwise convert both to the unsigned version of the signed type.
+
+Consequences:
+
+#+begin_src c
+-1 < 1u                         /* false: -1 becomes UINT_MAX */
+uint8_t a = 200, b = 100;
+a + b;                          /* 300, an int: no wrap */
+(uint8_t)(a + b);               /* 44 */
+
+size_t n = 0;
+n - 1;                          /* SIZE_MAX, not -1 */
+
+for (size_t i = n - 1; i >= 0; i--) { }   /* infinite loop: i >= 0 is always true */
+#+end_src
+
+Use the same signedness on both sides of comparisons. =-Wsign-compare= and =-Wconversion= help.
+
+** 4. Casts and conversions
+#+begin_src c
+(unsigned)-1;                   /* UINT_MAX: converting to unsigned is always defined (modulo) */
+(int)3.99;                      /* 3: truncates toward zero */
+(int)1e20;                      /* UB: value out of range of int */
+(signed char)200;               /* implementation-defined (usually -56) */
+(double)a / b;                  /* cast before dividing to get a floating-point result */
+#+end_src
+
+- Converting a value to a signed type that cannot hold it is implementation-defined (or raises a signal).
+- Converting a floating value to an integer whose range it exceeds is undefined.
+- ~a / b~ with two integers is integer division even if the result is assigned to a =double=.
+- Casting between pointer types and integers is possible (=uintptr_t=) but the result is implementation-defined.
+- Converting between function pointers and object pointers is not guaranteed by the standard (POSIX requires it for =dlsym=).
+
+** 5. Floating point
+=float= (usually 32-bit), =double= (usually 64-bit), =long double= (varies: 64, 80, or 128 bits). On mainstream platforms =float= and =double= follow IEEE 754.
+
+#+begin_src c
+#include <float.h>
+#include <math.h>
+
+0.1 + 0.2 == 0.3;               /* false: binary fractions are inexact */
+fabs(a - b) < 1e-9;             /* compare with a tolerance (choose it for your scale) */
+
+double nan = NAN;
+nan == nan;                     /* false: NaN is unequal to everything, itself included */
+isnan(x);  isinf(x);            /* the correct tests */
+1.0 / 0.0;                      /* +inf (no trap by default) */
+printf("%.17g\n", x);           /* enough digits to round-trip a double */
+#+end_src
+
+- ~1 / 2~ is =0=; write =1.0 / 2= or =1 / 2.0=.
+- A floating literal without a suffix is =double=; =1.5f= is =float=.
+- =float= arguments to variadic functions (=printf=) are promoted to =double=, so =%f= takes a =double=.
+- =DBL_EPSILON= is the gap between 1.0 and the next representable double.
+- =-ffast-math= breaks IEEE semantics (NaN checks, associativity). Avoid it unless you understand the effects.
+
+** 6. Characters and strings
+- =char= may be signed or unsigned, depending on the platform (signed on x86, unsigned on many ARM ABIs). =signed char= and =unsigned char= are explicit.
+- =unsigned char= is the type for raw bytes. Character classification functions take an =int= that is either =EOF= or a value representable as =unsigned char=:
+
+#+begin_src c
+#include <ctype.h>
+
+isalpha((unsigned char)c);      /* cast: passing a negative char is UB */
+
+int ch = getchar();             /* int, not char: it must hold EOF as well as 0..255 */
+#+end_src
+
+- A character constant such as ='a'= has type =int= in C (it has type =char= in C++).
+- =wchar_t=, =char16_t=, =char32_t= (=<uchar.h>=) exist, but =char= strings holding UTF-8 are the practical choice. C does not know about Unicode: =strlen= counts bytes, and =toupper= works on single bytes.
+
+** 7. Booleans
+#+begin_src c
+#include <stdbool.h>            /* bool, true, false (keywords in C23) */
+
+bool ok = 5;                    /* true: any nonzero converts to 1 */
+_Bool flag = 0.1;               /* also 1 */
+#+end_src
+
+Conditions in =if=, =while=, and =&&=/=||= accept any scalar: zero is false, anything else is true. Comparisons yield an =int= that is 0 or 1.
+
+** 8. Enums
+#+begin_src c
+enum color { RED, GREEN = 5, BLUE };    /* 0, 5, 6 */
+enum color c = BLUE;
+enum color d = 42;                      /* allowed: not range-checked */
+#+end_src
+
+The enumeration constants have type =int=. The enum type itself is compatible with an implementation-chosen integer type (C23 lets you pick: ~enum flags : uint8_t { ... }~). Enums are named integers, not a closed type; use =switch= with all cases and =-Wswitch= to catch missing ones.
+
+** 9. Bit-fields
+#+begin_src c
+struct flags {
+    unsigned ready : 1;
+    unsigned mode  : 3;
+    unsigned       : 4;           /* unnamed padding */
+};
+#+end_src
+
+The order of fields in storage, the allocation unit, and the signedness of plain =int= bit-fields are implementation-defined, and you cannot take their address. Do not use bit-fields for file formats, network protocols, or hardware registers that must be portable; use shifts and masks on fixed-width unsigned types.
+
+** 10. Type qualifiers
+| Qualifier  | Meaning                                                                                                                                                          |
+|------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| =const=    | The object is not to be modified through this lvalue                                                                                                             |
+| =volatile= | Every access is a visible side effect; the compiler may not elide or reorder it relative to other volatile accesses (memory-mapped I/O, =sig_atomic_t= handlers) |
+| =restrict= | Pointer is the only way to access the object (promise to the compiler)                                                                                           |
+| =_Atomic=  | Atomic access (see =11_concurrency.org=)                                                                                                                         |
+
+=volatile= does not make code thread-safe and gives no atomicity or ordering between threads. Modifying a =const= object (not just a const-qualified pointer to a non-const object) is undefined behavior.
+
+~T *~ converts implicitly to ~const T *~, but ~T **~ does not convert to ~const T **~ (this would allow storing a pointer to const into a non-const pointer).
+
+** 11. Type punning and representation
+Reading an object through an incompatible pointer type violates the aliasing rules (see =04_memory.org=). The portable way to reinterpret bytes is =memcpy=, which compilers optimize to a register move:
+
+#+begin_src c
+float f = 1.0f;
+uint32_t u;
+memcpy(&u, &f, sizeof u);       /* well defined */
+/* u = *(uint32_t *)&f;            undefined: strict-aliasing violation */
+#+end_src
+
+Reading a union member other than the last written is permitted in C (it reinterprets the bytes), unlike C++.
+
+*** Endianness
+Multi-byte integers are stored in the host byte order. Never write a struct or an integer to a file or socket as raw memory if the data must be portable; encode explicitly:
+
+#+begin_src c
+static void put_u32_be(unsigned char *p, uint32_t v) {
+    p[0] = (unsigned char)(v >> 24);
+    p[1] = (unsigned char)(v >> 16);
+    p[2] = (unsigned char)(v >> 8);
+    p[3] = (unsigned char)v;
+}
+
+static uint32_t get_u32_be(const unsigned char *p) {
+    return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16)
+         | ((uint32_t)p[2] << 8)  |  (uint32_t)p[3];
+}
+#+end_src
+
+This works on any host byte order and avoids alignment and padding problems.
+
+** 12. Alignment and layout
+Each type has an alignment requirement; the compiler pads structs to satisfy it. =_Alignof(T)= (C23: =alignof=) gives it, and =offsetof(T, member)= gives a member's offset. Accessing a misaligned object through a pointer is undefined behavior (it may fault on some CPUs). Do not cast an arbitrary =char *= into an =int *= or =struct *=; copy with =memcpy= instead.
+
+** 13. printf and scanf format specifiers
+| Type                  | printf                              | scanf                      |
+|-----------------------+-------------------------------------+----------------------------|
+| =int=                 | =%d=                                | =%d=                       |
+| =unsigned=            | =%u=, =%x=, =%o=                    | =%u=                       |
+| =long=, =long long=   | =%ld=, =%lld=                       | =%ld=, =%lld=              |
+| =size_t=              | =%zu=                               | =%zu=                      |
+| =ptrdiff_t=           | =%td=                               | =%td=                      |
+| =intmax_t=            | =%jd=                               | =%jd=                      |
+| =double=              | =%f=, =%e=, =%g=                    | =%lf=                      |
+| =long double=         | =%Lf=                               | =%Lf=                      |
+| =char=                | =%c=                                | =%c=                       |
+| string                | =%s=                                | =%s= (always give a width) |
+| pointer               | =%p= (cast to =void *=)             | =%p=                       |
+| =int32_t=, =uint64_t= | =PRId32=, =PRIu64= (=<inttypes.h>=) | =SCNd32=, =SCNu64=         |
+
+#+begin_src c
+#include <inttypes.h>
+printf("%" PRIu64 " bytes\n", total);
+#+end_src
+
+A wrong specifier is undefined behavior; GCC and Clang check format strings with =-Wformat=.
+
+** What to remember
+- Only minimum widths are guaranteed; use =<stdint.h>= when width matters.
+- Signed overflow is undefined, unsigned wraps.
+- Mixed signed/unsigned arithmetic converts to unsigned.
+- Cast before dividing; compare floating values with a tolerance and use =isnan=.
+- =char= signedness varies; cast to =unsigned char= for =<ctype.h>=; =getchar= returns =int=.
+- Use =memcpy= for type punning; serialize multi-byte values byte by byte.
+- Enums and bit-fields are less portable and less safe than they look.

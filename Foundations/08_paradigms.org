@@ -1,0 +1,157 @@
+#+title: Programming Paradigms
+#+startup: overview
+
+* Programming Paradigms
+** 0. Staff-level lens
+A paradigm is a set of concepts a language gives you for structuring computation: state and control (imperative), objects and messages, functions and immutability, relations and constraints, processes and channels. At Staff scope you will:
+- pick (and defend) the paradigm and language for a system or a component, weighing the problem, the team, the ecosystem, and operational risk;
+- design APIs and module boundaries whose abstractions do not leak;
+- review code written in styles you do not prefer, judging on the problem's fit, not taste;
+- recognize that most real languages are multi-paradigm and that the interesting question is /which concepts you rely on/, not which label applies.
+Companion files: =09_functional-programming.org= and =10_type-systems.org= (the two paradigms with the deepest theory), =12_concurrency.org= (concurrency models), =11_memory-management.org=.
+
+** 1. Paradigms as sets of concepts
+Van Roy and Haridi's /Concepts, Techniques, and Models of Computer Programming/ argues that paradigms differ by a small number of concepts layered over a common kernel: adding mutable state, concurrency, laziness, or search each changes which programs are simple to write and to reason about. Useful corollaries:
+- Fewer concepts in play means easier reasoning (a purely functional component has no hidden state to track).
+- Add a concept only when the problem needs it (use mutable state for a hot loop, not everywhere).
+- Different parts of one system may sensibly use different paradigms: a functional core with an imperative shell, a declarative query language over an imperative engine, a message-passing outer layer over shared-memory internals.
+
+** 2. Imperative and structured programming
+Programs are sequences of commands that change state; control flow is explicit (loops, conditionals, functions). Dijkstra's structured-programming discipline (sequence, selection, iteration; avoid unrestricted =goto=) is the basis of Hoare-logic reasoning (=02_logic-and-proofs.org=). Strengths: close to the machine, predictable cost, easy to optimize. Weaknesses: aliasing and shared mutable state make local reasoning hard; ordering bugs and temporal coupling.
+Procedural languages (C, Pascal), systems languages (C, Rust, Zig), and the core of every mainstream language belong here.
+
+** 3. Object-oriented programming
+Objects bundle state with behavior and communicate through methods. Concepts to separate:
+- *Encapsulation*: hide representation behind an interface so it can change. This, not inheritance, is the lasting value.
+- *Subtype polymorphism*: use any object satisfying an interface where that interface is expected; implemented by dynamic dispatch (vtables; one indirect call, usually non-inlinable, which matters in hot paths).
+- *Inheritance*: reuse and specialization by extending a class. Frequent source of fragile base classes and tangled hierarchies; many guides recommend composition over inheritance.
+- *Liskov substitution principle*: a subtype must honor the contract of its supertype (preconditions no stronger, postconditions no weaker); a Square that extends Rectangle breaks it if width and height can be set independently.
+- *Message passing* (Smalltalk, Erlang's processes) versus class-based OO (Java, C++): the original idea of objects as isolated components exchanging messages is closer to actors than to class hierarchies.
+- *Interfaces and traits* (Go, Rust, Swift protocols) give polymorphism without implementation inheritance; prefer them for open extension (the traits-and-generics file in the Rust notes).
+Design heuristics: small interfaces; depend on abstractions at boundaries (where change or testing happens) and on concrete types inside; avoid deep hierarchies; make invalid states unrepresentable. The SOLID principles are guidance, not laws; they can be overapplied into needless indirection.
+
+** 4. Functional programming
+Computation as evaluating expressions and applying functions; immutability by default; higher-order functions; algebraic data types. Strengths: local reasoning, easy testing, safe concurrency, powerful abstraction. Costs: allocation and garbage collection, learning curve, awkwardness for some stateful algorithms. See =09_functional-programming.org=.
+
+** 5. Declarative, logic, and constraint programming
+You state /what/ holds; the system decides /how/.
+- *SQL and relational algebra*: a query describes a result; the optimizer chooses the plan. The cost shows when the optimizer chooses badly: you then read plans and add indexes.
+- *Datalog*: logic rules over facts with guaranteed termination; used for program analysis, access-control policy, and incremental computation.
+- *Prolog*: unification and backtracking search; relations run in several directions.
+- *Constraint, SAT, SMT, and ILP solvers*: model the problem as constraints and let a solver search (=04_complexity.org=). Infrastructure tools (Terraform, Kubernetes manifests, build systems like Make and Bazel) are declarative about desired state or dependencies, with a reconciling engine underneath.
+Declarative systems trade control for conciseness; debugging means understanding the engine's strategy.
+
+** 6. Concurrent and distributed paradigms
+- *Shared-memory threads with locks*: closest to hardware; hardest to get right.
+- *Message passing / actors* (Erlang, Akka): isolated processes with mailboxes; failure handling by supervision ("let it crash").
+- *CSP* (Go channels, Rust channels): processes synchronize on channels.
+- *Software transactional memory* (Clojure, Haskell): composable atomic blocks.
+- *Async/await and event loops*: single-threaded cooperative concurrency for I/O-bound work (JavaScript, Python asyncio, Rust futures).
+- *Dataflow and reactive programming*: values update when their inputs change (spreadsheets, RxJS, signals).
+- *Data parallelism*: SIMD, GPUs, MapReduce-style jobs.
+Detailed treatment, with correctness criteria and trade-offs, is in =12_concurrency.org=.
+
+** 7. Data-oriented and array programming
+- *Data-oriented design* organizes code around the layout and flow of data through the machine: arrays of homogeneous records, systems processing batches, entity-component-system (ECS) architectures in games. It gains cache efficiency and parallelism, at some cost to object-style abstraction (=05_data-structures.org=).
+- *Array programming* (APL, J, NumPy, MATLAB, R, dataframes) expresses whole-array operations and compiles to vectorized kernels; high leverage in numerical and analytic work.
+
+** 8. Metaprogramming and DSLs
+Programs that manipulate programs:
+- *Macros* (Lisp and Rust =macro_rules!=, Scheme, Racket): syntactic transformation; hygiene prevents accidental capture. Lisp's homogeneous syntax (code as lists) makes macros natural.
+- *Reflection and annotations* (Java, C#, Python): inspect and modify programs at run time; flexible, hard to analyze statically, and often slow.
+- *Code generation and templates* (C++ templates, protocol-buffer compilers, OpenAPI generators): compile-time instantiation or build-step generation.
+- *Staging and partial evaluation*: split computation into stages to specialize code.
+- *Embedded versus external DSLs*: an embedded DSL reuses the host language's tools and types; an external DSL gets custom syntax and analysis but needs its own parser, tooling, and documentation. Apply the principle of least power (=07_theory-of-computation.org=).
+Metaprogramming makes code shorter and harder to read, debug, and analyze; use it where the repeated pattern is large and stable.
+
+** 9. Language design axes
+Languages are points in a design space; know where each sits.
+| Language          | Typing                      | Memory management           | Evaluation  | Concurrency idiom                         |
+|-------------------+-----------------------------+-----------------------------+-------------+-------------------------------------------|
+| C                 | Static, weak                | Manual                      | Strict      | Threads, atomics (library)                |
+| C++               | Static                      | Manual and RAII             | Strict      | Threads, atomics, coroutines              |
+| Rust              | Static, strong, ownership   | Ownership, no GC            | Strict      | Threads, channels, async; data-race freedom |
+| Go                | Static                      | Tracing GC                  | Strict      | Goroutines and channels                   |
+| Java / C#         | Static                      | Tracing GC                  | Strict      | Threads, executors, async                 |
+| Python            | Dynamic, strong             | Reference counting plus cycle GC | Strict | Threads (GIL), asyncio, processes     |
+| JavaScript / TypeScript | Dynamic / static, gradual | Tracing GC               | Strict      | Event loop, promises, workers             |
+| Haskell           | Static, strong, inferred    | Tracing GC                  | Lazy        | STM, lightweight threads, purity          |
+| Common Lisp       | Dynamic, strong (optional declarations) | Tracing GC      | Strict      | Library-level threads                     |
+| Erlang / Elixir   | Dynamic                     | Per-process GC              | Strict      | Actors with supervision                   |
+Axes to evaluate when choosing: type system (what is checked before run time), memory model (latency and safety), evaluation strategy (strict, lazy, by-name), effect and error handling (exceptions versus result types), module and abstraction mechanisms, concurrency model, ecosystem and tooling, runtime and deployment, hiring and training cost.
+
+** 10. Evaluating abstractions
+- *Leaky abstractions*: every abstraction hides details that sometimes matter (ORMs and SQL, network file systems, garbage collection, virtual memory). Know the layer below the one you use.
+- *Zero-cost abstractions* (C++, Rust): abstractions that compile away. Not all abstractions are free: dynamic dispatch, boxing, allocation, and exceptions have costs to measure.
+- *API design*: make the common case easy and the wrong case hard (the "pit of success"); prefer types that prevent misuse; keep the surface small; stable contracts, versioned changes.
+- *Cohesion and coupling*: modules should hide decisions likely to change (Parnas). Conway's law: system structure mirrors the communication structure of the organization; design both deliberately.
+- *Decision records*: write architecture decision records (ADRs) naming alternatives, constraints, and reversibility. The Staff-engineering literature emphasizes writing as the main tool for such decisions.
+
+** 11. Interpreters as a paradigm laboratory
+Implementing a small language teaches paradigms better than reading about them. Nystrom's /Crafting Interpreters/ builds two interpreters for one language (a tree-walking interpreter in Java and a bytecode virtual machine in C), covering scanning, parsing, closures, classes, inheritance, and garbage collection. The metacircular evaluator in SICP shows an interpreter written in the language it interprets.
+
+#+begin_src python
+# One task, three styles. Word frequency.
+from collections import Counter
+from functools import reduce
+
+TEXT = "the cat and the hat and the bat"
+
+def freq_imperative(text):
+    counts = {}
+    for w in text.split():
+        counts[w] = counts.get(w, 0) + 1
+    return counts
+
+class WordCounter:                                   # object-oriented: state behind an interface
+    def __init__(self):
+        self._counts = {}
+    def add(self, word):
+        self._counts[word] = self._counts.get(word, 0) + 1
+    def result(self):
+        return dict(self._counts)
+
+def freq_oo(text):
+    wc = WordCounter()
+    for w in text.split():
+        wc.add(w)
+    return wc.result()
+
+def freq_functional(text):                           # no mutation of shared state: a fold over the words
+    return reduce(lambda acc, w: {**acc, w: acc.get(w, 0) + 1}, text.split(), {})
+
+expected = {"the": 3, "cat": 1, "and": 2, "hat": 1, "bat": 1}
+assert freq_imperative(TEXT) == freq_oo(TEXT) == freq_functional(TEXT) == dict(Counter(TEXT.split())) == expected
+#+end_src
+
+All three are correct; compare them on testability, performance (the functional fold copies a dict each step, O(n^2) overall, a typical cost of naive immutability that persistent maps avoid), and how each extends to "count by a different key" or "count in parallel".
+
+** 12. Self-check
+1. What does encapsulation buy you that inheritance does not? Give a design where inheritance was the wrong choice.
+2. Why is a declarative description often easier to optimize than imperative code, and what do you lose?
+3. For a latency-critical service with a small team and a 10-year lifetime, argue for and against Rust, Go, and Java.
+4. Which paradigm would you choose for (a) a rules engine edited by analysts, (b) a game engine's per-frame update, (c) an event-sourced ledger? Why?
+5. Describe a leaky abstraction you have hit in production and what knowledge of the lower layer fixed it.
+6. When is metaprogramming justified, and what safeguards do you require in review?
+
+** 13. Exercises
+- Warm-up: solve one small problem (an event scheduler) imperatively, object-orientedly, and functionally; compare line counts, tests, and extension cost.
+- Core: implement a tree-walking interpreter for a tiny language with closures (follow the first half of /Crafting Interpreters/).
+- Core: implement a miniature Datalog engine (naive bottom-up evaluation) and use it to compute reachability and access-control rules.
+- Core: build a small embedded DSL (a query builder or a state-machine definition) and compare it with an external one.
+- Stretch: write a short technology-selection document for a real decision, with alternatives, risks, a reversal plan, and measurable criteria.
+- Stretch: implement the same concurrent pipeline with threads and locks, with channels, and with async tasks; compare bugs found and performance.
+
+** 14. Resources
+- Nystrom, /Crafting Interpreters/ (free to read online): https://craftinginterpreters.com
+- Abelson and Sussman, /Structure and Interpretation of Computer Programs/, including the JavaScript edition, with an online version: https://sicp.sourceacademy.org/sicpjs.pdf
+- Van Roy and Haridi, /Concepts, Techniques, and Models of Computer Programming/; Scott, /Programming Language Pragmatics/; Harper, /Practical Foundations for Programming Languages/ (Cambridge University Press).
+- Larson, /Staff Engineer: Leadership Beyond the Management Track/ and the StaffEng guides (technical decision making, writing, strategy): https://staffeng.com/guides/
+- ACM/IEEE-CS/AAAI /Computer Science Curricula 2023/ (the Foundations of Programming Languages knowledge area): https://csed.acm.org/wp-content/uploads/2024/05/The-Report.pdf
+
+** What to remember
+- Paradigms are sets of concepts; add one only when the problem needs it.
+- Encapsulation and interfaces are the durable part of OO; inheritance is the risky part.
+- Declarative systems trade control for conciseness; learn the engine underneath.
+- Principle of least power: choose the least expressive tool that works.
+- Write decisions down, with alternatives and reversibility.

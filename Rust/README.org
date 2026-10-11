@@ -1,0 +1,374 @@
+#+title: Rust Study Guide
+#+startup: overview
+
+* Rust Study Guide
+Fifteen files on Rust. This page gives the reading order, what to do with each file, and links to the sections that matter most. Follow links with =C-c C-o= (cursor on the link) and return with =C-c &=.
+
+** How to use this folder
+- [[file:00_learn.org][00_learn]] is a quick reference for syntax. Use it for lookups; it is not part of the study sequence.
+- Files 01 to 14 are the study sequence. Each file ends with a *What to remember* checklist.
+- Each file refers to the others by name (for example =03_ownership.org=). Keep them in one directory.
+
+** Method for each file
+1. Skim the headings (=S-TAB= cycles the whole outline), then read the sections in order.
+2. Type the examples instead of pasting them. Compile them and read every warning and error in full.
+3. Before running an example, predict its output or whether it compiles; when the prediction is wrong, find out why.
+4. Break each example on purpose (use a moved value, take two mutable borrows, send an =Rc= to a thread) and read the compiler's message.
+5. Do the practice items, then reread *What to remember* and tick the file off below.
+
+** Setup
+*** Naming
+The files are meant to carry a numeric prefix so they sort in reading order. If they still have their original names, run this once from the Rust directory:
+
+#+begin_src sh
+mv learn.org 00_learn.org
+mv language.org 01_language.org
+mv types.org 02_types.org
+mv ownership.org 03_ownership.org
+mv functions.org 04_functions.org
+mv data-structures.org 05_data-structures.org
+mv traits-and-generics.org 06_traits-and-generics.org
+mv iterators.org 07_iterators.org
+mv io-and-errors.org 08_io-and-errors.org
+mv standard-library.org 09_standard-library.org
+mv modules.org 10_modules.org
+mv macros.org 11_macros.org
+mv concurrency.org 12_concurrency.org
+mv unsafe-and-ffi.org 13_unsafe-and-ffi.org
+mv toolchain.org 14_toolchain.org
+
+# update the textual cross-references inside the files (ownership.org becomes 03_ownership.org)
+perl -pi -e 'BEGIN { %n = (language=>"01_language", types=>"02_types", ownership=>"03_ownership", functions=>"04_functions", "data-structures"=>"05_data-structures", "traits-and-generics"=>"06_traits-and-generics", iterators=>"07_iterators", "io-and-errors"=>"08_io-and-errors", "standard-library"=>"09_standard-library", modules=>"10_modules", macros=>"11_macros", concurrency=>"12_concurrency", "unsafe-and-ffi"=>"13_unsafe-and-ffi", toolchain=>"14_toolchain") } s/(?<![\w-])([a-z-]+)\.org/exists $n{$1} ? "$n{$1}.org" : "$1.org"/ge' [0-9][0-9]_*.org
+#+end_src
+
+The perl command rewrites only names that have no prefix yet, so running it twice does no harm. The glob =[0-9][0-9]_*.org= leaves this README untouched.
+
+*** A scratch project and a helper for single files
+#+begin_src sh
+cargo new --bin ~/scratch/rs && cd ~/scratch/rs      # a project for examples with several files or dependencies
+cargo run
+
+# add to your shell config (zsh/bash): compile and run one file in debug mode,
+# which keeps overflow checks and debug assertions on
+rs() {
+    rustc --edition 2021 -g "$1" -o "${1%.rs}" \
+        && "./${1%.rs}"
+}
+
+rs hello.rs
+#+end_src
+
+Use =cargo= for anything that needs a crate (=serde=, =rayon=, =tokio=, =thiserror=, =anyhow=). Many snippets in these files are fragments: put them inside =fn main()= and add the =use= lines they need.
+
+*** Step 0: the toolchain minimum
+Before step 01, read three short sections of [[file:14_toolchain.org][14_toolchain]]: [[file:14_toolchain.org::*1. Installing and managing toolchains with rustup][§1 Installing and managing toolchains with rustup]], [[file:14_toolchain.org::*2. Everyday cargo commands][§2 Everyday cargo commands]], and [[file:14_toolchain.org::*6. Linting and formatting][§6 Linting and formatting]]. Run =cargo clippy= on every exercise from the start; its advice teaches idiomatic Rust. The rest of the file comes back in step 14.
+
+** Progress [0/14]
+- [ ] [[file:01_language.org][01_language]]
+- [ ] [[file:02_types.org][02_types]]
+- [ ] [[file:03_ownership.org][03_ownership]]
+- [ ] [[file:04_functions.org][04_functions]]
+- [ ] [[file:05_data-structures.org][05_data-structures]]
+- [ ] [[file:06_traits-and-generics.org][06_traits-and-generics]]
+- [ ] [[file:07_iterators.org][07_iterators]]
+- [ ] [[file:08_io-and-errors.org][08_io-and-errors]]
+- [ ] [[file:09_standard-library.org][09_standard-library]]
+- [ ] [[file:10_modules.org][10_modules]]
+- [ ] [[file:11_macros.org][11_macros]]
+- [ ] [[file:12_concurrency.org][12_concurrency]]
+- [ ] [[file:13_unsafe-and-ffi.org][13_unsafe-and-ffi]]
+- [ ] [[file:14_toolchain.org][14_toolchain]]
+
+** The sequence
+*** 01: language
+File: [[file:01_language.org][01_language]]
+
+The rules of the language itself: expressions, bindings, control flow, pattern matching, panics, and how to read compiler errors. The last section maps C habits to Rust ones.
+
+Key sections:
+- [[file:01_language.org::*2. Expressions and statements][§2 Expressions and statements]]
+- [[file:01_language.org::*3. Bindings, mutability, and shadowing][§3 Bindings, mutability, and shadowing]]
+- [[file:01_language.org::*5. Pattern matching][§5 Pattern matching]]
+- [[file:01_language.org::*10. main, panics, and exit codes][§10 main, panics, and exit codes]]
+- [[file:01_language.org::*11. Reading compiler errors][§11 Reading compiler errors]]
+- [[file:01_language.org::*12. A map for C programmers][§12 A map for C programmers]]
+
+Practice:
+- Write an enum with struct-like variants and a =match= with a guard; delete one arm and read the exhaustiveness error.
+- Parse a list of command strings with =let else=, =if let=, and =while let=.
+- Provoke E0382 and E0502 on purpose and read =rustc --explain= for each.
+
+*** 02: types
+File: [[file:02_types.org][02_types]]
+
+Scalar types, integer overflow, conversions, floats, text, layout, and newtypes. Rust has no implicit numeric conversions, so this file is worth reading with the compiler open.
+
+Key sections:
+- [[file:02_types.org::*2. Integer overflow][§2 Integer overflow]]
+- [[file:02_types.org::*3. Conversions][§3 Conversions]]
+- [[file:02_types.org::*4. Floating point][§4 Floating point]]
+- [[file:02_types.org::*5. char, strings, and bytes][§5 char, strings, and bytes]]
+- [[file:02_types.org::*8. Newtypes and type aliases][§8 Newtypes and type aliases]]
+- [[file:02_types.org::*9. Sizes, layout, and sized types][§9 Sizes, layout, and sized types]]
+
+Practice:
+- Predict each result in §2 and §3 (=checked_add=, =wrapping_add=, =as= casts), then verify them in a test.
+- Write =Meters= and =Feet= newtypes with =From= conversions between them.
+- Sort a =Vec<f64>= with =total_cmp=, and explain why =sort()= does not compile.
+
+*** 03: ownership
+File: [[file:03_ownership.org][03_ownership]]
+
+Ownership, moves, borrowing, lifetimes, =Drop=, smart pointers, and how to work with the borrow checker. This is the center of the language: read it slowly and return to it often.
+
+Key sections:
+- [[file:03_ownership.org::*2. Moves][§2 Moves]]
+- [[file:03_ownership.org::*3. Drop and RAII][§3 Drop and RAII]]
+- [[file:03_ownership.org::*4. Borrowing][§4 Borrowing]]
+- [[file:03_ownership.org::*5. Lifetimes][§5 Lifetimes]]
+- [[file:03_ownership.org::*6. Smart pointers][§6 Smart pointers]]
+- [[file:03_ownership.org::*8. Working with the borrow checker][§8 Working with the borrow checker]]
+
+Practice:
+- Provoke E0382, E0499, E0502, and E0597 on purpose, and fix each one in two ways (borrow, clone, restructure).
+- Implement =Drop= for a guard that prints, and observe the drop order of locals, fields, and temporaries.
+- Write =longest= and a struct holding a =&str=; then rewrite the struct to own a =String= and compare the call sites.
+
+*** 04: functions
+File: [[file:04_functions.org][04_functions]]
+
+Parameters, return values, closures, the =Fn= traits, function pointers, and methods.
+
+Key sections:
+- [[file:04_functions.org::*2. Parameters: move, borrow, mutate][§2 Parameters: move, borrow, mutate]]
+- [[file:04_functions.org::*4. Closures][§4 Closures]]
+- [[file:04_functions.org::*5. Fn, FnMut, FnOnce][§5 Fn, FnMut, FnOnce]]
+- [[file:04_functions.org::*6. Functions that take functions][§6 Functions that take functions]]
+- [[file:04_functions.org::*7. Returning closures][§7 Returning closures]]
+
+Practice:
+- Write =make_counter() -> impl FnMut() -> u32=.
+- Write =apply_n(f: impl Fn(i32) -> i32, n: usize, x: i32)= and call it with a closure and a named function.
+- Take an =FnOnce= parameter, call it twice, and read the error.
+
+*** 05: data-structures
+File: [[file:05_data-structures.org][05_data-structures]]
+
+Arrays, slices, =Vec=, structs, enums, strings, maps, recursive types, and shared ownership.
+
+Key sections:
+- [[file:05_data-structures.org::*1. Arrays, slices, and Vec][§1 Arrays, slices, and Vec]]
+- [[file:05_data-structures.org::*4. Enums][§4 Enums]]
+- [[file:05_data-structures.org::*6. HashMap, HashSet, BTreeMap][§6 HashMap, HashSet, BTreeMap]]
+- [[file:05_data-structures.org::*8. Recursive types need indirection][§8 Recursive types need indirection]]
+- [[file:05_data-structures.org::*9. Shared ownership and graphs][§9 Shared ownership and graphs]]
+- [[file:05_data-structures.org::*11. Choose the structure for the job][§11 Choose the structure for the job]]
+
+Practice:
+- Implement a binary search tree with =Option<Box<Node>>=: insert, contains, in-order traversal.
+- Count word frequencies with =HashMap= and the =entry= API; print the top five.
+- Store a graph as =Vec<Vec<usize>>= and write a breadth-first search.
+
+*** 06: traits-and-generics
+File: [[file:06_traits-and-generics.org][06_traits-and-generics]]
+
+Traits, generics, trait bounds, trait objects, associated types, operator overloading, and how to choose between them.
+
+Key sections:
+- [[file:06_traits-and-generics.org::*1. Defining and implementing traits][§1 Defining and implementing traits]]
+- [[file:06_traits-and-generics.org::*2. Generics][§2 Generics]]
+- [[file:06_traits-and-generics.org::*3. Bounds and where clauses][§3 Bounds and where clauses]]
+- [[file:06_traits-and-generics.org::*4. Trait objects and dynamic dispatch][§4 Trait objects and dynamic dispatch]]
+- [[file:06_traits-and-generics.org::*7. Blanket implementations and the orphan rule][§7 Blanket implementations and the orphan rule]]
+- [[file:06_traits-and-generics.org::*11. Choosing between the tools][§11 Choosing between the tools]]
+
+Practice:
+- Define =trait Shape=; store shapes in =Vec<Box<dyn Shape>>=; then redo it with an enum and compare.
+- Implement =Add=, =Mul<f64>=, and =Neg= for a =Vec2= type.
+- Write a generic =largest=; remove a bound and read the error.
+
+*** 07: iterators
+File: [[file:07_iterators.org][07_iterators]]
+
+The =Iterator= trait, adaptors and consumers, =collect=, writing your own iterator, and the reference pitfalls.
+
+Key sections:
+- [[file:07_iterators.org::*2. Three ways to iterate a collection][§2 Three ways to iterate a collection]]
+- [[file:07_iterators.org::*3. Adaptors (lazy)][§3 Adaptors (lazy)]]
+- [[file:07_iterators.org::*4. Consumers][§4 Consumers]]
+- [[file:07_iterators.org::*5. collect][§5 collect]]
+- [[file:07_iterators.org::*6. Writing your own iterator][§6 Writing your own iterator]]
+- [[file:07_iterators.org::*8. Borrowing and reference pitfalls][§8 Borrowing and reference pitfalls]]
+
+Practice:
+- Rewrite three manual loops as iterator chains.
+- Implement =Iterator= for a Fibonacci struct and take the first ten even terms.
+- Parse lines of numbers into =Result<Vec<i32>, _>= with =collect=.
+
+*** 08: io-and-errors
+File: [[file:08_io-and-errors.org][08_io-and-errors]]
+
+=Option=, =Result=, =?=, error types, files and streams, buffering, and paths.
+
+Key sections:
+- [[file:08_io-and-errors.org::*1. Panics versus Results][§1 Panics versus Results]]
+- [[file:08_io-and-errors.org::*3. The ? operator][§3 The ? operator]]
+- [[file:08_io-and-errors.org::*4. Defining error types][§4 Defining error types]]
+- [[file:08_io-and-errors.org::*5. Files and streams][§5 Files and streams]]
+- [[file:08_io-and-errors.org::*6. Standard input and output][§6 Standard input and output]]
+- [[file:08_io-and-errors.org::*10. Patterns and advice][§10 Patterns and advice]]
+
+Practice:
+- Write =read_port(path)= with a custom error enum and =From= impls; then redo it with =thiserror=.
+- Count lines and words in a file with =BufReader=; write the result with =BufWriter= and check =flush=.
+- Make =main= return =Result= and see how an error is reported.
+
+*** 09: standard-library
+File: [[file:09_standard-library.org][09_standard-library]]
+
+The traits and utilities you meet in every program: derive, =Display=, formatting, conversions, strings, =mem=, =cmp=, time, and the crates beyond =std=.
+
+Key sections:
+- [[file:09_standard-library.org::*2. The derivable traits][§2 The derivable traits]]
+- [[file:09_standard-library.org::*3. Display, Debug, and formatting][§3 Display, Debug, and formatting]]
+- [[file:09_standard-library.org::*4. Conversion traits][§4 Conversion traits]]
+- [[file:09_standard-library.org::*5. Strings: the everyday methods][§5 Strings: the everyday methods]]
+- [[file:09_standard-library.org::*10. Beyond std: crates you will meet][§10 Beyond std: crates you will meet]]
+
+Practice:
+- Implement =Display= and =FromStr= for a =Point= and round-trip it.
+- Print a table with aligned columns using format specifiers.
+- Time a function with =Instant= and report the result in milliseconds.
+
+*** 10: modules
+File: [[file:10_modules.org][10_modules]]
+
+The module tree, visibility, =use=, conditional compilation, features, dependencies, and workspaces. Rust's answer to headers and the C preprocessor.
+
+Key sections:
+- [[file:10_modules.org::*2. Declaring modules][§2 Declaring modules]]
+- [[file:10_modules.org::*3. Paths and use][§3 Paths and use]]
+- [[file:10_modules.org::*4. Visibility][§4 Visibility]]
+- [[file:10_modules.org::*6. Conditional compilation][§6 Conditional compilation]]
+- [[file:10_modules.org::*7. Cargo features][§7 Cargo features]]
+- [[file:10_modules.org::*8. Dependencies and workspaces][§8 Dependencies and workspaces]]
+
+Practice:
+- Split a program into =main.rs=, =config.rs=, and =net/mod.rs= with =pub(crate)= items; remove a =mod= line and read the error.
+- Guard a module with =#[cfg(feature = "...")]= and build with and without the feature.
+- Create a workspace with a library crate and a binary crate that uses it.
+
+*** 11: macros
+File: [[file:11_macros.org][11_macros]]
+
+Declarative macros with =macro_rules!=, fragment specifiers, repetition, hygiene, and a look at procedural macros.
+
+Key sections:
+- [[file:11_macros.org::*2. A simple macro][§2 A simple macro]]
+- [[file:11_macros.org::*3. Fragment specifiers][§3 Fragment specifiers]]
+- [[file:11_macros.org::*4. Repetition][§4 Repetition]]
+- [[file:11_macros.org::*5. Recursive macros][§5 Recursive macros]]
+- [[file:11_macros.org::*6. Hygiene][§6 Hygiene]]
+- [[file:11_macros.org::*9. Inspecting expansion][§9 Inspecting expansion]]
+
+Practice:
+- Write =hashmap!{ k => v, ... }=.
+- Write a recursive =max!(a, b, c)=.
+- Run =cargo expand= on a struct with =#[derive(Debug)]= and read the generated impl.
+
+*** 12: concurrency
+File: [[file:12_concurrency.org][12_concurrency]]
+
+Threads, scoped threads, =Arc<Mutex<T>>=, channels, atomics, =Send= and =Sync=, rayon, and an overview of async.
+
+Key sections:
+- [[file:12_concurrency.org::*1. Threads][§1 Threads]]
+- [[file:12_concurrency.org::*2. Shared state: Arc and Mutex][§2 Shared state: Arc and Mutex]]
+- [[file:12_concurrency.org::*3. Message passing][§3 Message passing]]
+- [[file:12_concurrency.org::*5. Atomics][§5 Atomics]]
+- [[file:12_concurrency.org::*6. Send and Sync][§6 Send and Sync]]
+- [[file:12_concurrency.org::*9. Async in one page][§9 Async in one page]]
+- [[file:12_concurrency.org::*10. Hazards the compiler does not catch][§10 Hazards the compiler does not catch]]
+
+Practice:
+- Increment a shared counter from four threads with =Arc<Mutex<u64>>=; then replace it with an atomic.
+- Build a two-stage pipeline with =mpsc= channels and shut it down cleanly.
+- Use =thread::scope= to sum the two halves of a slice.
+- Try to send an =Rc= to a thread and read the error.
+
+*** 13: unsafe-and-ffi
+File: [[file:13_unsafe-and-ffi.org][13_unsafe-and-ffi]]
+
+What =unsafe= allows, how to keep it sound, raw pointers, calling C from Rust and Rust from C, and checking with Miri.
+
+Key sections:
+- [[file:13_unsafe-and-ffi.org::*1. What unsafe allows][§1 What unsafe allows]]
+- [[file:13_unsafe-and-ffi.org::*2. Soundness and safety contracts][§2 Soundness and safety contracts]]
+- [[file:13_unsafe-and-ffi.org::*3. Undefined behavior in Rust][§3 Undefined behavior in Rust]]
+- [[file:13_unsafe-and-ffi.org::*6. Calling C from Rust][§6 Calling C from Rust]]
+- [[file:13_unsafe-and-ffi.org::*7. Exposing Rust to C][§7 Exposing Rust to C]]
+- [[file:13_unsafe-and-ffi.org::*9. Checking unsafe code][§9 Checking unsafe code]]
+
+Practice:
+- Call =strlen= and =getenv= through safe wrappers.
+- Export an =extern "C"= function in a =staticlib= and call it from a small C program.
+- Write a raw-pointer exercise, run it under Miri, then add an out-of-bounds write and read the report.
+
+*** 14: toolchain
+File: [[file:14_toolchain.org][14_toolchain]]
+
+rustup, cargo, profiles, testing, linting, debugging, profiling, cross-compiling, and CI. You read §1, §2, and §6 in step 0; now read the rest in order.
+
+Key sections:
+- [[file:14_toolchain.org::*3. Cargo.toml][§3 Cargo.toml]]
+- [[file:14_toolchain.org::*4. Profiles and build speed][§4 Profiles and build speed]]
+- [[file:14_toolchain.org::*5. Testing][§5 Testing]]
+- [[file:14_toolchain.org::*8. Debugging][§8 Debugging]]
+- [[file:14_toolchain.org::*9. Checking unsafe code and memory][§9 Checking unsafe code and memory]]
+- [[file:14_toolchain.org::*10. Performance][§10 Performance]]
+- [[file:14_toolchain.org::*13. A CI baseline][§13 A CI baseline]]
+
+Practice:
+- Write unit, integration, and doc tests for one function.
+- Put =fmt --check=, =clippy -D warnings=, and =test= in one script and run it before each commit.
+- Profile a slow loop with =perf= or =cargo flamegraph= and compare a debug and a release build.
+
+** Find it fast
+| I want...                                  | Go to |
+|--------------------------------------------+-------|
+| Why a value was moved (E0382) | [[file:03_ownership.org::*2. Moves][03_ownership §2]] |
+| Borrow rules and E0499 / E0502 | [[file:03_ownership.org::*4. Borrowing][03_ownership §4]] |
+| Lifetime elision rules | [[file:03_ownership.org::*5. Lifetimes][03_ownership §5]] |
+| Box, Rc, Arc, RefCell: which one? | [[file:03_ownership.org::*6. Smart pointers][03_ownership §6]] |
+| Integer overflow behavior | [[file:02_types.org::*2. Integer overflow][02_types §2]] |
+| From, TryFrom, and =as= conversions | [[file:02_types.org::*3. Conversions][02_types §3]] |
+| Why floats do not sort | [[file:02_types.org::*4. Floating point][02_types §4]] |
+| Closure traits: Fn, FnMut, FnOnce | [[file:04_functions.org::*5. Fn, FnMut, FnOnce][04_functions §5]] |
+| Returning closures | [[file:04_functions.org::*7. Returning closures][04_functions §7]] |
+| Generics versus =dyn Trait= | [[file:06_traits-and-generics.org::*4. Trait objects and dynamic dispatch][06_traits-and-generics §4]] |
+| The orphan rule and blanket impls | [[file:06_traits-and-generics.org::*7. Blanket implementations and the orphan rule][06_traits-and-generics §7]] |
+| Iterator adaptors | [[file:07_iterators.org::*3. Adaptors (lazy)][07_iterators §3]] |
+| Iterator consumers | [[file:07_iterators.org::*4. Consumers][07_iterators §4]] |
+| =collect= into =Result= | [[file:07_iterators.org::*5. collect][07_iterators §5]] |
+| The =?= operator | [[file:08_io-and-errors.org::*3. The ? operator][08_io-and-errors §3]] |
+| Custom error types | [[file:08_io-and-errors.org::*4. Defining error types][08_io-and-errors §4]] |
+| Reading and writing files efficiently | [[file:08_io-and-errors.org::*5. Files and streams][08_io-and-errors §5]] |
+| Format specifiers | [[file:09_standard-library.org::*3. Display, Debug, and formatting][09_standard-library §3]] |
+| Visibility rules | [[file:10_modules.org::*4. Visibility][10_modules §4]] |
+| =cfg= and Cargo features | [[file:10_modules.org::*6. Conditional compilation][10_modules §6]] |
+| =Arc<Mutex<T>>= | [[file:12_concurrency.org::*2. Shared state: Arc and Mutex][12_concurrency §2]] |
+| Atomic orderings | [[file:12_concurrency.org::*5. Atomics][12_concurrency §5]] |
+| =Send= and =Sync= | [[file:12_concurrency.org::*6. Send and Sync][12_concurrency §6]] |
+| Macro hygiene | [[file:11_macros.org::*6. Hygiene][11_macros §6]] |
+| Calling C from Rust | [[file:13_unsafe-and-ffi.org::*6. Calling C from Rust][13_unsafe-and-ffi §6]] |
+| Checking unsafe code with Miri | [[file:13_unsafe-and-ffi.org::*9. Checking unsafe code][13_unsafe-and-ffi §9]] |
+| Release profile settings | [[file:14_toolchain.org::*4. Profiles and build speed][14_toolchain §4]] |
+| Writing tests | [[file:14_toolchain.org::*5. Testing][14_toolchain §5]] |
+| A map from C habits to Rust | [[file:01_language.org::*12. A map for C programmers][01_language §12]] |
+
+** Reading notes
+- Code blocks are =#+begin_src rust= (or =sh=, =toml=, ...). Many are fragments, not complete programs: put them in =fn main()= and add the imports.
+- These notes were written without a Rust compiler at hand, so the examples were reviewed by hand and not all compiled. When one fails, =cargo check= and =rustc --explain EXXXX= will say why; treat it as a bug in the file and fix it.
+- Features tied to a version are marked (for example the 2024 edition, =LazyLock= in 1.80, =thread::scope= in 1.63); on an older toolchain, update with =rustup update=.
+- Tables and the *What to remember* sections are meant for review; come back to them after finishing a file.
+- The C notes use the same layout. Reading the matching C file first (=04_memory= against =03_ownership=, =10_toolchain= against =14_toolchain=) shows what Rust changes and what stays the same.

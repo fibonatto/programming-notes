@@ -1,0 +1,194 @@
+#+title: Rust Types
+#+startup: overview
+
+* Rust Types
+** 1. Scalar types
+| Type                 | Size                    | Notes                                         |
+|----------------------+-------------------------+-----------------------------------------------|
+| =i8= =i16= =i32= =i64= =i128= | 1, 2, 4, 8, 16 bytes | Signed, two's complement                 |
+| =u8= =u16= =u32= =u64= =u128= | 1, 2, 4, 8, 16 bytes | Unsigned                                 |
+| =isize=, =usize=     | Pointer width           | Indexing and lengths use =usize=              |
+| =f32=, =f64=         | 4, 8 bytes              | IEEE 754                                      |
+| =bool=               | 1 byte                  | =true= or =false=                             |
+| =char=               | 4 bytes                 | One Unicode scalar value (not a byte)         |
+| =()=                 | 0 bytes                 | Unit: the "nothing" value                     |
+| =!=                  | 0                       | Never type: functions that do not return      |
+
+Defaults: an integer literal with no other constraint is =i32=, a float literal is =f64=.
+
+#+begin_src rust
+let a = 1_000_000;        // underscores for readability
+let b = 0xff;             // hex
+let c = 0o77;             // octal
+let d = 0b1010_1010;      // binary
+let e = b'A';             // a u8 byte literal: 65
+let f = 255u8;            // suffix selects the type
+let g = 2.5e3_f64;
+let bytes = b"abc";       // &[u8; 3]
+#+end_src
+
+Fixed-width types, with no platform-dependent =int=, remove most C portability problems; =usize= and =isize= are the only platform-dependent ones.
+
+** 2. Integer overflow
+Overflow is never silent undefined behavior. By default it /panics/ in debug builds and /wraps/ in release builds (controlled by =overflow-checks= in the Cargo profile). State your intent with explicit methods:
+
+#+begin_src rust
+let x: u8 = 250;
+x.checked_add(10);           // None
+x.wrapping_add(10);          // 4
+x.saturating_add(10);        // 255
+x.overflowing_add(10);       // (4, true)
+
+i32::MAX.checked_mul(2);     // None
+10u32.abs_diff(15);          // 5: difference without underflow
+(-7i32).rem_euclid(3);       // 2: remainder that is never negative
+(-7i32) % 3;                 // -1: % keeps the sign of the dividend
+#+end_src
+
+- Division and remainder by zero panic, as does =i32::MIN / -1=.
+- A shift by the type's width or more panics in debug builds.
+- Indexing with a =usize= that is too large panics (bounds check). Subtracting from a =usize= below zero is overflow: =len - 1= on an empty slice panics in debug and wraps in release.
+- Prefer =checked_*= when the arithmetic comes from external input.
+
+** 3. Conversions
+Rust never converts numeric types implicitly. Choose the conversion that says what you mean:
+
+| Tool                      | Use                                                        |
+|---------------------------+------------------------------------------------------------|
+| =From= / =Into=           | Lossless, cannot fail: =u64::from(x_u32)=, =let y: u64 = x.into()= |
+| =TryFrom= / =TryInto=     | May fail: =u8::try_from(300)= returns =Err=                |
+| ~as~                      | Primitive casts, may truncate silently                      |
+| =parse::<T>()=            | Text to a number (returns =Result=)                        |
+| =to_string()=, =format!=  | Value to text                                              |
+
+#+begin_src rust
+let a: u8 = u8::try_from(300_i32).unwrap_or(u8::MAX);   // 255
+let b = 300_i32 as u8;                  // 44: `as` truncates (keeps the low bits)
+let c = -1_i32 as u32;                  // 4294967295: same bits reinterpreted
+let d = 3.99_f64 as i32;                // 3: truncates toward zero
+let e = 1e20_f64 as i32;                // i32::MAX: saturates (NaN becomes 0)
+let f = 65_u8 as char;                  // 'A': only u8 converts to char with `as`
+let g = 'A' as u32;                     // 65
+let h = char::from_u32(0x1F600);        // Some('😀'): validated
+
+let n: i32 = "42".parse().unwrap();
+let m = "x".parse::<i32>();             // Err(ParseIntError)
+#+end_src
+
+Casts with ~as~ are always defined (no UB), but can lose information; prefer =From= and =TryFrom= when the conversion should be exact.
+
+** 4. Floating point
+#+begin_src rust
+let x = 0.1 + 0.2;
+x == 0.3;                      // false
+(x - 0.3).abs() < f64::EPSILON * 4.0;   // compare with a tolerance you choose
+
+f64::NAN == f64::NAN;          // false
+f64::NAN.is_nan();             // true
+1.0 / 0.0;                     // inf (no panic)
+println!("{:.3}", 3.14159);    // 3.142
+#+end_src
+
+- =f32= and =f64= implement =PartialEq= and =PartialOrd= but not =Eq= or =Ord=, because of NaN. Consequently they cannot be =HashMap= keys, and =sort()= does not compile for =Vec<f64>=.
+- Sort floats with =v.sort_by(|a, b| a.partial_cmp(b).unwrap())= or the total order =v.sort_by(f64::total_cmp)=.
+- =f64::EPSILON= is the gap above 1.0, not a general tolerance; scale it to your values.
+
+** 5. char, strings, and bytes
+A =char= is a Unicode scalar value (4 bytes), not a byte and not a "character" as a user sees it. A =String= / =&str= is UTF-8 text:
+
+#+begin_src rust
+let s = "héllo";
+s.len();                       // 6 bytes
+s.chars().count();             // 5 scalar values
+s.as_bytes();                  // &[u8]
+s.char_indices();              // (byte offset, char) pairs
+s.is_char_boundary(2);         // false: slicing there would panic
+
+'é'.len_utf8();                // 2
+'a'.is_alphabetic();           // true (Unicode-aware)
+'a'.to_ascii_uppercase();      // 'A'
+#+end_src
+
+Use =&[u8]= and =Vec<u8>= for binary data, =String= for text, and =OsString= / =Path= for file names that may not be valid UTF-8. Strings cannot be indexed by integer (=s[0]= does not compile).
+
+** 6. Compound and reference types
+#+begin_src rust
+let t: (i32, f64, &str) = (1, 2.0, "x");     // tuple, fixed heterogeneous
+let a: [i32; 4] = [1, 2, 3, 4];              // array: length is part of the type
+let s: &[i32] = &a[1..3];                    // slice: borrowed view (pointer + length)
+let r: &i32 = &a[0];                         // shared reference
+let mut arr2 = [1, 2];
+let m: &mut i32 = &mut arr2[0];              // exclusive reference
+let f: fn(i32) -> i32 = |x| x + 1;           // function pointer (non-capturing)
+let b: Box<dyn Fn(i32) -> i32> = Box::new(|x| x + 1);   // heap-allocated trait object
+#+end_src
+
+References are never null and always valid. Pointers to slices (=&[T]=, =&str=) and to trait objects (=&dyn Trait=) are /fat/: they carry a length or a vtable pointer in addition to the address.
+
+** 7. Type inference and annotations
+The compiler infers types across a whole function, in both directions, but some places need a hint:
+
+#+begin_src rust
+let v: Vec<i32> = Vec::new();               // annotate the binding
+let v = Vec::<i32>::new();                  // or use the turbofish ::<>
+let n = "5".parse::<u32>().unwrap();
+let total: i32 = items.iter().sum();        // sum and collect need the target type
+let words: Vec<&str> = text.split(' ').collect();
+let x: f64 = Default::default();            // 0.0
+let items: Vec<_> = (0..3).collect();       // _ lets the compiler fill in part
+#+end_src
+
+Function signatures always need full types; only bodies are inferred. When inference fails, the error says "type annotations needed" and points at the expression.
+
+** 8. Newtypes and type aliases
+#+begin_src rust
+struct UserId(u64);
+struct OrderId(u64);
+
+fn load(id: UserId) { }
+// load(OrderId(5));            // error: different types, same representation
+
+type Result<T> = std::result::Result<T, MyError>;     // alias: no new type
+#+end_src
+
+A newtype is a distinct type with zero run-time cost (=#[repr(transparent)]= guarantees the same layout). It prevents mixing IDs and units, and lets you implement traits for foreign types.
+
+** 9. Sizes, layout, and sized types
+#+begin_src rust
+use std::mem::{size_of, align_of};
+
+size_of::<u8>();                    // 1
+size_of::<char>();                  // 4
+size_of::<&u8>();                   // 8 on 64-bit
+size_of::<&[u8]>();                 // 16: pointer + length
+size_of::<Option<&u8>>();           // 8: the null niche stores None for free
+size_of::<Option<Box<u8>>>();       // 8
+align_of::<u64>();                  // 8
+#+end_src
+
+- The compiler may reorder the fields of a struct to reduce padding; the default layout is unspecified. Use =#[repr(C)]= for a C-compatible layout (see =13_unsafe-and-ffi.org=).
+- =str=, =[T]=, and =dyn Trait= are /dynamically sized/ (DSTs): they exist only behind a pointer (=&str=, =Box<[T]>=, =Box<dyn Trait>=). Generics assume =Sized=; write =T: ?Sized= to accept DSTs too.
+- =Option<&T>=, =Option<Box<T>>=, and =Option<NonZeroU32>= cost nothing extra, thanks to niche optimization.
+
+** 10. The never type and Default
+#+begin_src rust
+fn fail(msg: &str) -> ! { panic!("{msg}") }
+
+let n: u32 = match s.parse() {
+    Ok(v) => v,
+    Err(_) => fail("bad number"),     // ! coerces to any type
+};
+
+#[derive(Default)]
+struct Config { port: u16, verbose: bool, name: String }
+
+let c = Config { port: 8080, ..Default::default() };
+#+end_src
+
+** What to remember
+- Fixed-width integers; overflow panics in debug and wraps in release, so choose =checked_= / =wrapping_= / =saturating_= deliberately.
+- No implicit conversions: =From= for lossless, =TryFrom= for fallible, ~as~ for truncating primitive casts.
+- Floats are not =Eq= or =Ord=; compare with a tolerance and sort with =total_cmp=.
+- =char= is a Unicode scalar, strings are UTF-8 and not indexable by integer.
+- Newtypes are free and prevent mix-ups.
+- DSTs live behind pointers; fat pointers carry length or vtable; =Option= of a reference is the same size as the reference.

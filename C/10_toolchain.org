@@ -1,0 +1,230 @@
+#+title: C Toolchain
+#+startup: overview
+
+* C Toolchain
+** 1. The pipeline
+#+begin_src sh
+cc -E main.c            # 1. preprocess  -> text
+cc -S main.c            # 2. compile     -> main.s (assembly)
+cc -c main.c            # 3. assemble    -> main.o (object file)
+cc main.o util.o -o app # 4. link        -> executable
+
+cc main.c util.c -o app # all four steps at once
+#+end_src
+
+Each =.c= file (translation unit) is compiled separately into an object file. The linker joins objects and libraries, resolving each external symbol to exactly one definition. "Undefined reference" errors come from the linker (a declaration with no definition), while "implicit declaration" and syntax errors come from the compiler.
+
+Common compilers: GCC (=gcc=), Clang (=clang=), MSVC (=cl=), and small ones such as TinyCC (=tcc=). On most systems =cc= is an alias for one of them; check with =cc --version=.
+
+** 2. Warnings
+Warnings catch many bugs at no cost. A strong baseline:
+
+#+begin_src sh
+cc -std=c17 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wstrict-prototypes \
+   -Wmissing-prototypes -Wformat=2 -Wundef -Wcast-qual -Wwrite-strings \
+   -O2 -g main.c -o app
+#+end_src
+
+| Flag                  | Catches                                                              |
+|-----------------------+----------------------------------------------------------------------|
+| =-Wall=               | Common mistakes (despite the name, not everything)                   |
+| =-Wextra=             | More: unused parameters, signed/unsigned comparison                  |
+| =-Wpedantic=          | Non-standard constructs under =-std=                                 |
+| =-Wshadow=            | A local hiding another variable                                      |
+| =-Wconversion=        | Implicit conversions that may change a value (noisy)                 |
+| =-Wformat=2=          | =printf= format problems                                             |
+| =-Wundef=             | Undefined macro used in =#if=                                        |
+| =-Wstrict-prototypes= | =int f()= declarations                                               |
+| =-Werror=             | Turn warnings into errors (good in CI, risky for distributed source) |
+
+Read warnings; do not silence them with casts unless you understand them.
+
+** 3. Optimization and debug information
+| Flag            | Meaning                                                             |
+|-----------------+---------------------------------------------------------------------|
+| =-O0=           | No optimization (default); best for stepping in a debugger          |
+| =-Og=           | Optimize while keeping debugging reasonable                         |
+| =-O2=           | Standard release level                                              |
+| =-O3=           | More aggressive; larger code                                        |
+| =-Os=           | Optimize for size                                                   |
+| =-g=            | Emit debug information (independent of optimization)                |
+| =-DNDEBUG=      | Compile out =assert=                                                |
+| =-flto=         | Link-time optimization across files                                 |
+| =-march=native= | Use the build machine's CPU features (binary may not run elsewhere) |
+
+Optimizers exploit undefined behavior: a program with UB may work at =-O0= and fail at =-O2=. When that happens, suspect the program first. Some warnings (such as uninitialized variables) are only produced with optimization on.
+
+** 4. Sanitizers and hardening
+#+begin_src sh
+cc -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer main.c -o app
+cc -g -O1 -fsanitize=thread main.c -o app          # data races; cannot combine with address
+cc -g -O1 -fsanitize=memory main.c -o app          # Clang only: uninitialized reads
+#+end_src
+
+Run tests under sanitizers regularly. Hardening flags for release builds:
+
+#+begin_src sh
+cc -O2 -D_FORTIFY_SOURCE=2 -fstack-protector-strong -fPIE -pie \
+   -Wl,-z,relro,-z,now main.c -o app
+#+end_src
+
+=_FORTIFY_SOURCE= needs optimization enabled; it adds run-time checks to some libc calls. These flags reduce the exploitability of memory bugs; they do not remove the bugs.
+
+** 5. Multiple files, libraries, and linking
+#+begin_src sh
+# static library
+cc -c a.c b.c
+ar rcs libfoo.a a.o b.o
+cc main.c -L. -lfoo -o app          # -lfoo means libfoo.a or libfoo.so
+
+# shared library
+cc -fPIC -c a.c b.c
+cc -shared -o libfoo.so a.o b.o
+cc main.c -L. -lfoo -Wl,-rpath,'$ORIGIN' -o app
+#+end_src
+
+- Put libraries /after/ the objects that need them: =cc main.o -lm=, not =cc -lm main.o= (with a static linker, order matters).
+- =-I dir= adds a header search path, =-L dir= a library search path, =-l name= links a library.
+- =-pthread= enables threads at compile and link time; =-lm= links the math library on Linux.
+- On Linux, a shared library is found at run time through the rpath, =LD_LIBRARY_PATH=, or the system cache.
+
+Inspect results:
+
+#+begin_src sh
+nm -C app | less               # symbols (T = text, U = undefined, D = data)
+objdump -d -M intel app        # disassembly
+readelf -h -d app              # ELF headers and dynamic dependencies
+ldd app                        # shared libraries needed at run time
+size app                       # text/data/bss sizes
+strip app                      # remove symbols
+#+end_src
+
+** 6. Make
+A small Makefile with automatic header dependencies:
+
+#+begin_src make
+CC       ?= cc
+CFLAGS   ?= -std=c17 -O2 -g -Wall -Wextra -Wpedantic
+CPPFLAGS += -MMD -MP
+LDLIBS   += -lm
+
+SRC := $(wildcard src/*.c)
+OBJ := $(SRC:src/%.c=build/%.o)
+DEP := $(OBJ:.o=.d)
+
+app: $(OBJ)
+	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
+
+build/%.o: src/%.c | build
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+build:
+	mkdir -p $@
+
+clean:
+	rm -rf build app
+
+-include $(DEP)
+.PHONY: clean
+#+end_src
+
+(Recipe lines must start with a tab character, not spaces.) =-MMD -MP= makes the compiler write a =.d= file listing each object's header dependencies; =-include= pulls them in, so editing a header rebuilds only what depends on it. =$@= is the target, =$<= the first prerequisite, =$^= all prerequisites. =make -j$(nproc)= builds in parallel.
+
+** 7. CMake and compile_commands.json
+#+begin_src cmake
+cmake_minimum_required(VERSION 3.20)
+project(app C)
+
+set(CMAKE_C_STANDARD 17)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_C_EXTENSIONS OFF)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+add_executable(app src/main.c src/util.c)
+target_compile_options(app PRIVATE -Wall -Wextra -Wpedantic)
+target_link_libraries(app PRIVATE m)
+#+end_src
+
+#+begin_src sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+cmake --build build -j
+#+end_src
+
+Language servers (=clangd=) and many tools read =compile_commands.json= to learn each file's flags. CMake writes it with the option above; for a Makefile project use =bear -- make= or =compiledb make=. Symlink or copy it to the project root.
+
+** 8. Debugging with gdb
+Build with =-g -O0= (or =-Og=), then:
+
+#+begin_src sh
+gdb ./app
+gdb --args ./app arg1 arg2
+gdb ./app core                     # post-mortem, after: ulimit -c unlimited
+#+end_src
+
+| Command                           | Action                                 |
+|-----------------------------------+----------------------------------------|
+| =break main=, =b file.c:42=       | Set a breakpoint                       |
+| =run=, =r=                        | Start the program                      |
+| =next=, =n= / =step=, =s=         | Step over / into                       |
+| =continue=, =c=                   | Resume                                 |
+| =bt=, =bt full=                   | Backtrace (with locals)                |
+| =print x=, =p *ptr=, =p arr[0]@5= | Evaluate; =@5= prints 5 elements       |
+| =x/8xb ptr=                       | Examine 8 bytes in hex                 |
+| =watch var=                       | Break when a value changes             |
+| =info locals=, =info threads=     | Locals; list threads                   |
+| =frame 2=, =up=, =down=           | Move in the call stack                 |
+| =finish=                          | Run until the current function returns |
+
+LLDB offers the same with different spelling (=breakpoint set=, =thread backtrace=, =frame variable=). A crash with =Segmentation fault= under AddressSanitizer usually points to the exact access faster than gdb; use both.
+
+** 9. Static analysis and formatting
+#+begin_src sh
+cc -fanalyzer -O2 main.c            # GCC's built-in static analyzer
+clang-tidy main.c -- -std=c17       # linter with many checks
+cppcheck --enable=all main.c
+scan-build make                     # Clang static analyzer
+clang-format -i src/*.c src/*.h     # format according to .clang-format
+#+end_src
+
+Static analyzers have false positives and false negatives; use them as an extra pair of eyes, together with sanitizers and tests.
+
+** 10. Performance
+- Measure first. Compile with =-O2= (and =-g=), then profile:
+
+#+begin_src sh
+perf record ./app && perf report         # Linux sampling profiler
+valgrind --tool=callgrind ./app          # call graph, instruction counts (slow)
+#+end_src
+
+- Look at generated code: =cc -S -O2 -fverbose-asm file.c=, =objdump -d=, or Compiler Explorer (godbolt.org).
+- Typical wins come from data layout (contiguous arrays, fewer allocations, fewer cache misses) and algorithm choice, before micro-optimizations.
+- Benchmark on realistic data, repeat runs, and watch for the compiler optimizing away work whose result is never used.
+
+** 11. Cross-compiling and WebAssembly
+#+begin_src sh
+clang --target=aarch64-linux-gnu --sysroot=/path/to/sysroot main.c -o app-arm
+zig cc -target x86_64-linux-musl main.c -o app       # Zig's bundled cross toolchain
+
+# freestanding WebAssembly module (no libc)
+clang --target=wasm32 -O2 -nostdlib -Wl,--no-entry -Wl,--export-all main.c -o main.wasm
+
+# with a libc and runtime support
+emcc main.c -O2 -o main.js               # Emscripten
+#+end_src
+
+A cross build needs a compiler for the target, a matching C library and headers (a /sysroot/), and a way to run the result. For =-nostdlib= wasm output, provide your own memory management and I/O, since there is no libc.
+
+** 12. Practical advice
+- Compile with =-Wall -Wextra= from day one; fixing warnings in a new project is cheap.
+- Keep debug (sanitizer) and release (optimized) build configurations; test in both.
+- Record the compiler version and flags; different versions diagnose and optimize differently.
+- Treat the build as code: a small, readable Makefile or CMake file is better than a script you cannot explain.
+- When a bug disappears with =-O0= or with a debugger attached, suspect undefined behavior or a data race, not the optimizer.
+
+** What to remember
+- Compile, assemble, and link are separate steps; linker errors are about missing definitions.
+- Warnings, sanitizers, and a debugger form the standard bug-finding set.
+- Library order matters on the link line; =-pthread= and =-lm= are common.
+- Generate header dependencies (=-MMD -MP=) so incremental builds are correct.
+- Export =compile_commands.json= for editor tooling.
+- Optimization levels change behavior only for programs with undefined behavior or races.

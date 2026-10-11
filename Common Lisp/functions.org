@@ -1,0 +1,208 @@
+* Common Lisp Functions
+** 1. Define a function
+#+begin_src lisp
+(defun square (x)
+  (* x x))
+
+(square 5) ; => 25
+#+end_src
+
+=defun= defines a named function. The function body contains forms evaluated in order, and the last form's values are returned.
+
+** 2. Anonymous functions
+#+begin_src lisp
+(lambda (x) (* x x))
+#+end_src
+
+A lambda expression creates a function. Invoke it with =funcall=:
+
+#+begin_src lisp
+(funcall (lambda (x) (* x x)) 5) ; => 25
+#+end_src
+
+Use =function= or its shorthand =#'= to refer to a named function:
+
+#+begin_src lisp
+(defun double (x)
+  (* x 2))
+
+(funcall #'double 10) ; => 20
+#+end_src
+
+** 3. =funcall= and =apply=
+=funcall= invokes a function with separately supplied arguments:
+
+#+begin_src lisp
+(funcall #'+ 1 2 3) ; => 6
+#+end_src
+
+=apply= takes its final arguments from a list:
+
+#+begin_src lisp
+(apply #'+ '(1 2 3)) ; => 6
+(apply #'list 1 2 '(3 4)) ; => (1 2 3 4)
+#+end_src
+
+** 4. Optional, rest, and keyword parameters
+#+begin_src lisp
+(defun greet (name &optional (greeting "Hello"))
+  (format nil "~a, ~a!" greeting name))
+
+(greet "Ada")       ; => "Hello, Ada!"
+(greet "Ada" "Hi")  ; => "Hi, Ada!"
+#+end_src
+
+=&rest= collects remaining positional arguments into a list:
+
+#+begin_src lisp
+(defun sum (&rest numbers)
+  (apply #'+ numbers))
+
+(sum 1 2 3 4) ; => 10
+#+end_src
+
+Keyword parameters are named at the call site:
+
+#+begin_src lisp
+(defun make-point (&key x y)
+  (list x y))
+
+(make-point :x 10 :y 20) ; => (10 20)
+#+end_src
+
+Defaults can be supplied for optional and keyword parameters:
+
+#+begin_src lisp
+(defun scale (x &key (factor 2))
+  (* x factor))
+
+(scale 5)             ; => 10
+(scale 5 :factor 3)   ; => 15
+#+end_src
+
+** 5. Local functions with =flet= and =labels=
+=flet= defines local functions. These local functions cannot recursively refer to one another through their local names.
+
+#+begin_src lisp
+(flet ((square (x) (* x x)))
+  (square 4)) ; => 16
+#+end_src
+
+=labels= allows local functions to refer to themselves and to one another:
+
+#+begin_src lisp
+(labels ((factorial (n)
+           (if (<= n 1)
+               1
+               (* n (factorial (1- n))))))
+  (factorial 5)) ; => 120
+#+end_src
+
+** 6. Multiple return values
+A function can return multiple values with =values=:
+
+#+begin_src lisp
+(defun divide-and-remainder (a b)
+  (values (floor a b)))
+#+end_src
+
+Receive them with =multiple-value-bind=:
+
+#+begin_src lisp
+(multiple-value-bind (quotient remainder)
+    (divide-and-remainder 17 5)
+  (list quotient remainder)) ; => (3 2)
+#+end_src
+
+A normal single-value context generally uses the primary value.
+
+** 7. Higher-order functions
+Functions can accept other functions as arguments:
+
+#+begin_src lisp
+(defun map-one (function xs)
+  (mapcar function xs))
+
+(map-one #'1+ '(1 2 3)) ; => (2 3 4)
+#+end_src
+
+Common list-processing functions include:
+
+#+begin_src lisp
+(mapcar #'1+ '(1 2 3))                 ; => (2 3 4)
+(remove-if #'oddp '(1 2 3 4))          ; => (2 4)
+(remove-if-not #'evenp '(1 2 3 4))     ; => (2 4)
+(find-if #'evenp '(1 3 4 5))            ; => 4
+(reduce #'+ '(1 2 3 4))                 ; => 10
+#+end_src
+
+=mapcar= returns a new list. These functions do not require explicit recursive traversal for common list operations.
+
+** 8. Function namespace
+Common Lisp has separate namespaces for variables and functions:
+
+#+begin_src lisp
+(defun f (x)
+  (+ x 1))
+
+(let ((f 100))
+  (list f (funcall #'f 2)))
+; => (100 3)
+#+end_src
+
+Here, =f= refers to the local variable, while =#'f= refers to the function named =f=.
+
+** 9. Recursion and iteration
+A recursive implementation:
+
+#+begin_src lisp
+(defun sum-list (xs)
+  (if (null xs)
+      0
+      (+ (car xs)
+         (sum-list (cdr xs)))))
+#+end_src
+
+An iterative alternative:
+
+#+begin_src lisp
+(defun sum-list (xs)
+  (loop for x in xs
+        sum x))
+#+end_src
+
+Both are idiomatic tools. Use recursion when the recursive structure clarifies the algorithm; use iteration when it makes the implementation simpler.
+
+** 10. Important distinction: functions and special forms
+Ordinary function arguments are evaluated before the function is called:
+
+#+begin_src lisp
+(+ 1 2)
+#+end_src
+
+Special forms have their own evaluation rules. For example, =if= evaluates the condition and only the selected branch:
+
+#+begin_src lisp
+(if condition
+    then-form
+    else-form)
+#+end_src
+
+A function cannot reproduce this behavior merely by receiving both branches as ordinary arguments, because those arguments would be evaluated before the function call.
+
+** Quick reference
+| Form                  | Purpose                                         |
+|-----------------------+-------------------------------------------------|
+| =defun=               | Define a named function                         |
+| =lambda=              | Create an anonymous function                    |
+| =#'name=              | Refer to a function                             |
+| =funcall=             | Call a function value                           |
+| =apply=               | Call a function using a final list of arguments |
+| =&optional=           | Declare optional positional parameters          |
+| =&rest=               | Collect remaining positional arguments          |
+| =&key=                | Declare keyword parameters                      |
+| =flet=                | Define local functions                          |
+| =labels=              | Define mutually recursive local functions       |
+| =multiple-value-bind= | Bind multiple returned values                   |
+| =mapcar=              | Map a function over lists                       |
+| =reduce=              | Combine sequence elements                       |

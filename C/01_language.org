@@ -1,0 +1,226 @@
+#+title: C Language Reference
+#+startup: overview
+
+* C Language Reference
+** 1. Standards
+| Standard | Notable additions                                                                                                                                                                                                                                                                                             |
+|----------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| C89/C90  | Prototypes, =void=, =const=, =volatile=, the standard library                                                                                                                                                                                                                                                 |
+| C99      | =//= comments, =inline=, =long long=, =<stdint.h>=, =<stdbool.h>=, declarations after statements, designated initializers, compound literals, VLAs, =restrict=, flexible array members, =snprintf=                                                                                                            |
+| C11      | =_Static_assert=, =_Generic=, =_Alignas=/=_Alignof=, =_Noreturn=, anonymous structs/unions, =_Thread_local=, =<threads.h>=, =<stdatomic.h>= (VLAs, threads, and atomics became optional)                                                                                                                      |
+| C17      | Defect fixes only; no new features                                                                                                                                                                                                                                                                            |
+| C23      | =bool=/=true=/=false= keywords, =nullptr=, =typeof=, =constexpr= objects, =auto= type inference, =[[attributes]]=, =#embed=, =#elifdef=, binary literals (=0b101=), digit separators (=1'000=), empty initializer ={}=, =<stdckdint.h>=, =unreachable()=, two's complement required, =int f()= means =(void)= |
+
+#+begin_src sh
+cc -std=c17 ...      # or c11, c99
+cc -std=c23 ...      # GCC 14+/recent Clang; older compilers spell it -std=c2x
+cc -std=gnu17 ...    # the standard plus GNU extensions (GCC's default family)
+#+end_src
+
+Pick one standard per project and pass it explicitly. =-std=c17= disables extensions; =-std=gnu17= keeps them. Test =__STDC_VERSION__= (=199901L=, =201112L=, =201710L=, =202311L=) to detect the standard.
+
+** 2. Categories of behavior
+| Category               | Meaning                                                          | Example                                                                    |
+|------------------------+------------------------------------------------------------------+----------------------------------------------------------------------------|
+| Undefined              | No requirements at all; the compiler may assume it never happens | signed overflow, out-of-bounds access                                      |
+| Unspecified            | One of several valid outcomes; need not be documented            | order of evaluating function arguments                                     |
+| Implementation-defined | Unspecified, but the compiler must document its choice           | size of =int=, signedness of plain =char=, right shift of a negative value |
+| Constraint violation   | The compiler must emit a diagnostic                              | assigning a struct to an int                                               |
+
+Unspecified or implementation-defined code is portable only if you do not depend on the outcome. Undefined behavior is never acceptable: it can change the behavior of code that appears before and after it.
+
+** 3. Expressions and precedence
+From tightest to loosest:
+
+1. Postfix: ~()~ ~[]~ ~.~ ~->~ ~++~ ~--~ (left to right)
+2. Prefix ~++~ ~--~, unary ~+~ ~-~ ~!~, bitwise NOT (tilde), dereference ~*~, address-of ~&~, ~sizeof~, casts (right to left)
+3. Multiplicative: ~*~ ~/~ ~%~
+4. Additive: ~+~ ~-~
+5. Shifts: ~<<~ ~>>~
+6. Relational: ~<~ ~<=~ ~>~ ~>=~
+7. Equality: ~==~ ~!=~
+8. Bitwise AND ~&~
+9. Bitwise XOR ~^~
+10. Bitwise OR (a single vertical bar)
+11. Logical AND ~&&~
+12. Logical OR (two vertical bars)
+13. Conditional ~?:~ (right to left)
+14. Assignment ~=~ ~+=~ ~-=~ ~<<=~ and the other compound forms (right to left)
+15. Comma ~,~
+
+Notable consequences:
+- ~a & b == c~ parses as ~a & (b == c)~, because comparison binds tighter than bitwise AND. Parenthesize: ~(a & b) == c~.
+- ~*p++~ is ~*(p++)~ (increment the pointer, dereference the old value).
+- ~x << 1 + 2~ is ~x << 3~.
+- Assignment is an expression; ~if (x = 0)~ compiles but is almost always a bug. Use =-Wall=.
+
+The comma operator evaluates its left operand, discards it, then evaluates the right: ~(a, b)~ has the value of =b=. The commas in an argument list are not comma operators.
+
+** 4. Evaluation order and sequence points
+Only a few operators order their operands: =&&=, =||=, ~?:~, and the comma operator (the left side is evaluated first, with all its side effects complete). A full expression's end is also a sequence point, and so is the call of a function after its arguments have been evaluated.
+
+Everything else is unsequenced or indeterminately sequenced:
+
+#+begin_src c
+i = i++ + 1;          /* UB: i modified twice without sequencing */
+a[i] = i++;           /* UB: i read and modified, unsequenced */
+f(i, i++);            /* UB */
+f(g(), h());          /* g and h both run, in unspecified order; no UB */
+x = f() + g();        /* the order of the two calls is unspecified */
+#+end_src
+
+Rule of thumb: do not modify an object and read it elsewhere in the same expression.
+
+** 5. Reading declarations
+Start at the identifier, read right (suffixes: =[]=, =()=), then left (prefixes: =*=, type), switching direction at parentheses.
+
+#+begin_src c
+int *p[3];            /* p: array of 3 pointers to int */
+int (*p)[3];          /* p: pointer to an array of 3 ints */
+int (*f)(int);        /* f: pointer to function(int) returning int */
+int *f(int);          /* f: function(int) returning pointer to int */
+char *(*fp[4])(void); /* fp: array of 4 pointers to function(void) returning char * */
+#+end_src
+
+Use =typedef= to tame these:
+
+#+begin_src c
+typedef void (*handler)(int);
+handler table[4];                        /* array of 4 function pointers */
+
+void (*signal(int sig, void (*func)(int)))(int);    /* the raw prototype of signal */
+handler signal(int sig, handler func);              /* the same, with the typedef */
+#+end_src
+
+=const= applies to what is on its left (or to the type on its right if nothing is on its left):
+
+#+begin_src c
+const int *p;         /* pointer to const int: *p cannot be assigned, p can change */
+int const *p;         /* same */
+int *const p = &x;    /* const pointer to int: p cannot change, *p can */
+const int *const p = &x;  /* neither */
+#+end_src
+
+** 6. Scope, storage duration, and linkage
+Four independent properties:
+
+| Property         | Values                                                                                              |
+|------------------+-----------------------------------------------------------------------------------------------------|
+| Scope            | file, block, function (labels only), function prototype                                             |
+| Storage duration | automatic (block), static (whole program), thread (=_Thread_local=), allocated (=malloc= to =free=) |
+| Linkage          | external (shared across files), internal (=static= at file scope), none (locals)                    |
+| Lifetime         | When the object exists; using it outside that is undefined behavior                                 |
+
+#+begin_src c
+int counter;                    /* file scope, static duration, external linkage */
+static int hidden;              /* file scope, static duration, internal linkage */
+extern int shared;              /* declaration only; defined in another file */
+
+void f(void) {
+    int a;                      /* automatic: lives until the block ends */
+    static int calls;           /* static duration, no linkage: persists across calls */
+    static _Thread_local int t; /* one instance per thread (block scope requires static or extern) */
+}
+#+end_src
+
+Notes:
+- Variables with static or thread duration are zero-initialized. Automatic ones are not: reading an uninitialized automatic variable is undefined behavior.
+- Define a global in exactly one =.c= file and declare it =extern= in a header. GCC 10+ and Clang default to =-fno-common=, so a duplicate definition across files is a link error.
+- An inner declaration may shadow an outer one; =-Wshadow= reports it.
+
+** 7. Initialization
+#+begin_src c
+int a[5] = {1, 2};                    /* {1,2,0,0,0} */
+int b[] = {[2] = 5, [4] = 7};         /* designated: length 5, others 0 */
+struct point p = { .y = 2 };          /* x is 0 */
+struct point q = {0};                 /* zero all members (padding unspecified) */
+struct point r = {};                  /* empty initializer: C23 and GNU extension */
+char s[] = "abc";                     /* 4 bytes including '\0' */
+#+end_src
+
+*Compound literals* create an unnamed object of the stated type; inside a function it has automatic duration until the end of the enclosing block:
+
+#+begin_src c
+draw(&(struct point){ .x = 1, .y = 2 });
+sum((int[]){1, 2, 3}, 3);
+#+end_src
+
+** 8. Statements and control flow
+#+begin_src c
+switch (op) {
+case '+': r = a + b; break;
+case '-': r = a - b; break;
+case 'x':
+    log("multiply");
+    [[fallthrough]];                   /* C23; GCC: __attribute__((fallthrough)) */
+case '*': r = a * b; break;
+default:  r = 0;
+}
+#+end_src
+
+- A =switch= falls through into the next label unless you =break=. =-Wimplicit-fallthrough= flags unannotated fallthrough.
+- Before C23, a label must be followed by a statement, not a declaration; wrap declarations in braces.
+- Jumping with =case= or =goto= past an initialized declaration into its scope is a constraint violation for VLAs and leaves other variables uninitialized.
+- =break= and =continue= affect only the innermost loop (and =break= the innermost =switch=). To leave nested loops, use =goto= or a flag.
+- Variables can be declared in a =for= header (C99): ~for (int i = 0; i < n; i++)~.
+
+*** goto for cleanup
+The common, accepted use of =goto= is a single exit path that releases resources in reverse order:
+
+#+begin_src c
+int run(void) {
+    int rc = -1;
+    char *buf = malloc(4096);
+    if (buf == NULL) goto out;
+    FILE *f = fopen("data", "rb");
+    if (f == NULL) goto free_buf;
+    /* ... work ... */
+    rc = 0;
+    fclose(f);
+free_buf:
+    free(buf);
+out:
+    return rc;
+}
+#+end_src
+
+** 9. =main= and program exit
+#+begin_src c
+int main(void) { return 0; }
+int main(int argc, char *argv[]) { /* argv[argc] == NULL */ return 0; }
+#+end_src
+
+Returning from =main= is equivalent to calling =exit= with that value. =exit= runs =atexit= handlers and flushes and closes open streams; =_Exit= and =abort= do not. =EXIT_SUCCESS= and =EXIT_FAILURE= are the portable exit codes.
+
+** 10. Qualifiers and specifiers worth knowing
+#+begin_src c
+_Static_assert(sizeof(int) >= 4, "int too small");   /* C23: static_assert(cond) */
+
+_Alignas(16) unsigned char buf[64];
+size_t al = _Alignof(max_align_t);
+
+_Noreturn void die(const char *msg);                 /* C23: [[noreturn]] */
+
+void copy(char *restrict dst, const char *restrict src, size_t n);
+#+end_src
+
+- =restrict= promises the compiler that, during the pointer's lifetime, the object it points to is accessed only through that pointer (or pointers derived from it). It enables optimization; violating the promise is undefined behavior (this is why =memcpy= is =restrict= and =memmove= is not).
+- C23 attributes: =[[nodiscard]]=, =[[maybe_unused]]=, =[[deprecated]]=, =[[fallthrough]]=, =[[noreturn]]=. GCC and Clang also offer =__attribute__((...))= for older standards.
+
+** 11. Common mistakes
+- Using =sizeof= on an array parameter (it is a pointer): ~void f(int a[10]) { sizeof a; }~ gives =sizeof(int *)=.
+- A semicolon after ~if (x);~ or ~for (...);~, which makes the body empty.
+- Dangling =else=: an =else= binds to the nearest =if=. Always use braces.
+- Missing =break= in a =switch=.
+- Mixing signed and unsigned in comparisons (see =02_types.org=).
+- Reading =argv= entries as if they could be =NULL= before =argc=, or modifying string literals.
+- Comparing strings with ~==~ instead of =strcmp=.
+- Assuming evaluation order inside an expression.
+
+** What to remember
+- Know the three families of weird behavior: undefined, unspecified, implementation-defined.
+- Do not modify and read an object in the same expression.
+- Read declarations from the identifier outward; use =typedef= when they get complicated.
+- Scope, storage duration, and linkage are separate; only static-duration objects are zeroed for you.
+- =goto cleanup= is the standard way to unwind resources in C.
+- Pick a standard with =-std== and compile with warnings.

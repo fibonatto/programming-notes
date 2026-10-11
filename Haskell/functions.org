@@ -1,0 +1,213 @@
+#+title: Haskell Functions
+#+startup: overview
+
+* Haskell Functions
+** 1. Define a function
+#+begin_src haskell
+square :: Int -> Int
+square x = x * x
+
+square 5      -- 25
+#+end_src
+
+A definition is one or more equations. The type signature is optional but strongly recommended for top-level functions. Function application is juxtaposition: =f x y=, not =f(x, y)=.
+
+** 2. Several equations and local definitions
+#+begin_src haskell
+fact :: Integer -> Integer
+fact 0 = 1
+fact n = n * fact (n - 1)
+
+bmiLabel :: Double -> Double -> String
+bmiLabel w h
+  | b < 18.5  = "under"
+  | b < 25    = "normal"
+  | otherwise = "over"
+  where
+    b = w / h ^ 2
+#+end_src
+
+Equations are tried from top to bottom. =where= scopes over all guards of one equation. Local bindings may be functions, and they are mutually recursive by default:
+
+#+begin_src haskell
+parity :: Int -> String
+parity n = if isEven (abs n) then "even" else "odd"
+  where
+    isEven 0 = True
+    isEven k = isOdd (k - 1)
+    isOdd 0 = False
+    isOdd k = isEven (k - 1)
+#+end_src
+
+Here =isEven= and =isOdd= call each other, which works because all bindings in one =where= (or =let=) are visible to each other.
+
+** 3. Lambdas and sections
+#+begin_src haskell
+\x -> x * x
+\x y -> x + y
+
+map (\x -> x * x) [1, 2, 3]       -- [1,4,9]
+map (* 2) [1, 2, 3]               -- [2,4,6]   right section
+map (2 *) [1, 2, 3]               -- [2,4,6]   left section
+map (subtract 1) [1, 2, 3]        -- [0,1,2]   (- 1) would be the number -1
+(`div` 2) 10                      -- 5         infix function in a section
+#+end_src
+
+** 4. Currying and partial application
+Every function takes exactly one argument. =Int -> Int -> Int= means =Int -> (Int -> Int)=. Supplying fewer arguments gives a new function.
+
+#+begin_src haskell
+add :: Int -> Int -> Int
+add x y = x + y
+
+inc :: Int -> Int
+inc = add 1               -- partial application
+
+map (add 10) [1, 2, 3]    -- [11,12,13]
+
+uncurry add (3, 4)        -- 7: takes a tuple
+curry fst 1 2             -- 1
+flip (-) 1 10             -- 9: flip f x y = f y x
+#+end_src
+
+Argument order matters for partial application: put the argument most likely to be fixed first.
+
+** 5. Composition and application
+#+begin_src haskell
+(f . g) x                     -- composition: the same as f (g x)
+
+countWords :: String -> Int
+countWords = length . words   -- point-free: no explicit argument
+
+f $ g $ h x                   -- f (g (h x)): $ has the lowest precedence
+
+import Data.Function ((&))
+[1, 2, 3] & map (+ 1) & sum   -- 9: pipeline order
+#+end_src
+
+Define your own operators, with a fixity declaration:
+
+#+begin_src haskell
+(|>) :: a -> (a -> b) -> b
+x |> f = f x
+infixl 1 |>
+
+[1, 2, 3] |> map (+ 1) |> sum     -- 9
+#+end_src
+
+** 6. Multiple arguments and results
+Several results are returned as a tuple (or a record).
+
+#+begin_src haskell
+divMod' :: Int -> Int -> (Int, Int)
+divMod' a b = (a `div` b, a `mod` b)
+
+let (q, r) = divMod' 17 5         -- q == 3, r == 2
+17 `divMod` 5                     -- (3,2): from the Prelude
+#+end_src
+
+** 7. Higher-order functions
+#+begin_src haskell
+map      (+ 1) [1, 2, 3]                  -- [2,3,4]
+filter   even [1 .. 6]                    -- [2,4,6]
+foldr    (:) [] [1, 2, 3]                 -- [1,2,3]
+zipWith  (+) [1, 2, 3] [10, 20, 30]       -- [11,22,33]
+takeWhile (< 100) (iterate (* 2) 1)       -- [1,2,4,8,16,32,64]
+any odd [2, 4, 5]                         -- True
+#+end_src
+
+Because functions are ordinary values, they can be stored in lists, returned from other functions, and passed anywhere:
+
+#+begin_src haskell
+twice :: (a -> a) -> a -> a
+twice f = f . f
+
+twice (* 3) 5                             -- 45
+compose :: [a -> a] -> a -> a
+compose = foldr (.) id
+#+end_src
+
+** 8. Recursion and accumulators
+Recursion is the basic looping construct.
+
+#+begin_src haskell
+{-# LANGUAGE BangPatterns #-}
+
+sumTo :: Int -> Int
+sumTo n = go 0 1
+  where
+    go !acc i
+      | i > n     = acc
+      | otherwise = go (acc + i) (i + 1)
+#+end_src
+
+=go= is a local worker with an accumulator, the usual way to make a recursion tail-recursive. The bang (=!acc=) forces the accumulator at each step; without it, a lazy accumulator builds a chain of thunks and wastes memory. For simple cases use a strict fold:
+
+#+begin_src haskell
+import Data.List (foldl')
+foldl' (+) 0 [1 .. 1000000]
+#+end_src
+
+Tail calls do not consume stack space in compiled code. Non-tail recursion over a lazy list, by contrast, can still be fine (it produces output incrementally) or can build deep stacks (as with a lazy =foldl=).
+
+** 9. Parametric polymorphism and constraints
+#+begin_src haskell
+id :: a -> a
+id x = x
+
+swap :: (a, b) -> (b, a)
+swap (x, y) = (y, x)
+
+largest :: Ord a => [a] -> a
+largest = maximum
+#+end_src
+
+A lowercase type variable such as =a= means "any type". A function with type =a -> a= can only return its argument: the type tells you a lot about what the function can do. ~Ord a =>~ is a constraint: the function works for any =a= that supports comparison.
+
+** 10. Functions and purity
+A function's result depends only on its arguments and it performs no effects. Effects are values of type =IO a=, produced by functions and executed only from =main=.
+
+#+begin_src haskell
+pureAdd :: Int -> Int -> Int
+pureAdd a b = a + b
+
+greet :: String -> IO ()
+greet name = putStrLn ("Hello, " ++ name)    -- an IO action, not run until main reaches it
+#+end_src
+
+Purity is what lets the compiler reorder, share, and delay evaluation safely.
+
+** 11. Laziness: arguments are not evaluated up front
+Function arguments are evaluated only when (and if) the function needs them. This lets ordinary functions behave like control structures:
+
+#+begin_src haskell
+myIf :: Bool -> a -> a -> a
+myIf True  t _ = t
+myIf False _ e = e
+
+myIf True 1 (error "boom")      -- 1: the second branch is never evaluated
+#+end_src
+
+In a strict language such as Rust, C, or Common Lisp, a function with this signature would evaluate both branches first; that is why those languages need =if= to be a special form or a macro. In Haskell, =if= is syntax, but nothing prevents you from writing =myIf=, =unless=, or =when= as plain functions.
+
+** 12. Common pitfalls
+- *Partial functions*: =head=, =tail=, =fromJust=, and incomplete pattern matches crash at run time. Enable =-Wall= and prefer total alternatives.
+- *Negative literals*: write =f (-1)=; =f -1= is subtraction.
+- *Precedence*: function application binds tighter than any operator: =f x + 1= is =(f x) + 1=.
+- *Indentation*: =where=, =let=, =do=, and =of= blocks use layout; align consistently with spaces.
+- *Lazy accumulators*: use =foldl'= or bang patterns.
+
+** Quick reference
+| Form                  | Purpose                                         |
+|-----------------------+-------------------------------------------------|
+| =f :: A -> B -> C=    | Signature of a two-argument function            |
+| =f x y = ...=         | Define by equation                              |
+| =\x -> ...=           | Lambda                                          |
+| =(+ 1)=, =(1 +)=      | Operator sections                               |
+| =f . g=               | Composition                                     |
+| =f $ x=               | Application with low precedence                 |
+| =where=               | Local definitions scoped over guards            |
+| =let ... in ...=      | Local definitions as an expression              |
+| =Ord a => ...=        | Constraint on a type variable                   |
+| =foldr=, =foldl'=     | Fold from the right, strict fold from the left  |
+| =IO a=                | An effectful action, run only from =main=       |

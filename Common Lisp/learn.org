@@ -1,0 +1,250 @@
+* Learn Common Lisp
+** 1. Expressions
+Everything is an expression, written as a list.
+
+#+begin_src lisp
+(+ 1 2)                 ; 3
+(+ (* 2 3) 4)           ; 10
+#+end_src
+
+The first element is usually the operator. Unlike conventional mathematical notation, the operator comes first.
+
+** 2. Values
+#+begin_src lisp
+42                      ; integer
+3.14                    ; float
+"hello"                 ; string
+:hello                  ; keyword
+t                       ; true
+nil                     ; false and empty list
+#+end_src
+
+Any value other than =nil= is true in a conditional.
+
+** 3. Functions
+#+begin_src lisp
+(defun square (x)
+  (* x x))
+
+(square 5)              ; 25
+#+end_src
+
+Anonymous functions use =lambda=.
+
+#+begin_src lisp
+(lambda (x) (* x x))
+#+end_src
+
+=funcall= invokes a function value.
+
+#+begin_src lisp
+(funcall (lambda (x) (* x x)) 5) ; 25
+#+end_src
+
+=apply= passes a list of arguments to a function.
+
+#+begin_src lisp
+(apply #'+ '(1 2 3))   ; 6
+#+end_src
+
+=#'function-name= refers to a function.
+
+#+begin_src lisp
+(funcall #'+ 1 2)      ; 3
+#+end_src
+
+** 4. Local Bindings
+Use =let= to bind local variables.
+
+#+begin_src lisp
+(let ((x 2)
+      (y 3))
+  (+ x y))             ; 5
+#+end_src
+
+Bindings in a =let= are evaluated before the new variables are bound. Use =let*= when later bindings need earlier ones.
+
+#+begin_src lisp
+(let* ((x 2)
+       (y (* x 3)))
+  y)                   ; 6
+#+end_src
+
+** 5. Conditionals
+#+begin_src lisp
+(if (> x 0)
+    'positive
+    'non-positive)
+#+end_src
+
+Multiple branches use =cond=.
+
+#+begin_src lisp
+(cond
+  ((< x 0) 'negative)
+  ((= x 0) 'zero)
+  (t 'positive))
+#+end_src
+
+=case= selects based on a value.
+
+#+begin_src lisp
+(case value
+  (:a 'first)
+  (:b 'second)
+  (otherwise 'unknown))
+#+end_src
+
+These are language constructs, not ordinary function calls.
+
+** 6. Lists
+#+begin_src lisp
+'(1 2 3)                ; literal list
+(list 1 2 3)            ; construct a list
+(cons 1 '(2 3))         ; (1 2 3)
+(car '(1 2 3))          ; 1
+(cdr '(1 2 3))          ; (2 3)
+(null nil)              ; T
+#+end_src
+
+A list is built from cons cells. =car= returns the first element, and =cdr= returns the remainder.
+
+** 7. Recursion
+#+begin_src lisp
+(defun sum-list (xs)
+  (if (null xs)
+      0
+      (+ (car xs)
+         (sum-list (cdr xs)))))
+
+(sum-list '(1 2 3 4))   ; 10
+#+end_src
+
+** 8. Quoting
+Normally, Lisp evaluates expressions.
+
+#+begin_src lisp
+(+ 1 2)                 ; 3
+#+end_src
+
+=quote= prevents evaluation.
+
+#+begin_src lisp
+(quote (+ 1 2))         ; (+ 1 2)
+'(+ 1 2)                ; same result
+#+end_src
+
+This distinction is fundamental because Lisp code is represented using the same structures used for lists and data.
+
+** 9. Special Forms
+Not every list is a function call.
+
+#+begin_src lisp
+(if condition a b)
+(let ((x 1)) x)
+(quote x)
+#+end_src
+
+These forms control evaluation. For example, =if= evaluates the condition and only the selected branch.
+
+** 10. Data Structures
+#+begin_src lisp
+(defstruct point
+  x
+  y)
+
+(defparameter p (make-point :x 10 :y 20))
+
+(point-x p)             ; 10
+(point-y p)             ; 20
+#+end_src
+
+=defstruct= defines a structure type and generates a constructor and accessors.
+
+** 11. Iteration
+#+begin_src lisp
+(loop for x from 1 to 5
+      collect (* x x))
+; (1 4 9 16 25)
+#+end_src
+
+You can use iteration when it makes the implementation simpler than recursion.
+
+** 12. Mutation
+#+begin_src lisp
+(let ((x 0))
+  (incf x)
+  x)                    ; 1
+#+end_src
+
+=setf= assigns values to places.
+
+#+begin_src lisp
+(let ((x 10))
+  (setf x 20)
+  x)                    ; 20
+#+end_src
+
+Mutation is available but not mandatory. You can continue writing mostly functional code.
+
+** 13. Multiple Values
+Common Lisp functions can return multiple values.
+
+#+begin_src lisp
+(values 1 2)
+#+end_src
+
+To receive them:
+
+#+begin_src lisp
+(multiple-value-bind (a b)
+    (values 1 2)
+  (+ a b))              ; 3
+#+end_src
+
+You can ignore this feature until a project needs it.
+
+** 14. Macros
+Macros transform code before evaluation.
+
+#+begin_src lisp
+(defmacro unless (condition &body body)
+  `(if (not ,condition)
+       (progn ,@body)
+       nil))
+#+end_src
+
+You do not need to write macros immediately. Learn them after you understand functions and evaluation.
+
+** 15. The REPL
+The REPL evaluates expressions interactively. In SBCL, start it with:
+
+#+begin_src sh
+sbcl
+#+end_src
+
+Then evaluate expressions directly:
+
+#+begin_src lisp
+(+ 1 2)
+(defun double (x) (* x 2))
+(double 21)
+#+end_src
+
+Save code in =.lisp= files and load them into the REPL:
+
+#+begin_src lisp
+(load "hello.lisp")
+#+end_src
+
+** What to remember
+- =(f x)= is usually a function application.
+- =lambda= creates anonymous functions.
+- =defun= defines named functions.
+- =let= creates local bindings.
+- =if= and =cond= control evaluation.
+- =quote= prevents evaluation.
+- =cons=, =car=, and =cdr= manipulate lists.
+- =defstruct= defines compound data.
+- Special forms have evaluation rules that ordinary functions do not.
+- Common Lisp is multiparadigm: functional programming is supported, but mutation and side effects are also available.

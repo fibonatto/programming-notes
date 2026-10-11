@@ -1,0 +1,124 @@
+* common Lisp Macros
+** 1. What a macro does
+A function receives evaluated arguments. A macro receives unevaluated source forms and returns code that will be evaluated.
+
+This is why macros can define new control-flow constructs, while ordinary functions generally cannot.
+
+** 2. A simple macro
+#+begin_src lisp
+(defmacro unless (condition &body body)
+  `(if (not ,condition)
+       (progn ,@body)
+       nil))
+#+end_src
+
+Usage:
+
+#+begin_src lisp
+(unless (> 2 5)
+  (print "runs")
+  :done)
+#+end_src
+
+The macro expands into an =if= expression. =progn= evaluates its forms in order and returns the last form's values.
+
+** 3. Backquote, comma, and comma-at
+Backquote creates a template. Comma evaluates and inserts one form into that template. Comma-at inserts a list of forms.
+
+#+begin_src lisp
+(let ((x 10))
+  `(value ,x))
+; => (VALUE 10)
+#+end_src
+
+Splicing a list of forms:
+
+#+begin_src lisp
+(let ((forms '(1 2 3)))
+  `(list ,@forms))
+; => (LIST 1 2 3)
+#+end_src
+
+These are essential tools for generating Lisp code.
+
+** 4. Inspect macro expansion
+Use =macroexpand-1= to inspect one expansion step:
+
+#+begin_src lisp
+(macroexpand-1
+  '(unless (> x 0)
+     (print x)))
+#+end_src
+
+The result is the generated form plus a second value indicating whether expansion occurred. The exact printed form can vary by implementation.
+
+Inspect expansions when learning or debugging a macro.
+
+** 5. Why a function is not always enough
+Consider a function call:
+
+#+begin_src lisp
+(if-function condition
+             (do-something)
+             (do-something-else))
+#+end_src
+
+If =if-function= is an ordinary function, its arguments are evaluated before the call. Both branches would run before the function could choose one.
+
+A macro can receive those branch expressions as code and expand into =if=, which evaluates only the selected branch.
+
+Common Lisp already provides =if=, =when=, =unless=, =and=, and =or= with suitable evaluation behavior. Do not redefine these existing constructs.
+
+** 6. Avoid evaluating a macro argument more than once
+A naïve macro can duplicate a form:
+
+#+begin_src lisp
+(defmacro twice-naive (form)
+  `(+ ,form ,form))
+#+end_src
+
+If =form= has side effects, it is evaluated twice. A safer version evaluates it once:
+
+#+begin_src lisp
+(defmacro twice (form)
+  (let ((value (gensym "VALUE")))
+    `(let ((,value ,form))
+       (+ ,value ,value))))
+#+end_src
+
+=gensym= creates a fresh symbol, avoiding accidental variable capture.
+
+Example:
+
+#+begin_src lisp
+(let ((x 0))
+  (twice (incf x))
+  x)
+; => 1
+#+end_src
+
+The increment happens once; its result is added to itself.
+
+** 7. Macro hygiene
+Common Lisp macros are not automatically hygienic in the same way as macros in some other languages. Generated variable names can accidentally collide with names in the calling code.
+
+Use =gensym= for temporary variables introduced by a macro. Also avoid introducing unnecessary bindings or capturing names from the caller.
+
+** 8. =&body= and =&environment=
+=&body= behaves like =&rest= for macro arguments, but signals that the arguments are a body of forms and supports editor indentation conventions.
+
+=&environment= can receive the macro expansion environment. Most beginner macros do not need it.
+
+** 9. When to write a macro
+Prefer an ordinary function when you need to compute a result from values.
+
+Consider a macro when you need to: - control whether or when expressions are evaluated; - introduce a new binding or control-flow form; - transform source code into other source code.
+
+Do not write a macro just to avoid calling a function.
+
+** 10. Recommended learning sequence
+1. Understand evaluation, =quote=, and special forms.
+2. Learn backquote, comma, and comma-at.
+3. Write a small macro and inspect it with =macroexpand-1=.
+4. Learn =gensym= and avoid evaluating arguments multiple times.
+5. Explore more advanced macro techniques only when a project needs them.

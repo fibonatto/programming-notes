@@ -1,0 +1,379 @@
+#+title: Algorithms
+#+startup: overview
+
+* Algorithms
+** 0. Staff-level lens
+You will rarely invent a new algorithm. You will often:
+- recognize that a product requirement is a known problem (shortest path, matching, scheduling, top-k, deduplication, consensus) and pick the right tool;
+- choose between an exact algorithm, an approximation, and a heuristic given data size, latency, and correctness needs;
+- find the algorithmic cause of an incident (a quadratic loop, a pathological hash input, a missing index, a retry storm);
+- design test strategies for algorithmic code (brute-force oracles, property-based tests, adversarial inputs).
+The techniques below are the common vocabulary. Complexity analysis is in =04_complexity.org= and the structures algorithms rely on are in =05_data-structures.org=; all code here is Python and has been run against brute-force checks.
+
+** 1. A method for attacking problems
+1. State the problem precisely: inputs, outputs, constraints, size limits, what "best" means.
+2. Look for a reduction to a known problem; identify the structure (graph? order? overlapping subproblems? monotone predicate?).
+3. Write a correct brute-force solution first; it becomes the oracle for testing.
+4. Pick a technique (below), state the invariant that makes it correct, and the cost.
+5. Test against the oracle on small random inputs and on edge cases (empty, one element, duplicates, maximum size, adversarial order).
+6. Measure on realistic data; only then optimize.
+
+** 2. Sorting and selection
+| Algorithm      | Time (worst / typical)       | Space   | Stable | Notes                                              |
+|----------------+------------------------------+---------+--------+----------------------------------------------------|
+| Insertion sort | n^2 / n^2 (n when sorted)    | O(1)    | yes    | Best for tiny or nearly sorted inputs              |
+| Merge sort     | n log n                      | O(n)    | yes    | Predictable; good for linked lists and external sort |
+| Heap sort      | n log n                      | O(1)    | no     | In place with worst-case guarantee; poor locality  |
+| Quicksort      | n^2 / n log n                | O(log n)| no     | Fast in practice; needs good pivots                |
+| Counting/radix | O(n + k) / O(d (n + k))      | O(n + k)| yes    | Beats comparison sorts when keys are small integers |
+
+- Libraries use hybrids: introsort (quicksort with a heap-sort fallback), pattern-defeating quicksort, and Timsort (runs of sorted data merged, stable). Prefer the library sort; implement your own only to learn.
+- *Selection*: the k-th smallest in expected O(n) with quickselect, and worst-case O(n) with median of medians. *Top-k* of a stream: a heap of size k, O(n log k).
+- *External sort*: sort runs that fit in memory, then k-way merge; the basis of database sorting and MapReduce shuffles.
+- Stability matters when sorting by multiple keys.
+
+#+begin_src python
+import random
+
+def quickselect(xs, k):                    # k-th smallest, 0-based, expected O(n)
+    xs = list(xs)
+    while True:
+        pivot = random.choice(xs)
+        lo = [x for x in xs if x < pivot]
+        eq = [x for x in xs if x == pivot]
+        hi = [x for x in xs if x > pivot]
+        if k < len(lo):
+            xs = lo
+        elif k < len(lo) + len(eq):
+            return pivot
+        else:
+            k -= len(lo) + len(eq)
+            xs = hi
+
+random.seed(11)
+for _ in range(200):
+    xs = [random.randint(0, 20) for _ in range(random.randint(1, 30))]
+    k = random.randrange(len(xs))
+    assert quickselect(xs, k) == sorted(xs)[k]
+#+end_src
+
+** 3. Searching and binary search on the answer
+Binary search needs a /monotone predicate/: false for a prefix, then true. Write it with an explicit invariant (see =02_logic-and-proofs.org=) and compute the midpoint as =lo + (hi - lo) / 2= to avoid overflow in fixed-width integers.
+
+The same pattern searches over /answers/ instead of array indices: "what is the smallest capacity such that the work fits in D days?" Test feasibility for a candidate (a greedy check), then binary search the candidate.
+
+#+begin_src python
+def min_capacity(weights, days):
+    def feasible(cap):
+        used, cur = 1, 0
+        for w in weights:
+            if cur + w > cap:
+                used += 1
+                cur = 0
+            cur += w
+        return used <= days
+    lo, hi = max(weights), sum(weights)    # answer lies in [lo, hi]
+    while lo < hi:
+        mid = lo + (hi - lo) // 2
+        if feasible(mid):
+            hi = mid
+        else:
+            lo = mid + 1
+    return lo
+
+assert min_capacity([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 5) == 15
+#+end_src
+
+** 4. Divide and conquer
+Split into independent subproblems, solve recursively, combine. Examples: merge sort, quicksort, binary search, fast exponentiation, Karatsuba and Strassen multiplication, closest pair of points, the FFT (polynomial multiplication in O(n log n)), and parallel reductions. The analysis is the master theorem (=04_complexity.org=). Independent subproblems also parallelize naturally (fork-join), but watch the sequential combine step (Amdahl).
+
+** 5. Greedy algorithms
+A greedy algorithm makes the locally best choice and never reconsiders. It is correct only when a proof (usually an /exchange argument/ or a /matroid/ structure) shows an optimal solution contains the greedy choice.
+- Interval scheduling (maximize the number of non-overlapping intervals): sort by finish time.
+- Huffman coding: repeatedly merge the two lowest-weight nodes (see =03_data-representation.org=).
+- Minimum spanning tree: Kruskal (sort edges, add if no cycle) and Prim (grow from a vertex).
+- Dijkstra's shortest paths with non-negative weights.
+- Fractional knapsack: take by value/weight ratio. (The 0/1 knapsack is /not/ greedy-solvable; it needs dynamic programming.)
+If you cannot prove a greedy choice safe, find a counterexample or use DP.
+
+** 6. Dynamic programming
+Use DP when the problem has /optimal substructure/ (an optimal solution contains optimal solutions to subproblems) and /overlapping subproblems/ (the recursion revisits the same subproblem). Steps:
+1. Define the state (what parameters identify a subproblem) and what the value means.
+2. Write the recurrence over smaller states, including base cases.
+3. Choose an evaluation order: memoized recursion (top-down) or table filling (bottom-up).
+4. Count states times work per state. Reduce space by keeping only the rows you need.
+5. Recover the solution (not just the value) with parent pointers or by retracing the table.
+
+Classics: longest common subsequence, edit distance, 0/1 knapsack (pseudo-polynomial O(nW)), longest increasing subsequence (O(n log n) with binary search), matrix-chain multiplication, shortest paths on DAGs, optimal binary search trees, subset-sum, DP over bitmasks for the traveling salesman in O(2^n n^2), and DP on trees. Viterbi decoding, sequence alignment, and many text-layout and scheduling problems are DP.
+
+#+begin_src python
+import bisect, itertools, random
+
+def edit_distance(a, b):
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
+        prev = cur
+    return prev[-1]
+
+def lis_length(xs):                        # strictly increasing, O(n log n)
+    tails = []
+    for x in xs:
+        i = bisect.bisect_left(tails, x)
+        if i == len(tails):
+            tails.append(x)
+        else:
+            tails[i] = x
+    return len(tails)
+
+def knapsack(weights, values, cap):
+    best = [0] * (cap + 1)
+    for w, v in zip(weights, values):
+        for c in range(cap, w - 1, -1):    # iterate downward: each item used at most once
+            best[c] = max(best[c], best[c - w] + v)
+    return best[cap]
+
+assert edit_distance("kitten", "sitting") == 3
+assert lis_length([10, 9, 2, 5, 3, 7, 101, 18]) == 4
+assert knapsack([1, 3, 4, 5], [1, 4, 5, 7], 7) == 9
+
+random.seed(5)                             # check knapsack against brute force
+for _ in range(100):
+    n = random.randint(1, 8)
+    ws = [random.randint(1, 6) for _ in range(n)]
+    vs = [random.randint(1, 9) for _ in range(n)]
+    cap = random.randint(0, 15)
+    brute = max(sum(v for v, take in zip(vs, mask) if take)
+                for mask in itertools.product([0, 1], repeat=n)
+                if sum(w for w, take in zip(ws, mask) if take) <= cap)
+    assert knapsack(ws, vs, cap) == brute
+#+end_src
+
+** 7. Graph algorithms
+Representation choice drives performance (=05_data-structures.org=). Core toolkit:
+| Problem                          | Algorithm                              | Time                         |
+|----------------------------------+----------------------------------------+------------------------------|
+| Reachability, unweighted shortest path | BFS                              | O(V + E)                     |
+| Connectivity, cycle detection, ordering | DFS                             | O(V + E)                     |
+| Topological order of a DAG       | Kahn's algorithm or DFS finish order   | O(V + E)                     |
+| Strongly connected components    | Tarjan or Kosaraju                     | O(V + E)                     |
+| Single-source shortest paths, non-negative weights | Dijkstra with a heap | O((V + E) log V)             |
+| Shortest paths with negative edges | Bellman-Ford (detects negative cycles) | O(V E)                     |
+| All-pairs shortest paths         | Floyd-Warshall / Johnson               | O(V^3) / O(V E + V^2 log V)  |
+| Minimum spanning tree            | Kruskal (union-find) / Prim            | O(E log V)                   |
+| Maximum flow / minimum cut       | Edmonds-Karp, Dinic                    | O(V E^2) / O(V^2 E)          |
+| Bipartite matching               | Hopcroft-Karp, or flow                 | O(E sqrt V)                  |
+
+Max-flow min-cut generalizes many problems: assignment, project selection, image segmentation, and network capacity. Many "hard-looking" allocation problems reduce to flow.
+
+#+begin_src python
+import heapq
+from collections import deque
+
+def dijkstra(adj, s):
+    dist = {s: 0}
+    pq = [(0, s)]
+    while pq:
+        d, u = heapq.heappop(pq)
+        if d > dist.get(u, float("inf")):
+            continue                        # stale queue entry
+        for v, w in adj.get(u, []):
+            nd = d + w
+            if nd < dist.get(v, float("inf")):
+                dist[v] = nd
+                heapq.heappush(pq, (nd, v))
+    return dist
+
+adj = {"a": [("b", 7), ("c", 9), ("f", 14)], "b": [("a", 7), ("c", 10), ("d", 15)],
+       "c": [("a", 9), ("b", 10), ("d", 11), ("f", 2)], "d": [("b", 15), ("c", 11), ("e", 6)],
+       "e": [("d", 6), ("f", 9)], "f": [("a", 14), ("c", 2), ("e", 9)]}
+assert dijkstra(adj, "a") == {"a": 0, "b": 7, "c": 9, "f": 11, "d": 20, "e": 20}
+
+def topo_order(adj):                        # Kahn; returns None if there is a cycle
+    indeg = {u: 0 for u in adj}
+    for u in adj:
+        for v in adj[u]:
+            indeg[v] = indeg.get(v, 0) + 1
+    q = deque(u for u, d in indeg.items() if d == 0)
+    out = []
+    while q:
+        u = q.popleft()
+        out.append(u)
+        for v in adj.get(u, []):
+            indeg[v] -= 1
+            if indeg[v] == 0:
+                q.append(v)
+    return out if len(out) == len(indeg) else None
+
+assert topo_order({"a": ["b", "c"], "b": ["d"], "c": ["d"], "d": []}) in (["a", "b", "c", "d"], ["a", "c", "b", "d"])
+assert topo_order({"a": ["b"], "b": ["a"]}) is None
+
+class UnionFind:
+    def __init__(self, items):
+        self.parent = {x: x for x in items}
+        self.rank = {x: 0 for x in items}
+    def find(self, x):
+        while self.parent[x] != x:
+            self.parent[x] = self.parent[self.parent[x]]     # path halving
+            x = self.parent[x]
+        return x
+    def union(self, a, b):
+        ra, rb = self.find(a), self.find(b)
+        if ra == rb:
+            return False
+        if self.rank[ra] < self.rank[rb]:
+            ra, rb = rb, ra
+        self.parent[rb] = ra
+        if self.rank[ra] == self.rank[rb]:
+            self.rank[ra] += 1
+        return True
+
+def kruskal(nodes, edges):                  # edges: (weight, u, v)
+    uf, total = UnionFind(nodes), 0
+    for w, u, v in sorted(edges):
+        if uf.union(u, v):
+            total += w
+    return total
+
+assert kruskal("abcd", [(1, "a", "b"), (4, "a", "c"), (3, "b", "c"), (2, "c", "d"), (5, "b", "d")]) == 6
+
+def max_flow(cap, s, t):                    # Edmonds-Karp on a dict-of-dicts of capacities
+    flow = 0
+    res = {u: dict(vs) for u, vs in cap.items()}
+    for u in list(res):
+        for v in list(res[u]):
+            res.setdefault(v, {}).setdefault(u, 0)
+    while True:
+        parent, q = {s: None}, deque([s])
+        while q and t not in parent:
+            u = q.popleft()
+            for v, c in res[u].items():
+                if c > 0 and v not in parent:
+                    parent[v] = u
+                    q.append(v)
+        if t not in parent:
+            return flow
+        path, v = [], t
+        while parent[v] is not None:
+            path.append((parent[v], v))
+            v = parent[v]
+        push = min(res[u][v] for u, v in path)
+        for u, v in path:
+            res[u][v] -= push
+            res[v][u] += push
+        flow += push
+
+assert max_flow({"s": {"a": 3, "b": 2}, "a": {"t": 2, "b": 1}, "b": {"t": 3}}, "s", "t") == 5
+#+end_src
+
+** 8. String algorithms
+- *KMP* and the Z-algorithm find a pattern in O(n + m) using a failure/prefix function; *Rabin-Karp* uses a rolling hash (expected linear, good for multiple patterns); *Aho-Corasick* matches many patterns at once (the basis of many scanners).
+- *Tries* and radix trees index prefixes (autocomplete, routing tables); *suffix arrays* and *suffix automata* answer substring queries in sub-linear time after preprocessing.
+- *Edit distance* and alignment (DP) power diff tools, spell-checkers, and bioinformatics.
+- *Regular expressions* compile to automata. Backtracking engines can take exponential time on crafted inputs (ReDoS); automata-based engines (RE2-style) guarantee linear time (see =07_theory-of-computation.org=).
+
+#+begin_src python
+def prefix_function(p):
+    pi = [0] * len(p)
+    for i in range(1, len(p)):
+        k = pi[i - 1]
+        while k and p[i] != p[k]:
+            k = pi[k - 1]
+        if p[i] == p[k]:
+            k += 1
+        pi[i] = k
+    return pi
+
+def kmp_find_all(text, p):
+    if not p:
+        return list(range(len(text) + 1))
+    pi, k, out = prefix_function(p), 0, []
+    for i, ch in enumerate(text):
+        while k and ch != p[k]:
+            k = pi[k - 1]
+        if ch == p[k]:
+            k += 1
+        if k == len(p):
+            out.append(i - k + 1)
+            k = pi[k - 1]
+    return out
+
+import random
+random.seed(2)
+for _ in range(300):
+    t = "".join(random.choice("ab") for _ in range(random.randint(0, 20)))
+    p = "".join(random.choice("ab") for _ in range(random.randint(1, 4)))
+    brute = [i for i in range(len(t) - len(p) + 1) if t[i:i + len(p)] == p]
+    assert kmp_find_all(t, p) == brute
+#+end_src
+
+** 9. Randomized, streaming, and approximate algorithms
+At scale, exact answers are often unaffordable and unnecessary.
+- *Sampling*: reservoir sampling keeps a uniform random sample of k items from a stream of unknown length in O(k) memory.
+- *Hashing-based sketches*: Bloom filter (set membership, no false negatives), Count-Min sketch (frequency estimates), HyperLogLog (distinct counts in kilobytes), MinHash and SimHash (similarity). See =05_data-structures.org=.
+- *Load balancing*: the "power of two choices" (pick the less loaded of two random servers) cuts maximum load from about log n / log log n to about log log n.
+- *Consistent hashing* and *rendezvous hashing* move few keys when nodes change.
+- Randomization defeats adversarial inputs, but only if the adversary cannot see your seed or function.
+
+#+begin_src python
+import random
+
+def reservoir_sample(stream, k, rng):
+    sample = []
+    for i, x in enumerate(stream):
+        if i < k:
+            sample.append(x)
+        else:
+            j = rng.randint(0, i)
+            if j < k:
+                sample[j] = x
+    return sample
+
+rng = random.Random(42)
+counts = [0] * 10
+for _ in range(20000):
+    counts[reservoir_sample(range(10), 1, rng)[0]] += 1
+assert all(1700 < c < 2300 for c in counts)          # each item chosen about 10% of the time
+#+end_src
+
+** 10. Algorithms engineering at Staff scope
+- *Complexity attacks*: hash flooding (use randomized or keyed hashes such as SipHash), regex backtracking (ReDoS), decompression bombs, algorithmic blowup in parsers (deeply nested input). Treat input size and structure as untrusted.
+- *Data layout over cleverness*: a linear scan over a contiguous array often beats a pointer-based structure until n is large.
+- *Pagination and top-k*: offset pagination degrades with deep pages (O(offset)); keyset pagination keeps cost constant.
+- *Idempotence and determinism* make algorithms retryable and testable; floating-point reductions in parallel are not bitwise deterministic unless ordered.
+- *Differential testing*: compare a fast implementation to a slow obviously-correct one on random and adversarial inputs.
+- *Fallbacks*: for heuristics and solvers, keep a time limit, a measurable quality metric, and a safe default.
+- *Explain the trade-off in writing*: "we use a sort-merge join because inputs exceed memory; a hash join would be faster if the build side fit in memory; we revisit at 10x data."
+
+** 11. Self-check
+1. Give a graph formulation for each: build ordering, detecting a deadlock in a lock graph, assigning reviewers to pull requests, finding the cheapest network to connect data centers, the minimum number of replicas to cut.
+2. Why does Dijkstra fail with negative edges, and what do you use instead?
+3. Write the DP for "can this multiset of integers be split into two equal-sum halves?" and state its complexity. Is it polynomial?
+4. Show that the greedy "pick the largest coin" fails for coins {1, 3, 4} and target 6.
+5. How would you compute the 99th percentile of a stream you can only scan once, with a few kilobytes of memory?
+6. An endpoint becomes slow only for certain tenants. List three algorithmic causes you would check.
+
+** 12. Exercises
+Work in order; always write the brute-force oracle first.
+- Warm-up: binary search (lower bound, upper bound, on the answer), two pointers, sliding window, prefix sums.
+- Core, graphs: BFS shortest path on a grid; topological sort with cycle report; Dijkstra; Kruskal; strongly connected components; bipartite matching via flow.
+- Core, DP: LCS with reconstruction; edit distance; coin change (count and min coins); LIS; matrix-chain order; knapsack with traceback.
+- Core, strings: KMP; trie with autocomplete; Rabin-Karp for multiple patterns.
+- Stretch: implement a Bloom filter, a Count-Min sketch, and HyperLogLog; measure error against exact counts.
+- Stretch: implement consistent hashing with virtual nodes; measure key movement when adding a node.
+- Stretch: solve 30 problems from a graded problem list (for example the exercises in Erickson's book, which are proof-oriented) and write the correctness argument for each.
+
+** 13. Resources
+- MIT 6.006 /Introduction to Algorithms/, Spring 2020 (lectures on hashing, sorting, trees, heaps, BFS/DFS, shortest paths, dynamic programming, complexity; with problem sets and solutions): https://ocw.mit.edu/courses/6-006-introduction-to-algorithms-spring-2020/pages/lecture-notes
+- Erickson, /Algorithms/ (recursion, backtracking, DP, greedy, graphs, DFS, MST, shortest paths, flows, NP-hardness; free; assumes basic data structures): https://jeffe.cs.illinois.edu/teaching/algorithms/
+- Morin, /Open Data Structures/ (free, implementations in several languages; analysis of the structures algorithms use): https://opendatastructures.org/ods-cpp.pdf
+- Cormen, Leiserson, Rivest, Stein, /Introduction to Algorithms/, 4th edition; Skiena, /The Algorithm Design Manual/ (strong on problem recognition and a catalog of problems); Kleinberg and Tardos, /Algorithm Design/.
+- ACM/IEEE-CS/AAAI /Computer Science Curricula 2023/ for the expected scope of algorithmic foundations: https://csed.acm.org/wp-content/uploads/2024/05/The-Report.pdf
+
+** What to remember
+- Recognize the problem class first; write a brute-force oracle; then optimize.
+- Greedy needs a proof; DP needs optimal substructure and a defined state; binary search needs a monotone predicate.
+- Graph algorithms plus flow cover a surprising share of engineering problems.
+- At scale prefer sketches, sampling, and approximations, and defend against adversarial inputs.

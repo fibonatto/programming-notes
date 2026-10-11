@@ -1,0 +1,240 @@
+#+title: C Concurrency
+#+startup: overview
+
+* C Concurrency
+** 1. Concepts
+- A /process/ has its own address space. /Threads/ in one process share memory, which makes communication cheap and mistakes easy.
+- Two threads accessing the same object, at least one writing, without synchronization is a /data race/: *undefined behavior*, not just a stale value.
+- Concurrency (tasks overlapping in time) and parallelism (tasks running simultaneously) are different; threads give you both and the bugs of both.
+
+C11 added a memory model, =<threads.h>=, and =<stdatomic.h>=. In practice most code on Unix uses POSIX threads (=<pthread.h>=); =<threads.h>= exists in glibc 2.28+ and musl but is missing on some platforms (check =__STDC_NO_THREADS__= or =__has_include(<threads.h>)=). Compile with =-pthread=.
+
+** 2. Creating and joining threads
+#+begin_src c
+#include <pthread.h>
+#include <stdio.h>
+
+struct job { int id; long result; };
+
+static void *work(void *arg) {
+    struct job *j = arg;
+    j->result = (long)j->id * j->id;
+    return NULL;
+}
+
+int main(void) {
+    pthread_t th[4];
+    struct job jobs[4];
+    for (int i = 0; i < 4; i++) {
+        jobs[i].id = i;
+        if (pthread_create(&th[i], NULL, work, &jobs[i]) != 0) { /* handle error */ }
+    }
+    for (int i = 0; i < 4; i++) {
+        pthread_join(th[i], NULL);
+        printf("%d -> %ld\n", jobs[i].id, jobs[i].result);
+    }
+}
+#+end_src
+
+- Pass data through a pointer to a struct, and make sure it outlives the thread: do not pass the address of a loop variable or of a local that returns first.
+- Every thread must be joined (=pthread_join=) or detached (=pthread_detach=), otherwise its resources leak.
+- The pthread functions return an error number (not =-1= and =errno=).
+
+The C11 equivalent:
+
+#+begin_src c
+#include <threads.h>
+
+static int work(void *arg) { /* ... */ return 0; }
+
+thrd_t t;
+thrd_create(&t, work, &data);
+int res;
+thrd_join(t, &res);
+#+end_src
+
+** 3. Mutexes
+A mutex gives mutual exclusion over a critical section.
+
+#+begin_src c
+static long counter;
+static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+
+static void *incr(void *arg) {
+    (void)arg;
+    for (int i = 0; i < 100000; i++) {
+        pthread_mutex_lock(&lock);
+        counter++;
+        pthread_mutex_unlock(&lock);
+    }
+    return NULL;
+}
+/* four threads running incr leave counter == 400000 */
+#+end_src
+
+Without the mutex, =counter++= is a read-modify-write that threads interleave, and the total is wrong (and the program is undefined).
+
+Rules:
+- Protect every access to shared data with the same mutex, reads included.
+- Unlock on every path, including early returns and error branches (use =goto cleanup=).
+- Keep critical sections short; do not hold a lock across blocking I/O or calls into unknown code.
+- *Avoid deadlock* by acquiring multiple locks in one global order, or by holding one lock at a time.
+- A thread must not lock a non-recursive mutex it already holds.
+
+C11 spelling: =mtx_t=, =mtx_init(&m, mtx_plain)=, =mtx_lock=, =mtx_unlock=, =mtx_destroy=.
+
+** 4. Condition variables
+A condition variable lets a thread sleep until another thread changes some state. It is always paired with a mutex and a predicate on shared data.
+
+#+begin_src c
+#define QCAP 8
+
+typedef struct {
+    int items[QCAP];
+    size_t head, tail, count;
+    pthread_mutex_t mu;
+    pthread_cond_t not_empty, not_full;
+} Queue;
+
+void queue_init(Queue *q) {
+    q->head = q->tail = q->count = 0;
+    pthread_mutex_init(&q->mu, NULL);
+    pthread_cond_init(&q->not_empty, NULL);
+    pthread_cond_init(&q->not_full, NULL);
+}
+
+void queue_push(Queue *q, int x) {
+    pthread_mutex_lock(&q->mu);
+    while (q->count == QCAP)
+        pthread_cond_wait(&q->not_full, &q->mu);       /* releases mu while waiting */
+    q->items[q->tail] = x;
+    q->tail = (q->tail + 1) % QCAP;
+    q->count++;
+    pthread_cond_signal(&q->not_empty);
+    pthread_mutex_unlock(&q->mu);
+}
+
+int queue_pop(Queue *q) {
+    pthread_mutex_lock(&q->mu);
+    while (q->count == 0)
+        pthread_cond_wait(&q->not_empty, &q->mu);
+    int x = q->items[q->head];
+    q->head = (q->head + 1) % QCAP;
+    q->count--;
+    pthread_cond_signal(&q->not_full);
+    pthread_mutex_unlock(&q->mu);
+    return x;
+}
+#+end_src
+
+Always wait in a =while= loop that re-checks the predicate: =pthread_cond_wait= can return spuriously, and another thread may have consumed the item before you reacquired the lock. Signal while holding the lock or after changing the state, never before. =pthread_cond_broadcast= wakes all waiters (for shutdown flags, for example).
+
+** 5. Atomics
+For a single shared variable, an atomic is lighter than a mutex.
+
+#+begin_src c
+#include <stdatomic.h>
+
+static atomic_long counter;                       /* or: _Atomic long counter; */
+
+static void *incr(void *arg) {
+    (void)arg;
+    for (int i = 0; i < 100000; i++)
+        atomic_fetch_add(&counter, 1);
+    return NULL;
+}
+
+long v = atomic_load(&counter);
+atomic_store(&counter, 0);
+#+end_src
+
+Atomic operations are indivisible and free of data races, but they protect only that one object. Invariants across several variables still need a mutex.
+
+A compare-and-swap loop builds other read-modify-write operations:
+
+#+begin_src c
+static atomic_int maxv;
+
+void update_max(int x) {
+    int cur = atomic_load(&maxv);
+    while (x > cur && !atomic_compare_exchange_weak(&maxv, &cur, x)) {
+        /* on failure, cur is refreshed with the current value; retry */
+    }
+}
+#+end_src
+
+** 6. Memory ordering
+Compilers and CPUs reorder memory operations. Atomics take a /memory order/ argument controlling what other threads may observe.
+
+| Order                  | Guarantee                                                           |
+|------------------------+---------------------------------------------------------------------|
+| =memory_order_seq_cst= | Default: all threads agree on one total order of such operations    |
+| =memory_order_acquire= | A load; later reads/writes in this thread are not moved before it   |
+| =memory_order_release= | A store; earlier reads/writes in this thread are not moved after it |
+| =memory_order_acq_rel= | Both, for read-modify-write                                         |
+| =memory_order_relaxed= | Atomicity only; no ordering with other data                         |
+
+The standard publication pattern uses release on the writer and acquire on the reader:
+
+#+begin_src c
+int data;
+atomic_bool ready;
+
+/* producer */
+data = 42;
+atomic_store_explicit(&ready, true, memory_order_release);
+
+/* consumer */
+while (!atomic_load_explicit(&ready, memory_order_acquire))
+    ;                                   /* spin */
+use(data);                              /* guaranteed to see 42 */
+#+end_src
+
+Use the default =seq_cst= unless you can prove a weaker order is correct; use =relaxed= only for independent counters and statistics. Lock-free code is hard: subtle bugs (such as the ABA problem) hide from tests. Prefer mutexes until a profile shows they are the bottleneck.
+
+** 7. volatile is not synchronization
+=volatile= prevents the compiler from caching a value in a register and from removing accesses, but it gives no atomicity and no ordering between threads. A =volatile int= flag shared between threads is still a data race. Use atomics or mutexes. =volatile= is for memory-mapped hardware and, with =sig_atomic_t=, for signal handlers.
+
+** 8. Thread-local storage and one-time init
+#+begin_src c
+static _Thread_local int errors;             /* each thread has its own copy */
+
+static pthread_once_t once = PTHREAD_ONCE_INIT;
+static void init(void) { /* runs exactly once, even with many callers */ }
+pthread_once(&once, init);                   /* C11: call_once(&flag, init) */
+#+end_src
+
+** 9. Common hazards
+| Hazard                     | Description                                                                                                                        |
+|----------------------------+------------------------------------------------------------------------------------------------------------------------------------|
+| Data race                  | Unsynchronized shared access; undefined behavior                                                                                   |
+| Deadlock                   | Threads waiting for each other's locks; fix with a lock order                                                                      |
+| Lost wakeup                | Signaling before the waiter waits; fix by checking a predicate under the lock                                                      |
+| Dangling argument          | Passing a pointer to a stack variable that goes away                                                                               |
+| False sharing              | Unrelated variables on one cache line slow each other down; pad with =_Alignas(64)=                                                |
+| Non-reentrant libc         | =strtok=, =localtime=, =rand=, =strerror= keep static state; use =_r= variants                                                     |
+| Fork in a threaded program | Only the calling thread exists in the child; locks held by others stay locked; call only async-signal-safe functions before =exec= |
+| Signals                    | Handlers run asynchronously; use a flag or a dedicated signal thread                                                               |
+
+** 10. Designing for less sharing
+- Prefer *ownership transfer* (hand a message or work item to one thread) over shared mutable state.
+- Partition data so each thread works on its own slice, then merge results after joining.
+- Use a queue (as above) between stages, a thread pool for many small tasks, and read-only shared data (needs no lock) when possible.
+- Make one thread own each resource (a socket, a file, a data structure) and talk to it through a queue.
+
+** 11. Tools
+#+begin_src sh
+cc -g -O1 -fsanitize=thread -pthread prog.c -o prog && ./prog     # ThreadSanitizer: reports data races
+valgrind --tool=helgrind ./prog                                   # race and lock-order checker
+#+end_src
+
+In gdb: =info threads=, =thread N=, =thread apply all bt= (backtrace of every thread; the first command for a hung program). ThreadSanitizer finds races that did occur in the run; a clean run does not prove their absence, so run stress tests.
+
+** What to remember
+- A data race is undefined behavior: protect all shared mutable state with a mutex or make it atomic.
+- Wait on condition variables in a loop that re-checks the predicate.
+- Lock multiple mutexes in a consistent order; keep critical sections short.
+- Atomics protect one variable; default to =seq_cst=; acquire/release for publication.
+- =volatile= is not a synchronization tool.
+- Join or detach every thread; keep arguments alive.
+- Share less, and run ThreadSanitizer.
