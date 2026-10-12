@@ -100,12 +100,12 @@ COMMIT;
 - *Inbox and idempotent consumer*: record processed message ids (or make the operation naturally idempotent) so redelivery does nothing.
 - *Change data capture (CDC)*: stream database changes from the transaction log as events; an alternative relay for the outbox and a way to integrate legacy systems without code changes. It exposes table structure, so shield consumers with a translation step.
 - *Saga*: a sequence of local transactions coordinated across services, with compensating actions for failure, replacing a distributed ACID transaction. *Orchestration* uses a coordinator; *choreography* uses events. Sagas lack isolation: intermediate states are visible, so design semantic locks, pending states, and compensations that make business sense (cancel an order, refund a payment).
-| Step (order saga)     | Success event       | Compensation if a later step fails        |
-|-----------------------+---------------------+-------------------------------------------|
-| Create order          | OrderCreated        | Cancel order                              |
-| Reserve inventory     | InventoryReserved   | Release reservation                       |
-| Charge payment        | PaymentCaptured     | Refund payment                            |
-| Confirm shipment      | ShipmentScheduled   | Cancel shipment                           |
+| Step (order saga) | Success event     | Compensation if a later step fails |
+|-------------------+-------------------+------------------------------------|
+| Create order      | OrderCreated      | Cancel order                       |
+| Reserve inventory | InventoryReserved | Release reservation                |
+| Charge payment    | PaymentCaptured   | Refund payment                     |
+| Confirm shipment  | ShipmentScheduled | Cancel shipment                    |
 - *Process manager*: a stateful component that coordinates a long-running workflow reacting to events.
 - *Competing consumers* and *work queues*: distribute load across workers. *Dead-letter queues*: park messages that repeatedly fail, with alerting and a replay path.
 - *Claim check*: send a reference to a large payload stored elsewhere.
@@ -114,16 +114,16 @@ COMMIT;
 Before adopting a saga, check whether the data belongs in one service: a business transaction that always spans two services may mean the boundary is wrong (see =02_modularity-and-boundaries.org=).
 
 ** 5. Integration and edge patterns
-| Pattern                  | Purpose                                                          | Watch for                                          |
-|--------------------------+------------------------------------------------------------------+----------------------------------------------------|
-| API gateway              | Single entry point: routing, authentication, rate limits         | Becoming a place for business logic; single point of failure |
-| Backend for frontend     | One tailored backend per client type                             | Duplication across BFFs; ownership by the client team |
-| Anti-corruption layer    | Translate a foreign model at the boundary                        | Mapping cost; keep it thin and tested              |
-| Strangler fig            | Replace a legacy system incrementally behind a routing facade    | Dual systems for a long time; decommission plan    |
-| Service mesh / sidecar   | Cross-cutting network concerns (mTLS, retries, telemetry) outside code | Operational complexity; debugging proxies   |
-| Ambassador / adapter     | Proxy outbound calls or adapt protocols                          | Extra hop                                          |
-| Aggregator / composition | Combine results of several services into one response            | Latency and partial-failure handling               |
-| Publish-subscribe        | Broadcast events to many independent consumers                   | Hidden consumers; schema governance                |
+| Pattern                  | Purpose                                                                | Watch for                                                    |
+|--------------------------+------------------------------------------------------------------------+--------------------------------------------------------------|
+| API gateway              | Single entry point: routing, authentication, rate limits               | Becoming a place for business logic; single point of failure |
+| Backend for frontend     | One tailored backend per client type                                   | Duplication across BFFs; ownership by the client team        |
+| Anti-corruption layer    | Translate a foreign model at the boundary                              | Mapping cost; keep it thin and tested                        |
+| Strangler fig            | Replace a legacy system incrementally behind a routing facade          | Dual systems for a long time; decommission plan              |
+| Service mesh / sidecar   | Cross-cutting network concerns (mTLS, retries, telemetry) outside code | Operational complexity; debugging proxies                    |
+| Ambassador / adapter     | Proxy outbound calls or adapt protocols                                | Extra hop                                                    |
+| Aggregator / composition | Combine results of several services into one response                  | Latency and partial-failure handling                         |
+| Publish-subscribe        | Broadcast events to many independent consumers                         | Hidden consumers; schema governance                          |
 
 ** 6. Data patterns
 - *Database per service / module*: private data behind an API. *Shared database*: a coupling anti-pattern unless it is a deliberate, owned integration database.
@@ -153,17 +153,17 @@ Work from forces to patterns, not the reverse:
 4. Introduce it where needed, not everywhere: a pattern per boundary, not per system.
 5. Plan for the cost: training, tooling, observability, on-call, test strategy.
 
-| Pattern                | Use when                                                        | Avoid when                                                        |
-|------------------------+-----------------------------------------------------------------+-------------------------------------------------------------------|
-| Hexagonal / clean      | Rich domain logic, several entry points, long-lived             | CRUD, tiny or short-lived services                                |
-| CQRS                   | Very different read and write needs, complex domain             | Plain CRUD, strong read-after-write everywhere, small teams       |
-| Event sourcing         | History and audit are requirements; event-shaped domain         | No need for history; teams new to eventual consistency            |
-| Saga                   | Business process spans several services                         | The data should live in one service; ACID is simple and available |
-| Transactional outbox   | Reliable event publication with a database                      | No messaging; you can tolerate occasional loss (rare)             |
-| API gateway            | Many clients and services need a common edge                    | A single service with a single client                             |
-| BFF                    | Clients with materially different needs                         | One client type; a general API suffices                           |
-| Circuit breaker, bulkhead | Dependencies fail or slow down independently                 | In-process calls with no failure modes                            |
-| Strangler fig          | Replacing a legacy system incrementally                         | The legacy part has no seam or no routing point                   |
+| Pattern                   | Use when                                                | Avoid when                                                        |
+|---------------------------+---------------------------------------------------------+-------------------------------------------------------------------|
+| Hexagonal / clean         | Rich domain logic, several entry points, long-lived     | CRUD, tiny or short-lived services                                |
+| CQRS                      | Very different read and write needs, complex domain     | Plain CRUD, strong read-after-write everywhere, small teams       |
+| Event sourcing            | History and audit are requirements; event-shaped domain | No need for history; teams new to eventual consistency            |
+| Saga                      | Business process spans several services                 | The data should live in one service; ACID is simple and available |
+| Transactional outbox      | Reliable event publication with a database              | No messaging; you can tolerate occasional loss (rare)             |
+| API gateway               | Many clients and services need a common edge            | A single service with a single client                             |
+| BFF                       | Clients with materially different needs                 | One client type; a general API suffices                           |
+| Circuit breaker, bulkhead | Dependencies fail or slow down independently            | In-process calls with no failure modes                            |
+| Strangler fig             | Replacing a legacy system incrementally                 | The legacy part has no seam or no routing point                   |
 
 ** 9. Misuse stories (generic)
 - *CQRS plus event sourcing for an admin CRUD tool*: months spent on projections and replay tooling for data nobody needed history of; a table with an audit column would have worked.

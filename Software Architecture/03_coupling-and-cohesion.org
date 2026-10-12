@@ -20,33 +20,33 @@ Companion files: =02_modularity-and-boundaries.org= (where boundaries go), =04_a
 Connascence (Page-Jones; popularized by Weirich) says two components are connascent if a change in one requires a change in the other to keep the system correct. It classifies coupling by /form/, and by three properties: *strength* (how hard to refactor), *degree* (how many components involved), and *locality* (how close they are). Rules of thumb: convert strong forms to weaker ones, and keep strong connascence local (inside one module, one function, one file).
 
 Static forms (visible in the source), roughly from weakest to strongest:
-| Form                    | Meaning                                              | Example                                            | Typical remedy                         |
-|-------------------------+------------------------------------------------------+----------------------------------------------------+----------------------------------------|
-| Name                    | Components agree on a name                           | Calling a function by its name                     | Tooling renames; acceptable            |
-| Type                    | Components agree on a type                           | Parameter and argument types                       | Typed interfaces                       |
-| Meaning (convention)    | Agree on the meaning of values                       | Status 1 means active; magic numbers               | Enums, named constants, value objects  |
-| Position                | Agree on the order of values                         | Positional arguments, tuple fields, CSV columns    | Named parameters, records              |
-| Algorithm               | Agree on an algorithm                                | Both sides must use the same hash or encoding      | Shared library, or a documented contract |
+| Form                 | Meaning                        | Example                                         | Typical remedy                           |
+|----------------------+--------------------------------+-------------------------------------------------+------------------------------------------|
+| Name                 | Components agree on a name     | Calling a function by its name                  | Tooling renames; acceptable              |
+| Type                 | Components agree on a type     | Parameter and argument types                    | Typed interfaces                         |
+| Meaning (convention) | Agree on the meaning of values | Status 1 means active; magic numbers            | Enums, named constants, value objects    |
+| Position             | Agree on the order of values   | Positional arguments, tuple fields, CSV columns | Named parameters, records                |
+| Algorithm            | Agree on an algorithm          | Both sides must use the same hash or encoding   | Shared library, or a documented contract |
 Dynamic forms (visible only at run time), generally stronger and harder to see:
-| Form                    | Meaning                                              | Example                                            | Typical remedy                         |
-|-------------------------+------------------------------------------------------+----------------------------------------------------+----------------------------------------|
-| Execution order         | Operations must happen in a particular order         | Call init before use; protocol steps               | Encapsulate the order, state machines  |
-| Timing                  | Result depends on timing                             | Race conditions, sleeps to wait for another service | Synchronization, explicit events      |
-| Value                   | Several values must change together                  | Invariants across fields or across services        | One owner, transactions, aggregates    |
-| Identity                | Components must refer to the same instance           | Shared object or shared row identity               | Pass identifiers, ownership            |
+| Form            | Meaning                                      | Example                                             | Typical remedy                        |
+|-----------------+----------------------------------------------+-----------------------------------------------------+---------------------------------------|
+| Execution order | Operations must happen in a particular order | Call init before use; protocol steps                | Encapsulate the order, state machines |
+| Timing          | Result depends on timing                     | Race conditions, sleeps to wait for another service | Synchronization, explicit events      |
+| Value           | Several values must change together          | Invariants across fields or across services         | One owner, transactions, aggregates   |
+| Identity        | Components must refer to the same instance   | Shared object or shared row identity                | Pass identifiers, ownership           |
 Use it in reviews: "this is connascence of position across a service boundary: switch to named fields" is more actionable than "this is too coupled".
 
 ** 3. Classic forms of coupling between modules
 From the structured-design tradition (Constantine, Yourdon), from tightest to loosest:
-| Coupling        | Description                                                   | Example                                               |
-|-----------------+---------------------------------------------------------------+-------------------------------------------------------|
-| Content         | One module modifies or relies on another's internals          | Reaching into private fields, writing another module's tables |
-| Common          | Modules share global state                                    | Global variables, shared singletons, shared mutable caches |
-| External        | Modules depend on an external format or device                | Shared file formats, protocols, third-party SDK types |
-| Control         | One module controls another's flow by passing flags           | A boolean parameter that switches behavior            |
-| Stamp           | Modules share a composite structure but use parts of it       | Passing a whole record when one field is needed       |
-| Data            | Modules share only the data needed, through parameters        | Passing exactly the required values                   |
-| Message         | Modules interact only by messages through an interface        | Events and commands with a defined schema             |
+| Coupling | Description                                             | Example                                                       |
+|----------+---------------------------------------------------------+---------------------------------------------------------------|
+| Content  | One module modifies or relies on another's internals    | Reaching into private fields, writing another module's tables |
+| Common   | Modules share global state                              | Global variables, shared singletons, shared mutable caches    |
+| External | Modules depend on an external format or device          | Shared file formats, protocols, third-party SDK types         |
+| Control  | One module controls another's flow by passing flags     | A boolean parameter that switches behavior                    |
+| Stamp    | Modules share a composite structure but use parts of it | Passing a whole record when one field is needed               |
+| Data     | Modules share only the data needed, through parameters  | Passing exactly the required values                           |
+| Message  | Modules interact only by messages through an interface  | Events and commands with a defined schema                     |
 Aim for data and message coupling at boundaries; tolerate stronger forms only inside a module.
 
 ** 4. Coupling at architectural scale
@@ -119,17 +119,17 @@ Ways the cost shows up: change amplification (more files and teams per change), 
 
 ** 10. Decoupling techniques and their costs
 Every decoupling move buys isolation and costs something.
-| Technique                          | What it decouples                                | Cost or risk                                           |
-|------------------------------------+--------------------------------------------------+--------------------------------------------------------|
-| Interface and dependency injection | Implementation from caller                       | Indirection; interfaces with one implementation are noise |
-| Dependency inversion (ports)       | Policy from detail; direction of dependency      | More types and mapping                                 |
-| Events and messaging               | Time and knowledge between sender and receiver   | Eventual consistency; hidden flows; debugging         |
-| Anti-corruption layer              | Your model from someone else's                   | Translation code; duplication                          |
-| Versioned contracts                | Release cycles                                   | Maintaining several versions                           |
-| Data replication (local copies)    | Runtime availability and latency                 | Staleness; synchronization logic                       |
-| Caching                            | Load and latency                                 | Invalidation; stale reads                              |
-| Feature flags                      | Deploy from release                              | Flag debt; combinatorial states                        |
-| Duplication of code or data        | Change between components                        | Divergence; but often cheaper than the wrong sharing   |
+| Technique                          | What it decouples                              | Cost or risk                                              |
+|------------------------------------+------------------------------------------------+-----------------------------------------------------------|
+| Interface and dependency injection | Implementation from caller                     | Indirection; interfaces with one implementation are noise |
+| Dependency inversion (ports)       | Policy from detail; direction of dependency    | More types and mapping                                    |
+| Events and messaging               | Time and knowledge between sender and receiver | Eventual consistency; hidden flows; debugging             |
+| Anti-corruption layer              | Your model from someone else's                 | Translation code; duplication                             |
+| Versioned contracts                | Release cycles                                 | Maintaining several versions                              |
+| Data replication (local copies)    | Runtime availability and latency               | Staleness; synchronization logic                          |
+| Caching                            | Load and latency                               | Invalidation; stale reads                                 |
+| Feature flags                      | Deploy from release                            | Flag debt; combinatorial states                           |
+| Duplication of code or data        | Change between components                      | Divergence; but often cheaper than the wrong sharing      |
 - *DRY versus coupling*: removing duplication creates coupling between all the places that share the code. Sandi Metz's observation that duplication is far cheaper than the wrong abstraction applies at module and service scale; the "rule of three" (wait for three uses) and the distinction between accidental similarity and a shared concept help decide.
 - *Shared libraries* across services couple release cadences and versions: share contracts and generated clients carefully, and keep business logic out of shared libraries.
 - *Over-decoupling smell*: a system of tiny components wired by configuration and events in which nobody can say what happens when a button is pressed.

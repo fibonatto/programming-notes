@@ -17,14 +17,14 @@ Companion files: =01_architectural-styles.org=, =05_architectural-patterns.org=,
 *Architecturally significant requirements (ASRs)* are the few requirements, usually quality attributes, that most strongly shape the design: strict latency, extreme availability, large data volumes, multi-tenancy isolation, regulatory constraints, extensibility by third parties, offline operation. Find them early; they decide the style.
 
 *Quality attribute scenarios* (Bass, Clements, Kazman) make requirements testable. A scenario has six parts:
-| Part              | Question                                  | Example                                                     |
-|-------------------+-------------------------------------------+-------------------------------------------------------------|
-| Source of stimulus | Who or what triggers it?                 | A customer on a mobile client                               |
-| Stimulus          | What happens?                             | Submits an order                                            |
-| Artifact          | What part of the system is affected?      | The checkout service                                        |
-| Environment       | Under what conditions?                    | Normal load; or peak load; or one availability zone down    |
-| Response          | What should the system do?                | Confirm the order and persist it                            |
-| Response measure  | How do we know it was good enough?        | p99 latency under 400 ms; no order lost; 99.95% monthly success |
+| Part               | Question                             | Example                                                         |
+|--------------------+--------------------------------------+-----------------------------------------------------------------|
+| Source of stimulus | Who or what triggers it?             | A customer on a mobile client                                   |
+| Stimulus           | What happens?                        | Submits an order                                                |
+| Artifact           | What part of the system is affected? | The checkout service                                            |
+| Environment        | Under what conditions?               | Normal load; or peak load; or one availability zone down        |
+| Response           | What should the system do?           | Confirm the order and persist it                                |
+| Response measure   | How do we know it was good enough?   | p99 latency under 400 ms; no order lost; 99.95% monthly success |
 *Utility tree*: a hierarchy from a quality attribute to refined concerns to concrete scenarios, ranked by business importance and difficulty. It is the working document for prioritizing and for later reviews (it is also the first step of ATAM, the architecture trade-off analysis method).
 *Service level indicators and objectives* turn scenarios into operational targets: an SLI measures (the fraction of requests under 400 ms), an SLO sets the target (99% of requests, over 30 days), and the error budget is the allowed failure. They are the contract between engineering and the business about reliability (see the Google SRE book).
 
@@ -44,11 +44,11 @@ Companion files: =01_architectural-styles.org=, =05_architectural-patterns.org=,
 - *What availability targets mean* (30-day month):
 | Availability | Allowed downtime per 30 days |
 |--------------+------------------------------|
-| 99%          | about 7.2 hours              |
-| 99.9%        | about 43 minutes             |
-| 99.95%       | about 22 minutes             |
-| 99.99%       | about 4.3 minutes            |
-| 99.999%      | about 26 seconds             |
+|          99% | about 7.2 hours              |
+|        99.9% | about 43 minutes             |
+|       99.95% | about 22 minutes             |
+|       99.99% | about 4.3 minutes            |
+|      99.999% | about 26 seconds             |
 Each additional nine costs disproportionately more (redundancy, automation, testing, on-call) and demands a matching organizational capability; a target should come from the business cost of downtime, not from aspiration.
 - *Composition*: components in series multiply: three dependencies at 99.9% give about 99.7% (0.999 cubed). Redundant replicas in parallel combine as 1 - (1 - a)^n if failures are independent: two replicas at 99.9% give 99.9999%, but correlated failures (shared deploys, shared dependencies, shared region, the same bug) make the real number much lower. *A dependency's SLO caps yours* unless you degrade gracefully when it fails.
 - *Failure domains*: process, host, rack, availability zone, region, provider, and the human and process layer (bad deploys, bad config, expired certificates cause a large share of incidents). Design so that a failure stays inside one domain (cells, bulkheads, regional isolation).
@@ -94,17 +94,17 @@ Each additional nine costs disproportionately more (redundancy, automation, test
 
 ** 8. Trade-offs
 Attributes pull against each other. Frequent tensions:
-| Tension                                  | Typical mechanism                                                     |
-|------------------------------------------+-----------------------------------------------------------------------|
-| Availability versus consistency          | Replication and partitions: strong consistency may reject requests    |
-| Latency versus consistency               | Synchronous replication and coordination add round trips              |
-| Performance versus security              | Encryption, validation, and isolation add overhead                    |
-| Scalability versus simplicity            | Partitioning, caches, and queues add moving parts                     |
-| Flexibility versus performance           | Indirection and generality cost cycles and memory                     |
-| Reliability versus cost                  | Redundancy multiplies infrastructure                                  |
-| Time to market versus maintainability    | Shortcuts accrue interest (see =09_technical-debt.org=)               |
-| Autonomy versus consistency across teams | Independent choices diverge; standardization slows teams              |
-| Security versus usability                | Controls add friction                                                 |
+| Tension                                  | Typical mechanism                                                  |
+|------------------------------------------+--------------------------------------------------------------------|
+| Availability versus consistency          | Replication and partitions: strong consistency may reject requests |
+| Latency versus consistency               | Synchronous replication and coordination add round trips           |
+| Performance versus security              | Encryption, validation, and isolation add overhead                 |
+| Scalability versus simplicity            | Partitioning, caches, and queues add moving parts                  |
+| Flexibility versus performance           | Indirection and generality cost cycles and memory                  |
+| Reliability versus cost                  | Redundancy multiplies infrastructure                               |
+| Time to market versus maintainability    | Shortcuts accrue interest (see =09_technical-debt.org=)            |
+| Autonomy versus consistency across teams | Independent choices diverge; standardization slows teams           |
+| Security versus usability                | Controls add friction                                              |
 *Techniques for deciding*:
 1. *Rank the attributes* for this system (the top three to five drivers), and state what you are explicitly not optimizing.
 2. *Write scenarios with response measures* for the drivers; use them to evaluate candidates.

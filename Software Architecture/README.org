@@ -264,50 +264,50 @@ Define tiers, triggers, a design-document template, roles, and approval criteria
 Files exercised: [[file:10_architecture-review.org][10_architecture-review]], [[file:07_architecture-decision-records.org][07_architecture-decision-records]], [[file:06_quality-attributes-and-tradeoffs.org][06_quality-attributes-and-tradeoffs]], [[file:09_technical-debt.org][09_technical-debt]].
 
 ** Using the notes in daily work
-| When you are...                                      | Open |
-|------------------------------------------------------+------|
-| choosing a system style or deciding to split a service | [[file:01_architectural-styles.org::*9. Choosing a style: a decision framework][01_architectural-styles §9]] |
-| deciding where a module or team boundary should be | [[file:02_modularity-and-boundaries.org::*2. Decomposition strategies][02_modularity-and-boundaries §2]] |
-| reviewing a pull request that adds a dependency | [[file:03_coupling-and-cohesion.org::*5. A balance model: strength, distance, volatility][03_coupling-and-cohesion §5]] |
-| designing or changing a public API | [[file:04_abstraction-and-interfaces.org::*5. Stability and evolution of interfaces][04_abstraction-and-interfaces §5]] |
-| tempted to adopt CQRS, event sourcing, or sagas | [[file:05_architectural-patterns.org::*8. Choosing patterns][05_architectural-patterns §8]] |
-| turning vague requirements into measurable targets | [[file:06_quality-attributes-and-tradeoffs.org::*1. Quality attributes and how to specify them][06_quality-attributes-and-tradeoffs §1]] |
-| writing the record of an important decision | [[file:07_architecture-decision-records.org::*2. Anatomy of a record][07_architecture-decision-records §2]] |
-| planning a multi-quarter migration | [[file:08_evolutionary-architecture.org::*6. Planning a long migration][08_evolutionary-architecture §6]] |
-| asking for time to fix technical debt | [[file:09_technical-debt.org::*8. Communicating with product and business][09_technical-debt §8]] |
-| preparing or giving a design review | [[file:10_architecture-review.org::*3. The reviewer's method][10_architecture-review §3]] |
+| When you are...                                        | Open                                   |
+|--------------------------------------------------------+----------------------------------------|
+| choosing a system style or deciding to split a service | [[file:01_architectural-styles.org::*9. Choosing a style: a decision framework][01_architectural-styles §9]]             |
+| deciding where a module or team boundary should be     | [[file:02_modularity-and-boundaries.org::*2. Decomposition strategies][02_modularity-and-boundaries §2]]        |
+| reviewing a pull request that adds a dependency        | [[file:03_coupling-and-cohesion.org::*5. A balance model: strength, distance, volatility][03_coupling-and-cohesion §5]]            |
+| designing or changing a public API                     | [[file:04_abstraction-and-interfaces.org::*5. Stability and evolution of interfaces][04_abstraction-and-interfaces §5]]       |
+| tempted to adopt CQRS, event sourcing, or sagas        | [[file:05_architectural-patterns.org::*8. Choosing patterns][05_architectural-patterns §8]]           |
+| turning vague requirements into measurable targets     | [[file:06_quality-attributes-and-tradeoffs.org::*1. Quality attributes and how to specify them][06_quality-attributes-and-tradeoffs §1]] |
+| writing the record of an important decision            | [[file:07_architecture-decision-records.org::*2. Anatomy of a record][07_architecture-decision-records §2]]    |
+| planning a multi-quarter migration                     | [[file:08_evolutionary-architecture.org::*6. Planning a long migration][08_evolutionary-architecture §6]]        |
+| asking for time to fix technical debt                  | [[file:09_technical-debt.org::*8. Communicating with product and business][09_technical-debt §8]]                   |
+| preparing or giving a design review                    | [[file:10_architecture-review.org::*3. The reviewer's method][10_architecture-review §3]]              |
 
 ** Find it fast
-| I want...                                  | Go to |
-|--------------------------------------------+-------|
-| Should we split this into microservices? | [[file:01_architectural-styles.org::*9. Choosing a style: a decision framework][01_architectural-styles §9]] |
-| What does a modular monolith need to be real? | [[file:01_architectural-styles.org::*3. The modular monolith][01_architectural-styles §3]] |
-| Distributed monolith warning signs | [[file:01_architectural-styles.org::*10. Failure modes and anti-patterns][01_architectural-styles §10]] |
-| Where should a boundary go? | [[file:02_modularity-and-boundaries.org::*2. Decomposition strategies][02_modularity-and-boundaries §2]] |
-| Context mapping patterns | [[file:02_modularity-and-boundaries.org::*4. Bounded contexts][02_modularity-and-boundaries §4]] |
-| Finding boundaries in an existing system | [[file:02_modularity-and-boundaries.org::*10. Finding boundaries in an existing system][02_modularity-and-boundaries §10]] |
-| Naming the kind of coupling (connascence) | [[file:03_coupling-and-cohesion.org::*2. Connascence: a common vocabulary][03_coupling-and-cohesion §2]] |
-| Strength, distance, and volatility | [[file:03_coupling-and-cohesion.org::*5. A balance model: strength, distance, volatility][03_coupling-and-cohesion §5]] |
-| Breaking dependency cycles | [[file:03_coupling-and-cohesion.org::*7. Cyclic dependencies][03_coupling-and-cohesion §7]] |
-| Evolving an API without breaking consumers | [[file:04_abstraction-and-interfaces.org::*5. Stability and evolution of interfaces][04_abstraction-and-interfaces §5]] |
-| What an interface contract must cover | [[file:04_abstraction-and-interfaces.org::*3. Contracts][04_abstraction-and-interfaces §3]] |
-| Two services must change atomically | [[file:05_architectural-patterns.org::*4. Messaging and consistency patterns][05_architectural-patterns §4]] |
-| CQRS versus event sourcing: use and avoid | [[file:05_architectural-patterns.org::*8. Choosing patterns][05_architectural-patterns §8]] |
-| Hexagonal architecture | [[file:05_architectural-patterns.org::*1. Layered, onion, clean, and hexagonal architectures][05_architectural-patterns §1]] |
-| Writing a quality attribute scenario | [[file:06_quality-attributes-and-tradeoffs.org::*1. Quality attributes and how to specify them][06_quality-attributes-and-tradeoffs §1]] |
-| Availability numbers and composition | [[file:06_quality-attributes-and-tradeoffs.org::*3. Availability and reliability][06_quality-attributes-and-tradeoffs §3]] |
-| Quantified trade-off examples | [[file:06_quality-attributes-and-tradeoffs.org::*9. Quantifying: worked examples][06_quality-attributes-and-tradeoffs §9]] |
-| ADR template and sections | [[file:07_architecture-decision-records.org::*2. Anatomy of a record][07_architecture-decision-records §2]] |
-| Which decisions deserve an ADR | [[file:07_architecture-decision-records.org::*1. What deserves a record][07_architecture-decision-records §1]] |
-| Fitness functions | [[file:08_evolutionary-architecture.org::*2. Fitness functions][08_evolutionary-architecture §2]] |
-| Strangler fig and other migration strategies | [[file:08_evolutionary-architecture.org::*3. Incremental migration strategies][08_evolutionary-architecture §3]] |
-| Migrating data safely | [[file:08_evolutionary-architecture.org::*4. Migrating data][08_evolutionary-architecture §4]] |
-| Estimating the payback of paying down debt | [[file:09_technical-debt.org::*2. Principal and interest][09_technical-debt §2]] |
-| Prioritizing debt | [[file:09_technical-debt.org::*5. Prioritization][09_technical-debt §5]] |
-| Explaining debt to product and business | [[file:09_technical-debt.org::*8. Communicating with product and business][09_technical-debt §8]] |
-| A design document template for review | [[file:10_architecture-review.org::*2. Preparing a design for review (the author)][10_architecture-review §2]] |
-| Review question bank | [[file:10_architecture-review.org::*3. The reviewer's method][10_architecture-review §3]] |
-| Review checklists | [[file:10_architecture-review.org::*9. Checklists][10_architecture-review §9]] |
+| I want...                                     | Go to                                  |
+|-----------------------------------------------+----------------------------------------|
+| Should we split this into microservices?      | [[file:01_architectural-styles.org::*9. Choosing a style: a decision framework][01_architectural-styles §9]]             |
+| What does a modular monolith need to be real? | [[file:01_architectural-styles.org::*3. The modular monolith][01_architectural-styles §3]]             |
+| Distributed monolith warning signs            | [[file:01_architectural-styles.org::*10. Failure modes and anti-patterns][01_architectural-styles §10]]            |
+| Where should a boundary go?                   | [[file:02_modularity-and-boundaries.org::*2. Decomposition strategies][02_modularity-and-boundaries §2]]        |
+| Context mapping patterns                      | [[file:02_modularity-and-boundaries.org::*4. Bounded contexts][02_modularity-and-boundaries §4]]        |
+| Finding boundaries in an existing system      | [[file:02_modularity-and-boundaries.org::*10. Finding boundaries in an existing system][02_modularity-and-boundaries §10]]       |
+| Naming the kind of coupling (connascence)     | [[file:03_coupling-and-cohesion.org::*2. Connascence: a common vocabulary][03_coupling-and-cohesion §2]]            |
+| Strength, distance, and volatility            | [[file:03_coupling-and-cohesion.org::*5. A balance model: strength, distance, volatility][03_coupling-and-cohesion §5]]            |
+| Breaking dependency cycles                    | [[file:03_coupling-and-cohesion.org::*7. Cyclic dependencies][03_coupling-and-cohesion §7]]            |
+| Evolving an API without breaking consumers    | [[file:04_abstraction-and-interfaces.org::*5. Stability and evolution of interfaces][04_abstraction-and-interfaces §5]]       |
+| What an interface contract must cover         | [[file:04_abstraction-and-interfaces.org::*3. Contracts][04_abstraction-and-interfaces §3]]       |
+| Two services must change atomically           | [[file:05_architectural-patterns.org::*4. Messaging and consistency patterns][05_architectural-patterns §4]]           |
+| CQRS versus event sourcing: use and avoid     | [[file:05_architectural-patterns.org::*8. Choosing patterns][05_architectural-patterns §8]]           |
+| Hexagonal architecture                        | [[file:05_architectural-patterns.org::*1. Layered, onion, clean, and hexagonal architectures][05_architectural-patterns §1]]           |
+| Writing a quality attribute scenario          | [[file:06_quality-attributes-and-tradeoffs.org::*1. Quality attributes and how to specify them][06_quality-attributes-and-tradeoffs §1]] |
+| Availability numbers and composition          | [[file:06_quality-attributes-and-tradeoffs.org::*3. Availability and reliability][06_quality-attributes-and-tradeoffs §3]] |
+| Quantified trade-off examples                 | [[file:06_quality-attributes-and-tradeoffs.org::*9. Quantifying: worked examples][06_quality-attributes-and-tradeoffs §9]] |
+| ADR template and sections                     | [[file:07_architecture-decision-records.org::*2. Anatomy of a record][07_architecture-decision-records §2]]    |
+| Which decisions deserve an ADR                | [[file:07_architecture-decision-records.org::*1. What deserves a record][07_architecture-decision-records §1]]    |
+| Fitness functions                             | [[file:08_evolutionary-architecture.org::*2. Fitness functions][08_evolutionary-architecture §2]]        |
+| Strangler fig and other migration strategies  | [[file:08_evolutionary-architecture.org::*3. Incremental migration strategies][08_evolutionary-architecture §3]]        |
+| Migrating data safely                         | [[file:08_evolutionary-architecture.org::*4. Migrating data][08_evolutionary-architecture §4]]        |
+| Estimating the payback of paying down debt    | [[file:09_technical-debt.org::*2. Principal and interest][09_technical-debt §2]]                   |
+| Prioritizing debt                             | [[file:09_technical-debt.org::*5. Prioritization][09_technical-debt §5]]                   |
+| Explaining debt to product and business       | [[file:09_technical-debt.org::*8. Communicating with product and business][09_technical-debt §8]]                   |
+| A design document template for review         | [[file:10_architecture-review.org::*2. Preparing a design for review (the author)][10_architecture-review §2]]              |
+| Review question bank                          | [[file:10_architecture-review.org::*3. The reviewer's method][10_architecture-review §3]]              |
+| Review checklists                             | [[file:10_architecture-review.org::*9. Checklists][10_architecture-review §9]]              |
 
 ** A checklist of Staff-level architectural judgment
 Rate yourself honestly; the items are skills, not facts.
@@ -333,36 +333,36 @@ Cross-references from these files point to the following material (paths relativ
 
 ** Sources used
 The notes synthesize widely used books, papers, and public documentation, and point to them. They paraphrase; they do not reproduce.
-| Area | Source | Link |
-|------+--------+------|
-| Styles | Lewis, Fowler: Microservices | [[https://martinfowler.com/articles/microservices.html][link]] |
-| Styles | Fowler: MonolithFirst | [[https://martinfowler.com/bliki/MonolithFirst.html][link]] |
-| Boundaries | Fowler: Bounded Context | [[https://martinfowler.com/bliki/BoundedContext.html][link]] |
-| Boundaries | Conway: How Do Committees Invent? | [[http://www.melconway.com/Home/Committees_Paper.html][link]] |
-| Teams | Skelton, Pais: Team Topologies | [[https://teamtopologies.com][link]] |
-| Coupling | Connascence catalog | [[https://connascence.io][link]] |
-| Interfaces | Google API Improvement Proposals | [[https://google.aip.dev][link]] |
-| Interfaces | Semantic Versioning | [[https://semver.org][link]] |
-| Interfaces | Pact documentation (consumer-driven contracts) | [[https://docs.pact.io][link]] |
-| Patterns | Cockburn: Hexagonal Architecture | [[https://alistair.cockburn.us/hexagonal-architecture/][link]] |
-| Patterns | Fowler: CQRS | [[https://martinfowler.com/bliki/CQRS.html][link]] |
-| Patterns | Fowler: Event Sourcing | [[https://martinfowler.com/eaaDev/EventSourcing.html][link]] |
-| Patterns | Fowler: Strangler Fig Application | [[https://martinfowler.com/bliki/StranglerFigApplication.html][link]] |
-| Patterns | Richardson: microservices.io patterns | [[https://microservices.io/patterns/index.html][link]] |
-| Patterns | Hohpe, Woolf: Enterprise Integration Patterns | [[https://www.enterpriseintegrationpatterns.com][link]] |
-| Patterns | Azure Architecture Center: cloud design patterns | [[https://learn.microsoft.com/en-us/azure/architecture/patterns/][link]] |
-| Quality | Google SRE books | [[https://sre.google/books/][link]] |
-| Quality | AWS Well-Architected Framework | [[https://aws.amazon.com/architecture/well-architected/][link]] |
-| Quality | DORA research | [[https://dora.dev][link]] |
-| Decisions | Nygard: Documenting Architecture Decisions | [[https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions][link]] |
-| Decisions | ADR community site and MADR | [[https://adr.github.io][link]] |
-| Decisions | Curated ADR templates and examples | [[https://github.com/joelparkerhenderson/architecture_decision_record][link]] |
-| Documentation | C4 model | [[https://c4model.com][link]] |
-| Documentation | arc42 template | [[https://arc42.org][link]] |
-| Debt | Fowler: Technical Debt | [[https://martinfowler.com/bliki/TechnicalDebt.html][link]] |
-| Debt | Fowler: Technical Debt Quadrant | [[https://martinfowler.com/bliki/TechnicalDebtQuadrant.html][link]] |
-| Review | SRE book: launch checklist | [[https://sre.google/sre-book/launch-checklist/][link]] |
-| Career | StaffEng guides | [[https://staffeng.com/guides/][link]] |
+| Area          | Source                                           | Link |
+|---------------+--------------------------------------------------+------|
+| Styles        | Lewis, Fowler: Microservices                     | [[https://martinfowler.com/articles/microservices.html][link]] |
+| Styles        | Fowler: MonolithFirst                            | [[https://martinfowler.com/bliki/MonolithFirst.html][link]] |
+| Boundaries    | Fowler: Bounded Context                          | [[https://martinfowler.com/bliki/BoundedContext.html][link]] |
+| Boundaries    | Conway: How Do Committees Invent?                | [[http://www.melconway.com/Home/Committees_Paper.html][link]] |
+| Teams         | Skelton, Pais: Team Topologies                   | [[https://teamtopologies.com][link]] |
+| Coupling      | Connascence catalog                              | [[https://connascence.io][link]] |
+| Interfaces    | Google API Improvement Proposals                 | [[https://google.aip.dev][link]] |
+| Interfaces    | Semantic Versioning                              | [[https://semver.org][link]] |
+| Interfaces    | Pact documentation (consumer-driven contracts)   | [[https://docs.pact.io][link]] |
+| Patterns      | Cockburn: Hexagonal Architecture                 | [[https://alistair.cockburn.us/hexagonal-architecture/][link]] |
+| Patterns      | Fowler: CQRS                                     | [[https://martinfowler.com/bliki/CQRS.html][link]] |
+| Patterns      | Fowler: Event Sourcing                           | [[https://martinfowler.com/eaaDev/EventSourcing.html][link]] |
+| Patterns      | Fowler: Strangler Fig Application                | [[https://martinfowler.com/bliki/StranglerFigApplication.html][link]] |
+| Patterns      | Richardson: microservices.io patterns            | [[https://microservices.io/patterns/index.html][link]] |
+| Patterns      | Hohpe, Woolf: Enterprise Integration Patterns    | [[https://www.enterpriseintegrationpatterns.com][link]] |
+| Patterns      | Azure Architecture Center: cloud design patterns | [[https://learn.microsoft.com/en-us/azure/architecture/patterns/][link]] |
+| Quality       | Google SRE books                                 | [[https://sre.google/books/][link]] |
+| Quality       | AWS Well-Architected Framework                   | [[https://aws.amazon.com/architecture/well-architected/][link]] |
+| Quality       | DORA research                                    | [[https://dora.dev][link]] |
+| Decisions     | Nygard: Documenting Architecture Decisions       | [[https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions][link]] |
+| Decisions     | ADR community site and MADR                      | [[https://adr.github.io][link]] |
+| Decisions     | Curated ADR templates and examples               | [[https://github.com/joelparkerhenderson/architecture_decision_record][link]] |
+| Documentation | C4 model                                         | [[https://c4model.com][link]] |
+| Documentation | arc42 template                                   | [[https://arc42.org][link]] |
+| Debt          | Fowler: Technical Debt                           | [[https://martinfowler.com/bliki/TechnicalDebt.html][link]] |
+| Debt          | Fowler: Technical Debt Quadrant                  | [[https://martinfowler.com/bliki/TechnicalDebtQuadrant.html][link]] |
+| Review        | SRE book: launch checklist                       | [[https://sre.google/sre-book/launch-checklist/][link]] |
+| Career        | StaffEng guides                                  | [[https://staffeng.com/guides/][link]] |
 
 Books recommended without links (Bass, Clements, Kazman; Richards and Ford; Evans; Vernon; Martin; Ousterhout; Ford, Parsons, Kua; Kleppmann; Newman; Nygard's /Release It!/; Harmel-Law; Feathers; Tornhill; Kruchten, Nord, Ozkaya; and others) were not checked for free copies; borrow or buy them.
 
@@ -371,3 +371,4 @@ Books recommended without links (Bass, Clements, Kazman; Richards and Ford; Evan
 - The links in this folder were collected from established, well-known locations and were not re-verified one by one when the files were written; confirm a link before relying on it, and prefer the primary source over the summary.
 - Code snippets (TypeScript, Java, SQL, protobuf, configuration) are illustrative and were not compiled or run. Numerical examples (availability, capacity, latency) are worked models with stated assumptions, not measurements.
 - Architecture is contextual. Treat the heuristics as hypotheses to test against your constraints; when a note contradicts your evidence, trust the evidence and fix the note.
+  

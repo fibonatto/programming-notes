@@ -18,16 +18,16 @@ Companion files: =01_architectural-styles.org=, =03_coupling-and-cohesion.org=, 
 
 ** 2. Decomposition strategies
 No single axis works for every system; use several as evidence.
-| Axis                          | Idea                                                                 | Strengths and risks                                                |
-|-------------------------------+----------------------------------------------------------------------+--------------------------------------------------------------------|
-| Business capability           | Modules for what the business does (ordering, billing, catalog)       | Aligns with change and with stakeholders; capabilities can be vague |
-| Subdomain (DDD)               | Core, supporting, and generic subdomains with bounded contexts        | Directs investment; needs domain expertise                         |
-| Volatility                    | Isolate what changes often from what is stable                        | Reduces ripple; requires evidence about change                     |
-| Data ownership                | One owner per dataset and its invariants                              | Clarifies consistency boundaries; can conflict with query needs    |
-| Team ownership                | Boundaries equal to what a team can own end to end                    | Reduces coordination; risks arbitrary splits if teams are reorganized |
-| Deployment and scaling profile | Separate parts with different release or load patterns               | Justifies process boundaries; do not split without need            |
-| Risk and compliance           | Isolate regulated data or high-risk code (payments, personal data)    | Shrinks audit scope; adds interfaces                               |
-| Technical layer               | Presentation, service, data access                                    | Familiar but cuts across features; avoid as the top-level split    |
+| Axis                           | Idea                                                               | Strengths and risks                                                   |
+|--------------------------------+--------------------------------------------------------------------+-----------------------------------------------------------------------|
+| Business capability            | Modules for what the business does (ordering, billing, catalog)    | Aligns with change and with stakeholders; capabilities can be vague   |
+| Subdomain (DDD)                | Core, supporting, and generic subdomains with bounded contexts     | Directs investment; needs domain expertise                            |
+| Volatility                     | Isolate what changes often from what is stable                     | Reduces ripple; requires evidence about change                        |
+| Data ownership                 | One owner per dataset and its invariants                           | Clarifies consistency boundaries; can conflict with query needs       |
+| Team ownership                 | Boundaries equal to what a team can own end to end                 | Reduces coordination; risks arbitrary splits if teams are reorganized |
+| Deployment and scaling profile | Separate parts with different release or load patterns             | Justifies process boundaries; do not split without need               |
+| Risk and compliance            | Isolate regulated data or high-risk code (payments, personal data) | Shrinks audit scope; adds interfaces                                  |
+| Technical layer                | Presentation, service, data access                                 | Familiar but cuts across features; avoid as the top-level split       |
 Heuristics for a good boundary:
 - *Changes cluster inside it*: most feature work touches one module, not several.
 - *The interface is small and expressed in domain language*, not in terms of the implementation.
@@ -37,15 +37,15 @@ Heuristics for a good boundary:
 
 ** 3. What a module is, and the strength of a boundary
 A *module* encapsulates a design decision behind an interface. Modules exist at every scale (function, class, package, library, service, system) and the same principles apply. A boundary can be enforced in several ways, from cheap to costly:
-| Boundary strength        | Enforcement                                      | Cost of crossing | Cost of changing the boundary |
-|--------------------------+--------------------------------------------------+------------------+-------------------------------|
-| Convention               | Naming, documentation                            | None             | Low, but erodes unnoticed     |
-| Language visibility      | Private and package-private, module systems     | Low              | Low                           |
-| Build and dependency rules | Separate build units, visibility rules, architecture tests | Low  | Low to medium                 |
-| Library boundary         | Separately versioned artifact                    | Low to medium    | Medium (versioning, releases) |
-| Process boundary         | Separate process on one host                     | Medium           | Medium                        |
-| Network boundary         | Separate service                                 | High (latency, failure) | High (contracts, ownership) |
-| Organizational boundary  | Different teams or companies                     | Highest          | Highest                       |
+| Boundary strength          | Enforcement                                                | Cost of crossing        | Cost of changing the boundary |
+|----------------------------+------------------------------------------------------------+-------------------------+-------------------------------|
+| Convention                 | Naming, documentation                                      | None                    | Low, but erodes unnoticed     |
+| Language visibility        | Private and package-private, module systems                | Low                     | Low                           |
+| Build and dependency rules | Separate build units, visibility rules, architecture tests | Low                     | Low to medium                 |
+| Library boundary           | Separately versioned artifact                              | Low to medium           | Medium (versioning, releases) |
+| Process boundary           | Separate process on one host                               | Medium                  | Medium                        |
+| Network boundary           | Separate service                                           | High (latency, failure) | High (contracts, ownership)   |
+| Organizational boundary    | Different teams or companies                               | Highest                 | Highest                       |
 Use the weakest boundary that gives the isolation you need, and strengthen it when evidence appears. Cheap boundaries let you move the line while you learn; expensive ones lock in your first guess.
 
 ** 4. Bounded contexts

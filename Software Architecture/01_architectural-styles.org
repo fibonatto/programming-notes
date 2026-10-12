@@ -105,33 +105,33 @@ A *layered architecture* organizes code in horizontal layers (typically presenta
 - *Package by feature*: organize modules by business capability and apply layering inside each, rather than one set of layers across the whole system.
 
 ** 7. Other styles worth knowing
-| Style                          | Core idea                                                             | Typical fit                                            |
-|--------------------------------+-----------------------------------------------------------------------+--------------------------------------------------------|
-| Service-based architecture     | A handful of coarse-grained services, often sharing a database        | Pragmatic middle ground; distributed benefits at low cost |
-| Pipes and filters / pipeline   | Data flows through composable stages                                  | ETL, compilers, stream processing                      |
-| Microkernel (plug-in)          | A small core plus plug-ins through a stable extension interface       | IDEs, browsers, product platforms with extensions      |
-| Client-server, n-tier          | Separate clients and servers; tiers by role                           | Most web and mobile systems                            |
-| Serverless / functions-as-a-service | Stateless functions triggered by events on managed infrastructure | Spiky, event-driven workloads; glue; low ops teams     |
-| Space-based / data grid        | In-memory replicated data with processing units                       | Extreme elasticity with unpredictable load             |
-| Batch and stream processing    | Process data in bulk or continuously with dataflow engines            | Analytics, ETL, real-time aggregation                  |
-| Service-oriented (SOA, ESB)    | Reusable enterprise services through a central bus                    | Largely superseded; the central bus became a bottleneck and a coupling point |
-| Cell-based architecture        | Independent, identical, isolated copies ("cells") of the stack serving subsets of users | Limiting blast radius at large scale        |
-| Peer-to-peer                   | Nodes act as both client and server without a central authority       | Decentralized systems                                  |
-| Data mesh (organizational)     | Domain-owned data products with federated governance                  | Large organizations with many data domains             |
+| Style                               | Core idea                                                                               | Typical fit                                                                  |
+|-------------------------------------+-----------------------------------------------------------------------------------------+------------------------------------------------------------------------------|
+| Service-based architecture          | A handful of coarse-grained services, often sharing a database                          | Pragmatic middle ground; distributed benefits at low cost                    |
+| Pipes and filters / pipeline        | Data flows through composable stages                                                    | ETL, compilers, stream processing                                            |
+| Microkernel (plug-in)               | A small core plus plug-ins through a stable extension interface                         | IDEs, browsers, product platforms with extensions                            |
+| Client-server, n-tier               | Separate clients and servers; tiers by role                                             | Most web and mobile systems                                                  |
+| Serverless / functions-as-a-service | Stateless functions triggered by events on managed infrastructure                       | Spiky, event-driven workloads; glue; low ops teams                           |
+| Space-based / data grid             | In-memory replicated data with processing units                                         | Extreme elasticity with unpredictable load                                   |
+| Batch and stream processing         | Process data in bulk or continuously with dataflow engines                              | Analytics, ETL, real-time aggregation                                        |
+| Service-oriented (SOA, ESB)         | Reusable enterprise services through a central bus                                      | Largely superseded; the central bus became a bottleneck and a coupling point |
+| Cell-based architecture             | Independent, identical, isolated copies ("cells") of the stack serving subsets of users | Limiting blast radius at large scale                                         |
+| Peer-to-peer                        | Nodes act as both client and server without a central authority                         | Decentralized systems                                                        |
+| Data mesh (organizational)          | Domain-owned data products with federated governance                                    | Large organizations with many data domains                                   |
 
 ** 8. Comparing styles
 Qualitative tendencies, not guarantees. A well-run monolith beats a badly run microservice system on every axis; this table assumes competent execution at the appropriate scale.
-| Characteristic             | Monolith | Modular monolith | Service-based | Microservices | Event-driven (added to others) |
-|----------------------------+----------+------------------+---------------+---------------+--------------------------------|
-| Simplicity of operation    | High     | High             | Medium        | Low           | Low to medium                  |
-| Independent deployability  | Low      | Low              | Medium        | High          | High for consumers             |
-| Fault isolation            | Low      | Low              | Medium        | High          | High if decoupled              |
-| Scaling granularity        | Coarse   | Coarse           | Medium        | Fine          | Fine                           |
-| Team autonomy              | Low      | Medium           | Medium        | High          | High                           |
-| Data consistency (simple)  | High     | High             | Medium        | Low           | Low (eventual)                 |
-| Latency of internal calls  | Lowest   | Lowest           | Medium        | Highest       | Asynchronous                   |
-| Cost at small scale        | Lowest   | Low              | Medium        | High          | Medium                         |
-| Ease of future extraction  | Hard     | Easy             | Medium        | Already done  | Helps                          |
+| Characteristic            | Monolith | Modular monolith | Service-based | Microservices | Event-driven (added to others) |
+|---------------------------+----------+------------------+---------------+---------------+--------------------------------|
+| Simplicity of operation   | High     | High             | Medium        | Low           | Low to medium                  |
+| Independent deployability | Low      | Low              | Medium        | High          | High for consumers             |
+| Fault isolation           | Low      | Low              | Medium        | High          | High if decoupled              |
+| Scaling granularity       | Coarse   | Coarse           | Medium        | Fine          | Fine                           |
+| Team autonomy             | Low      | Medium           | Medium        | High          | High                           |
+| Data consistency (simple) | High     | High             | Medium        | Low           | Low (eventual)                 |
+| Latency of internal calls | Lowest   | Lowest           | Medium        | Highest       | Asynchronous                   |
+| Cost at small scale       | Lowest   | Low              | Medium        | High          | Medium                         |
+| Ease of future extraction | Hard     | Easy             | Medium        | Already done  | Helps                          |
 
 ** 9. Choosing a style: a decision framework
 Start with the forces; let them select the style.

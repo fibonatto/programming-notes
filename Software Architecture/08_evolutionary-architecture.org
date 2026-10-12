@@ -31,19 +31,19 @@ A *fitness function* is any mechanism that provides an objective assessment of h
 - *Automated* versus *manual* (an architecture review is a manual fitness function; automate what you can).
 
 *Examples by characteristic*:
-| Characteristic          | Fitness function                                                                   |
-|-------------------------+------------------------------------------------------------------------------------|
-| Modularity              | Dependency rules in CI; no cycles; layering and module-visibility checks           |
-| Coupling                | Threshold on instability or fan-out of key modules; co-change reports              |
-| Interface compatibility | Breaking-change detection on API and schema diffs; consumer-driven contract tests  |
-| Performance             | Load test with latency percentile thresholds in the pipeline; production SLO alerts |
-| Resilience              | Fault-injection tests in staging; scheduled chaos experiments with success criteria |
+| Characteristic          | Fitness function                                                                       |
+|-------------------------+----------------------------------------------------------------------------------------|
+| Modularity              | Dependency rules in CI; no cycles; layering and module-visibility checks               |
+| Coupling                | Threshold on instability or fan-out of key modules; co-change reports                  |
+| Interface compatibility | Breaking-change detection on API and schema diffs; consumer-driven contract tests      |
+| Performance             | Load test with latency percentile thresholds in the pipeline; production SLO alerts    |
+| Resilience              | Fault-injection tests in staging; scheduled chaos experiments with success criteria    |
 | Security                | Dependency vulnerability scanning with a policy; secrets scanning; authorization tests |
-| Data                    | Migration tests; rules that forbid cross-module table access; schema lint          |
-| Operability             | Every service exposes health checks and key metrics (checked by a template test)   |
-| Cost                    | Cost per request or per tenant tracked with budgets and alerts                     |
-| Delivery                | Build time budget; lead time and deployment frequency trends                       |
-| Code health             | Complexity or size trends in hotspots; test flakiness rate                         |
+| Data                    | Migration tests; rules that forbid cross-module table access; schema lint              |
+| Operability             | Every service exposes health checks and key metrics (checked by a template test)       |
+| Cost                    | Cost per request or per tenant tracked with budgets and alerts                         |
+| Delivery                | Build time budget; lead time and deployment frequency trends                           |
+| Code health             | Complexity or size trends in hotspots; test flakiness rate                             |
 
 #+begin_src java
 // ArchUnit (Java): the domain must not depend on infrastructure.

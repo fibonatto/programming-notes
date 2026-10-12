@@ -24,20 +24,20 @@ Typical records: choice of a primary data store; adopting or rejecting a style o
 
 ** 2. Anatomy of a record
 The original format (Nygard, 2011) is deliberately small: *Title*, *Status*, *Context*, *Decision*, *Consequences*. Many teams extend it. A practical structure:
-| Section                  | Purpose                                                                                    |
-|--------------------------+--------------------------------------------------------------------------------------------|
-| Title                    | Short noun phrase naming the decision, with a number (ADR-0042)                            |
-| Status                   | Proposed, accepted, rejected, deprecated, superseded by ADR-NNNN                           |
-| Date and deciders        | When and who decided; who was consulted                                                    |
-| Context                  | Forces: the problem, constraints, quality drivers, assumptions, relevant facts and numbers |
-| Decision drivers         | The criteria, in priority order, that the options are judged against                       |
-| Options considered       | Each credible option with its pros and cons, including doing nothing                       |
-| Decision                 | What we will do, stated as an active sentence ("We will use ...")                          |
-| Rationale                | Why this option wins against the drivers, and what we knowingly give up                    |
-| Consequences             | Positive, negative, and neutral effects; follow-up work; new risks; operational impact     |
-| Validation               | How we will know it is working: metrics, tests, fitness functions, a pilot                 |
-| Revisit triggers         | Conditions or dates that reopen the decision (assumptions that could stop being true)      |
-| Links                    | Related ADRs, design documents, tickets, pull requests, vendor docs, benchmarks            |
+| Section            | Purpose                                                                                    |
+|--------------------+--------------------------------------------------------------------------------------------|
+| Title              | Short noun phrase naming the decision, with a number (ADR-0042)                            |
+| Status             | Proposed, accepted, rejected, deprecated, superseded by ADR-NNNN                           |
+| Date and deciders  | When and who decided; who was consulted                                                    |
+| Context            | Forces: the problem, constraints, quality drivers, assumptions, relevant facts and numbers |
+| Decision drivers   | The criteria, in priority order, that the options are judged against                       |
+| Options considered | Each credible option with its pros and cons, including doing nothing                       |
+| Decision           | What we will do, stated as an active sentence ("We will use ...")                          |
+| Rationale          | Why this option wins against the drivers, and what we knowingly give up                    |
+| Consequences       | Positive, negative, and neutral effects; follow-up work; new risks; operational impact     |
+| Validation         | How we will know it is working: metrics, tests, fitness functions, a pilot                 |
+| Revisit triggers   | Conditions or dates that reopen the decision (assumptions that could stop being true)      |
+| Links              | Related ADRs, design documents, tickets, pull requests, vendor docs, benchmarks            |
 Templates in circulation include Nygard's original, MADR (Markdown Architectural Decision Records), and the Y-statement ("In the context of X, facing Y, we decided Z to achieve A, accepting B"). Pick one, keep it short, and use it consistently.
 
 #+begin_src text

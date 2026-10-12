@@ -13,17 +13,17 @@ Companion files: =06_quality-attributes-and-tradeoffs.org= (what to evaluate aga
 
 ** 1. Kinds of reviews
 Match the review to the risk, the stage, and the question.
-| Review                           | When                                      | Purpose                                                              |
-|----------------------------------+-------------------------------------------+----------------------------------------------------------------------|
-| Peer design review (RFC or design document) | Before implementation          | Improve a proposal; share context; find problems early              |
-| Architecture review board (ARB) or council | For high-impact or cross-cutting decisions | Governance, consistency, risk acceptance                            |
-| Quality-attribute evaluation (ATAM-style)  | For major systems or redesigns | Evaluate how the architecture satisfies prioritized scenarios; find trade-offs and risks |
-| Security design review / threat model      | When trust boundaries, data, or auth change | Identify threats and mitigations                           |
-| Privacy and data review          | New personal-data flows                   | Compliance, retention, minimization                                  |
-| Production readiness review (PRR) | Before launch or ownership transfer      | Operability: SLOs, alerts, runbooks, capacity, rollback              |
-| Pre-mortem                       | Before committing to a plan               | Imagine failure and list causes                                      |
-| Post-implementation review       | After delivery or an incident             | Did the design hold? Calibrate estimates and predictions             |
-| Periodic architecture health review | On a schedule                          | Drift, debt, risks, and whether decisions still hold                 |
+| Review                                      | When                                        | Purpose                                                                                  |
+|---------------------------------------------+---------------------------------------------+------------------------------------------------------------------------------------------|
+| Peer design review (RFC or design document) | Before implementation                       | Improve a proposal; share context; find problems early                                   |
+| Architecture review board (ARB) or council  | For high-impact or cross-cutting decisions  | Governance, consistency, risk acceptance                                                 |
+| Quality-attribute evaluation (ATAM-style)   | For major systems or redesigns              | Evaluate how the architecture satisfies prioritized scenarios; find trade-offs and risks |
+| Security design review / threat model       | When trust boundaries, data, or auth change | Identify threats and mitigations                                                         |
+| Privacy and data review                     | New personal-data flows                     | Compliance, retention, minimization                                                      |
+| Production readiness review (PRR)           | Before launch or ownership transfer         | Operability: SLOs, alerts, runbooks, capacity, rollback                                  |
+| Pre-mortem                                  | Before committing to a plan                 | Imagine failure and list causes                                                          |
+| Post-implementation review                  | After delivery or an incident               | Did the design hold? Calibrate estimates and predictions                                 |
+| Periodic architecture health review         | On a schedule                               | Drift, debt, risks, and whether decisions still hold                                     |
 *Tiering*: not everything needs a heavy review. Define tiers by risk, with triggers: a new data store or messaging backbone, a public or cross-team API, personal or regulated data, an irreversible or costly-to-reverse choice, a change in availability or security tier, a new critical dependency or vendor, a large cost, or a migration of a core system. Low-risk changes get a lightweight peer review (or none); high-risk ones get a structured review with named reviewers.
 
 ** 2. Preparing a design for review (the author)
