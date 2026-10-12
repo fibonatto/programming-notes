@@ -1,0 +1,193 @@
+#+title: Evolutionary Architecture
+#+startup: overview
+
+* Evolutionary Architecture
+** 0. Staff-level lens
+Every architecture meets requirements, scale, and technology that its authors did not foresee. The question is not whether the system will change but whether it can change cheaply, safely, and continuously. At Staff and Principal scope you are expected to:
+- design for changeability: small steps, reversibility, and fast feedback, instead of a perfect initial design;
+- turn architectural intent into automated, executable checks (fitness functions) so that the architecture does not erode;
+- plan and lead migrations that take months or years: sequencing, dual running, measuring progress, and finishing;
+- keep compatibility under control during change, for code, interfaces, and data;
+- see architecture, delivery, and organization as one system that evolves together.
+Companion files: =01_architectural-styles.org= (the styles you migrate between), =02_modularity-and-boundaries.org= (seams), =04_abstraction-and-interfaces.org= (compatibility), =07_architecture-decision-records.org= (recording the path), =09_technical-debt.org=, and =10_architecture-review.org=.
+
+** 1. What evolutionary architecture means
+Ford, Parsons, and Kua define an *evolutionary architecture* as one that supports guided, incremental change across multiple dimensions. Key ideas:
+- *Incremental*: deliver and change in small steps, each safe to deploy and reverse.
+- *Guided*: change is steered by objective measures of what must remain true (fitness functions) rather than by central approval.
+- *Multiple dimensions*: not only code structure, but data, security, performance, operability, and the delivery pipeline evolve.
+- *Last responsible moment*: defer irreversible decisions until you have enough information, and make decisions reversible where you can. Delaying has a cost, so it must be deliberate.
+- *Optionality*: choices that preserve future options (clean boundaries, small interfaces, portable data) are valuable in proportion to the probability and value of the future you are hedging against; paying for options you will never exercise is waste.
+- *The unit of change*: Ford describes the *architectural quantum* as an independently deployable artifact with high functional cohesion; coupling inside a quantum is acceptable, and coupling between quanta is what limits independent evolution.
+- *Evolvability depends on engineering practices*: automated tests, continuous integration and delivery, observability, and small batches. Architecture without these cannot evolve safely, however clean its diagrams.
+
+** 2. Fitness functions
+A *fitness function* is any mechanism that provides an objective assessment of how well the system satisfies an architectural characteristic. It makes a quality attribute (see =06_quality-attributes-and-tradeoffs.org=) executable, so that an automated process, not memory and goodwill, defends it.
+
+*Dimensions of fitness functions*:
+- *Atomic* (checks one characteristic in isolation, such as a dependency rule) versus *holistic* (checks the interaction of several, such as a load test with failure injected).
+- *Triggered* (runs on a commit, a build, or a schedule) versus *continual* (runs in production: monitoring, SLO alerts, chaos experiments).
+- *Static* (a fixed threshold) versus *dynamic* (depends on context, such as latency relative to load).
+- *Automated* versus *manual* (an architecture review is a manual fitness function; automate what you can).
+
+*Examples by characteristic*:
+| Characteristic          | Fitness function                                                                   |
+|-------------------------+------------------------------------------------------------------------------------|
+| Modularity              | Dependency rules in CI; no cycles; layering and module-visibility checks           |
+| Coupling                | Threshold on instability or fan-out of key modules; co-change reports              |
+| Interface compatibility | Breaking-change detection on API and schema diffs; consumer-driven contract tests  |
+| Performance             | Load test with latency percentile thresholds in the pipeline; production SLO alerts |
+| Resilience              | Fault-injection tests in staging; scheduled chaos experiments with success criteria |
+| Security                | Dependency vulnerability scanning with a policy; secrets scanning; authorization tests |
+| Data                    | Migration tests; rules that forbid cross-module table access; schema lint          |
+| Operability             | Every service exposes health checks and key metrics (checked by a template test)   |
+| Cost                    | Cost per request or per tenant tracked with budgets and alerts                     |
+| Delivery                | Build time budget; lead time and deployment frequency trends                       |
+| Code health             | Complexity or size trends in hotspots; test flakiness rate                         |
+
+#+begin_src java
+// ArchUnit (Java): the domain must not depend on infrastructure.
+@ArchTest
+static final ArchRule domain_is_independent_of_infrastructure =
+    noClasses().that().resideInAPackage("..domain..")
+        .should().dependOnClassesThat().resideInAPackage("..infrastructure..");
+#+end_src
+
+#+begin_src text
+# import-linter (Python): layered architecture contract (higher layers first)
+[importlinter]
+root_package = shop
+
+[importlinter:contract:layers]
+name = Layered architecture
+type = layers
+layers =
+    shop.web
+    shop.application
+    shop.domain
+#+end_src
+
+*Designing good fitness functions*:
+- Derive them from the quality attribute scenarios that matter; one function per important characteristic, not a dashboard of everything.
+- Make them fast, deterministic, and loud: a failing function blocks or alerts, with a clear message explaining the intent.
+- Use *ratchets*: if the current state violates the rule, record the existing violations as a baseline that may only shrink, so the rule can be enforced from today without a big-bang cleanup.
+- Give each an owner and a rationale (link the ADR); retire them when the intent changes.
+- Avoid vanity metrics and targets that people can game; prefer checks that detect a real regression of a real property.
+- Treat the pipeline as the place where architecture and delivery meet.
+
+** 3. Incremental migration strategies
+Large changes (a new platform, a new style, a new data store, a rewrite of a core component) succeed or fail by how they are sliced. The toolbox:
+- *Strangler fig*: put a routing facade in front of the legacy system; implement new functionality, or migrate existing functionality slice by slice, behind the facade; shift traffic gradually; remove the legacy parts when empty. The old and new systems coexist, so a transitional architecture must be designed and eventually deleted.
+- *Branch by abstraction*: introduce an abstraction over the component to replace; make callers use it; create the new implementation behind it; switch implementations (per tenant, per percentage, per feature flag); remove the old implementation and, if useless, the abstraction. It allows trunk-based development without long-lived branches.
+- *Parallel change (expand, migrate, contract)*: add the new form beside the old, migrate the consumers, then remove the old. It applies to APIs, schemas, and file formats.
+- *Parallel run and shadowing*: run the new implementation alongside the old on real input, compare results, and serve only the old output until the differences are understood. Design the comparison (tolerances, ordering, side-effect suppression).
+- *Dark launch, canary, and progressive rollout*: expose the new path to a small percentage with monitoring and automated rollback; ramp up by tenant or region.
+- *Feature flags*: decouple deployment from release; manage their lifecycle (owner, expiry, cleanup) to avoid flag debt.
+- *Anti-corruption layer*: during the migration, translate between the legacy model and the new one so that the new code does not inherit the old model.
+- *Seams* (Feathers): places where behavior can be changed without editing the code in place (interfaces, configuration, dependency injection, routing). Find or create seams first, then change behind them.
+- *Tracer bullet / walking skeleton*: build one thin end-to-end slice of the new architecture early, through all layers, in production-like conditions, to expose integration risk before bulk work.
+- *Event interception and change data capture* to keep new components in sync with legacy data without modifying the legacy code.
+- *Rewrite (big bang)*: replacing a system wholesale while it keeps changing is usually the riskiest option (feature-parity target keeps moving, value is delayed, knowledge embedded in the old system is lost, the "second system" tends to be over-engineered). Spolsky's essay argues against it; there are valid exceptions (end-of-life platforms, tiny systems, hard constraints), but justify them with explicit evidence and incremental delivery inside the rewrite.
+
+** 4. Migrating data
+Data is the hardest part of any migration.
+1. *Expand*: add the new schema or store without removing the old; deploy code that tolerates both.
+2. *Synchronize*: keep new and old in sync, by dual writes (dangerous: no atomicity across stores, so they diverge on partial failure), by the transactional outbox, or by change data capture, with a reconciliation job that detects divergence.
+3. *Backfill* historical data in idempotent, resumable, throttled batches, with checkpoints and verification (counts, checksums, sampled comparisons).
+4. *Verify*: shadow reads compare old and new results; monitor mismatch rates.
+5. *Switch reads* to the new store (gradually), then *switch writes* (the authoritative source changes), keeping the ability to roll back until confidence is high.
+6. *Contract*: stop writing to the old store, keep it read-only for a retention period, then decommission.
+Cautions: online schema changes need tooling that avoids long locks; long-running backfills compete with production load; ordering and idempotency bugs hide in the last 1% of data; changes to identifiers, time zones, or encodings are migrations too; plan rollback for each step, including what happens to writes that arrived on the new side.
+
+** 5. Compatibility during change
+During any rolling change, old and new versions coexist: servers with clients, producers with consumers, code with data (see =04_abstraction-and-interfaces.org=).
+- Support *N-1* (or a stated window) compatibility between adjacent versions; make this a tested property, not a hope.
+- Deploy in an order that keeps compatibility: consumers tolerant first (accept the new form), then producers emit it; or expand the schema before code uses it, and contract after.
+- *Feature flags and kill switches* make each step reversible without redeploying.
+- *Telemetry on consumers*: know who still uses the old interface before removing it.
+- *Contract tests and compatibility checks in CI* prevent accidental breaks.
+- Treat mobile and embedded clients, third-party integrations, and stored data as having unbounded lifetimes.
+
+** 6. Planning a long migration
+- *Define the destination and the reason*: what measurable benefit justifies the cost (cost, reliability, speed of delivery, risk reduction, a platform end-of-life date)? If you cannot say, do not start.
+- *Define safe stopping points*: after each step the system is working, deployable, and better (or at least not worse); you can pause or stop without being stuck in a half-migrated state.
+- *Slice vertically* by capability, tenant, or traffic, not by technical layer, so that each slice delivers value and teaches something.
+- *Do a risky slice early* (the hardest data, the most-coupled capability) to learn before committing the schedule.
+- *Sequence by dependency, risk, and value*: remove the dependencies that block others first; migrate low-risk, high-learning slices before critical ones.
+- *Measure progress* with leading indicators: percentage of traffic, functionality, and data on the new path; number of callers of the legacy interface; size and dependency count of the legacy component; legacy run cost. Publish them.
+- *Account for the cost of running two systems*: double operational load, split attention, and doubled bugs. Time-box the dual-running period.
+- *Ownership and incentives*: decide who migrates (a central team can do the work but lacks domain knowledge; product teams own their migration with platform support). Make the new path the easiest path, and the old path progressively harder and then closed.
+- *Finish*: the last 10% takes half the effort (long-tail consumers, odd data, undocumented behavior). Plan decommissioning, a deprecation deadline, enforcement, and the deletion of transitional code. A permanent hybrid is the worst outcome.
+- *Reversibility*: for each step, define how to roll back, how long rollback remains possible, and the point of no return.
+- *Communicate* the plan, the status, and the rules; record the key decisions as ADRs.
+
+** 7. Architecture and delivery
+- Evolution requires fast, reliable feedback: continuous integration, automated tests at the right levels, deployment automation, observability, and the ability to roll back quickly.
+- *Trunk-based development* with short-lived branches, feature flags, and small changes reduces merge risk and makes migrations incremental.
+- *The test pyramid* (many fast unit tests, fewer integration tests, few end-to-end tests) plus contract tests at boundaries; flaky tests destroy the trust the pipeline needs.
+- *Delivery metrics* (deployment frequency, lead time, change failure rate, time to restore) show whether the architecture helps or hinders change; architecture that makes deployment slow or risky is the first thing to evolve (see the DORA research).
+- *Environments*: production-like staging, ephemeral environments, and testing in production safely (canaries, shadow traffic) shorten feedback.
+
+** 8. Organizational evolution
+Architecture and organization co-evolve (Conway's law).
+- *Team Topologies* describes four team types (stream-aligned, platform, enabling, complicated-subsystem) and three interaction modes (collaboration, X-as-a-service, facilitating). Aim for stream-aligned teams that can deliver without handoffs, supported by platform teams that provide self-service capabilities.
+- *Inverse Conway maneuver*: change team boundaries to shape the architecture you want, not the other way around; expect friction while the two are misaligned.
+- *Guardrails over gates*: instead of central approval for every decision, provide paved roads (templates, libraries, platform services), automated checks (fitness functions), and light review for high-risk changes. Gates scale linearly with the number of changes; guardrails do not.
+- *Architecture as a distributed practice*: architects (Staff and Principal engineers) act as facilitators and multipliers, setting direction and constraints, coaching teams, and keeping the system-level picture, while teams make most decisions with an advice process.
+- *Standardization versus autonomy*: standardize what is expensive to vary (identity, observability, deployment, data classification) and let teams choose elsewhere; make the cost of divergence visible.
+- *Knowledge*: rotate people across boundaries, document decisions, and avoid indispensable individuals (bus factor).
+
+** 9. Detecting drift and erosion
+Entropy is the default: boundaries blur, shortcuts accumulate, and dependencies tangle.
+- *Conformance checking*: the fitness functions above, run continuously.
+- *Dependency and structure snapshots over time*: cycles, fan-in and fan-out, size of the largest connected component; trends matter more than values.
+- *Hotspot analysis*: files with high change frequency and high complexity are where design problems and defects concentrate (see =09_technical-debt.org=).
+- *Change coupling and ownership reports*: unexpected co-change across modules, files touched by many teams.
+- *Periodic architecture health reviews*: lightweight, scheduled, driven by data and the revisit triggers in ADRs (see =10_architecture-review.org=).
+- *Incident analysis*: recurring failure patterns point to structural weaknesses.
+- *Make erosion visible* to the people who can fix it, in the tools they already use.
+
+** 10. Anti-patterns
+- *Ivory-tower governance*: architects who dictate without owning consequences, slowing teams; replaced by guardrails and advice.
+- *Big-bang rewrite* presented as a clean slate, with no incremental value and a moving target.
+- *Endless migration*: two systems forever; no decommissioning date; the cost of coexistence grows.
+- *Dual writes without reconciliation*: silent divergence between stores.
+- *Flag debt*: flags that outlive their purpose and multiply states.
+- *Migration for its own sake*: resume-driven technology change without a measurable benefit.
+- *Premature extraction*: splitting services before boundaries are understood, then paying the network tax for wrong boundaries.
+- *Fitness functions as vanity metrics* or as noisy checks everyone learns to ignore.
+- *Architecture frozen by fear*: no change because nobody trusts the tests; the remedy is to build the safety net first.
+- *No finish line*: no definition of done for a migration, so the transitional architecture becomes permanent.
+
+** 11. Self-check
+1. Choose a quality attribute of your system and write a fitness function for it. How does it fail loudly, who owns it, and how would it be gamed?
+2. A legacy monolith must be replaced over two years. Describe the slicing, the first three steps, the progress measures, and the decommissioning plan.
+3. Why are dual writes dangerous, and what are two safer alternatives?
+4. Describe the sequence of deployments needed to rename a field in a message consumed by several services running different versions.
+5. How do you keep a feature flag from becoming permanent?
+6. Your organization wants central architecture approval for all services. What do you propose instead, and how do you keep risk under control?
+
+** 12. Exercises
+- Warm-up: list the architectural rules your team believes in; mark which are enforced by automation today and which only by habit.
+- Core: add one dependency-rule fitness function to CI with a ratchet baseline, and write the rationale and owner in its failure message.
+- Core: plan a strangler migration of one capability: facade, routing rules, data synchronization, comparison strategy, rollout steps, rollback, and decommission criteria.
+- Core: implement parallel change for an API field rename, with telemetry that shows when the old field is unused.
+- Stretch: build a shadow-traffic comparison for a function being replaced; report mismatches by category.
+- Stretch: run a hotspot analysis (churn by complexity) on a repository, and choose one hotspot to evolve with a plan and fitness function.
+
+** 13. Resources
+- Ford, Parsons, Kua, Sadalage, /Building Evolutionary Architectures/ (2nd edition): fitness functions, incremental change, architectural quanta.
+- Fowler, /Strangler Fig Application/: https://martinfowler.com/bliki/StranglerFigApplication.html ; Hodgson, /Feature Toggles/ and branch by abstraction articles on Fowler's site; Fowler on parallel change (expand and contract).
+- Feathers, /Working Effectively with Legacy Code/ (seams, characterization tests); Newman, /Monolith to Microservices/ (migration patterns); Humble and Farley, /Continuous Delivery/.
+- Skelton and Pais, /Team Topologies/: https://teamtopologies.com ; Harmel-Law, /Facilitating Software Architecture/ (advice process, guardrails).
+- Spolsky, /Things You Should Never Do, Part I/ (2000), on rewrites; Brooks, /The Mythical Man-Month/ (the second-system effect).
+- DORA research: https://dora.dev ; ArchUnit user guide and import-linter documentation for architecture tests.
+- Tornhill, /Software Design X-Rays/ (hotspots and change coupling).
+
+** What to remember
+- Evolvability is a designed property: small reversible steps, fast feedback, and executable architectural rules.
+- Fitness functions turn quality attributes into automated checks; use ratchets to adopt them without a cleanup.
+- Migrate incrementally with strangler, branch by abstraction, parallel change, and parallel run; avoid big-bang rewrites.
+- Data migration needs expand, synchronize, backfill, verify, switch, contract, with rollback at each step.
+- Plan the finish: measure progress, set deadlines, and delete the transitional architecture.
+- Prefer guardrails and advice to gates; align teams and architecture deliberately.

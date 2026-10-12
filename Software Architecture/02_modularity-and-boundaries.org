@@ -1,0 +1,156 @@
+#+title: Modularity and Boundaries
+#+startup: overview
+
+* Modularity and Boundaries
+** 0. Staff-level lens
+Boundaries are the most consequential structure in a system: they decide what can change independently, who owns what, and where failures stop. At Staff and Principal scope you are expected to:
+- find boundaries that follow the real axes of change (business capability, ownership, volatility), not the technical layers;
+- choose the /strength/ of each boundary (language visibility, package, process, network, organization) in proportion to its stability and its cost;
+- keep dependencies directed and acyclic, and keep data ownership aligned with behavior;
+- treat boundaries as hypotheses to be revised, and make them cheap to move early.
+Companion files: =01_architectural-styles.org=, =03_coupling-and-cohesion.org=, =04_abstraction-and-interfaces.org=, and =08_evolutionary-architecture.org=.
+
+** 1. Why modularity
+- *Parnas's criterion*: decompose a system into modules by the design decisions each one hides, especially decisions likely to change, rather than by the steps of processing. A good module has a small interface and a secret.
+- *Goals*: let people work in parallel with little coordination, let parts change without rippling, let people understand a part without understanding the whole, and let parts be tested, replaced, or reused.
+- *Cognitive limit*: nobody holds a million-line system in their head; modules are how a system fits in human heads.
+- *Conway's law*: the structure of a system tends to mirror the communication structure of the organization that builds it. The /inverse Conway maneuver/ shapes teams to produce the desired architecture. Boundaries drawn against the grain of the organization will be crossed constantly.
+
+** 2. Decomposition strategies
+No single axis works for every system; use several as evidence.
+| Axis                          | Idea                                                                 | Strengths and risks                                                |
+|-------------------------------+----------------------------------------------------------------------+--------------------------------------------------------------------|
+| Business capability           | Modules for what the business does (ordering, billing, catalog)       | Aligns with change and with stakeholders; capabilities can be vague |
+| Subdomain (DDD)               | Core, supporting, and generic subdomains with bounded contexts        | Directs investment; needs domain expertise                         |
+| Volatility                    | Isolate what changes often from what is stable                        | Reduces ripple; requires evidence about change                     |
+| Data ownership                | One owner per dataset and its invariants                              | Clarifies consistency boundaries; can conflict with query needs    |
+| Team ownership                | Boundaries equal to what a team can own end to end                    | Reduces coordination; risks arbitrary splits if teams are reorganized |
+| Deployment and scaling profile | Separate parts with different release or load patterns               | Justifies process boundaries; do not split without need            |
+| Risk and compliance           | Isolate regulated data or high-risk code (payments, personal data)    | Shrinks audit scope; adds interfaces                               |
+| Technical layer               | Presentation, service, data access                                    | Familiar but cuts across features; avoid as the top-level split    |
+Heuristics for a good boundary:
+- *Changes cluster inside it*: most feature work touches one module, not several.
+- *The interface is small and expressed in domain language*, not in terms of the implementation.
+- *It is owned by one team*, and the people who understand the domain sit on the same side.
+- *Transactions rarely cross it*; if two things must change atomically, they belong together or need an explicit process (saga).
+- *It matches a stable concept* in the business, not a temporary organization chart.
+
+** 3. What a module is, and the strength of a boundary
+A *module* encapsulates a design decision behind an interface. Modules exist at every scale (function, class, package, library, service, system) and the same principles apply. A boundary can be enforced in several ways, from cheap to costly:
+| Boundary strength        | Enforcement                                      | Cost of crossing | Cost of changing the boundary |
+|--------------------------+--------------------------------------------------+------------------+-------------------------------|
+| Convention               | Naming, documentation                            | None             | Low, but erodes unnoticed     |
+| Language visibility      | Private and package-private, module systems     | Low              | Low                           |
+| Build and dependency rules | Separate build units, visibility rules, architecture tests | Low  | Low to medium                 |
+| Library boundary         | Separately versioned artifact                    | Low to medium    | Medium (versioning, releases) |
+| Process boundary         | Separate process on one host                     | Medium           | Medium                        |
+| Network boundary         | Separate service                                 | High (latency, failure) | High (contracts, ownership) |
+| Organizational boundary  | Different teams or companies                     | Highest          | Highest                       |
+Use the weakest boundary that gives the isolation you need, and strengthen it when evidence appears. Cheap boundaries let you move the line while you learn; expensive ones lock in your first guess.
+
+** 4. Bounded contexts
+Domain-driven design (Evans) addresses the fact that a single, unified model of a large domain does not work: the same word means different things in different parts of the business ("customer" in sales, support, and billing), and forcing one model creates conflicts and coupling.
+- A *bounded context* is the boundary within which a particular model and its *ubiquitous language* are consistent. Inside, terms are unambiguous; across the boundary, they are translated.
+- *Subdomains* classify the problem space: *core* (the competitive advantage: invest your best people), *supporting* (necessary, specific to you, not differentiating), and *generic* (solved problems: buy or use standard solutions). Different subdomains deserve different investment and different architecture.
+- *Aggregates* are clusters of objects treated as a unit for consistency: a transaction should modify one aggregate; references between aggregates are by identity. The aggregate is the unit of transactional consistency inside a context.
+- *Context mapping* describes relationships between contexts:
+  - *Shared kernel*: two contexts share a small model that they change together (tight; use sparingly).
+  - *Customer-supplier*: the downstream team's needs influence the upstream team's plans.
+  - *Conformist*: downstream adopts the upstream model without influence.
+  - *Anti-corruption layer (ACL)*: downstream translates the upstream model to protect its own.
+  - *Open host service* and *published language*: upstream offers a stable, documented interface and format for many consumers.
+  - *Partnership*: teams coordinate mutual success.
+  - *Separate ways*: no integration; duplicate rather than couple.
+- *Finding contexts*: event storming workshops, language analysis (where does the same word change meaning?), team and ownership boundaries, and where integration pain appears.
+- *Alignment*: a bounded context is a logical boundary; it may be realized as a module, several modules, or a service, but a single service should not span several contexts, because it would carry conflicting models.
+
+** 5. Dependencies between components
+The directed graph of dependencies is the skeleton of the architecture.
+- *Dependency direction*: depend toward stability and toward abstraction. Policy (domain rules) should not depend on detail (frameworks, databases, UI).
+- *Acyclic dependencies principle*: the component graph must have no cycles. A cycle makes the participants one unit for building, testing, and releasing. Break cycles with dependency inversion (the higher-level module owns an interface that the lower one implements), by extracting the shared concept into a new module, by merging the modules, or by replacing a call with an event.
+- *Stable dependencies principle*: depend in the direction of stability. A module that many depend on should change rarely.
+- *Stable abstractions principle*: stable components should be abstract so that they can be extended without modification.
+- *Metrics* (Martin): afferent coupling Ca (how many components depend on me), efferent coupling Ce (how many I depend on), and instability I = Ce / (Ca + Ce), from 0 (stable, maximally depended upon) to 1 (unstable). Abstractness A is the ratio of abstract types to all types. Components should sit near the "main sequence" A + I = 1; a stable and concrete component is hard to change (zone of pain), and an unstable and abstract one is useless (zone of uselessness). Treat the numbers as prompts for investigation, not scores.
+- *Transitive dependencies matter*: the cost of a library or module includes everything it drags in (versions, licenses, vulnerabilities, build time).
+- *Visualize*: generate the dependency graph and a dependency structure matrix, and review it regularly; cycles and surprising edges are findings.
+
+** 6. Data boundaries
+The hardest boundaries to draw and to move are around data.
+- *Own the data with the behavior*: the module that enforces an invariant should be the only writer of the data that carries it. Reads from outside go through an interface, a replicated read model fed by events, or a purpose-built query API.
+- *No shared tables, no cross-module joins, no cross-module foreign keys* where you want independence. Cross-boundary references are identities, resolved through the owner.
+- *Transactions stop at the boundary*: coordination across boundaries needs sagas, the transactional outbox, idempotency, and compensation (see =05_architectural-patterns.org=).
+- *Reporting and analytics* are the usual temptation to join everything: feed a separate analytical store from events or change data capture, instead of coupling operational schemas.
+- *Master data* shared by many contexts (customers, products) needs an explicit owner and a distribution mechanism, or each context holds its own projection of it.
+- *Within a single database* you can still enforce separation with schemas, roles and permissions per module, and checks that detect cross-schema access.
+
+** 7. Contracts at boundaries
+A boundary is only as good as its contract (see =04_abstraction-and-interfaces.org=). At each boundary specify the operations, the data and its meaning, the error model, ordering and idempotency expectations, performance expectations, and the compatibility policy. Prefer contracts expressed in the language of the domain, and make the unstable side adapt (anti-corruption layer) rather than letting its model leak in.
+
+** 8. Enforcing boundaries
+Boundaries erode unless something pushes back. Layer the mechanisms:
+- *Language and build level*: modules and packages with private visibility (Rust crates and pub(crate), Java modules and package-private, Go internal packages, TypeScript project references and lint rules, Python import-linter contracts), separate build units, and build-system visibility rules.
+- *Architecture tests*: automated checks that fail the build on forbidden dependencies, cycles, or layering violations (ArchUnit-style tests, dependency rules in CI).
+- *Data enforcement*: database roles per module, separate schemas, and a lint on cross-module queries.
+- *Ownership*: CODEOWNERS and review rules, and one owner per module.
+- *Deployment boundaries* when a hard boundary is justified.
+- *Fitness functions* in the delivery pipeline (see =08_evolutionary-architecture.org=).
+- *Paved roads*: make the right dependency the easy one (templates, generators, libraries that encode the patterns).
+
+** 9. Boundary smells
+- *Shotgun surgery*: one feature requires edits in many modules.
+- *Chatty interfaces*: many fine-grained calls across a boundary, or the same data fetched repeatedly.
+- *Feature envy* across modules: a module that mostly manipulates another's data.
+- *"Common", "shared", "utils", "core" modules* that everything imports and that keep growing: the dumping ground for the missing abstraction.
+- *God module or service* that knows about everyone.
+- *Leaky abstractions*: callers depend on internals or on implementation details of the data format.
+- *Shared mutable state* or shared database tables across boundaries.
+- *Cross-team pull requests as the norm*, and release trains where unrelated modules must ship together.
+- *The same concept modeled in three places*, kept consistent by hand.
+
+** 10. Finding boundaries in an existing system
+Use data about the system, not only opinions:
+- *Change coupling from version control*: which files change together in the same commits or pull requests? Clusters of co-change show real boundaries; unexpected co-change across modules shows a hidden dependency. A first approximation is to count how often pairs of files change together.
+- *Dependency graphs* from the build: cycles, high fan-in modules, and high fan-out modules.
+- *Ownership and team topology*: who changes what, and where pull requests need several teams.
+- *Runtime evidence*: traces and call graphs show real coupling at run time; database access logs show who touches which tables.
+- *Incident history*: which failures cross components?
+- *Domain exploration*: event storming and language analysis with domain experts.
+- *Seams for migration*: places where a boundary could be inserted with little change (see =08_evolutionary-architecture.org=).
+Then propose boundaries, test them against recent change history ("would this boundary have contained the last 20 features?"), and adopt them incrementally.
+
+** 11. Boundaries are hypotheses
+- Early in a product's life the domain is not understood; boundaries drawn now are guesses. Draw them with cheap mechanisms (in-process modules) so that being wrong is inexpensive.
+- Cost of moving a boundary rises sharply with its strength: moving a function is trivial, moving a table between services is a project, moving a team is a reorganization.
+- Revisit boundaries on a schedule and when evidence accumulates (co-change, incidents, team friction). Merging modules or services is a normal, healthy move.
+- Record the intent of each boundary (what it hides, who owns it, which forces justify its strength) so that later readers can tell a deliberate boundary from an accident.
+
+** 12. Self-check
+1. Take a module you own: what design decision does it hide? If you cannot say, what does that suggest?
+2. Two services must be updated atomically for every order. What are your options, and which do you prefer?
+3. Draw the context map for a marketplace with sales, inventory, shipping, billing, and support. Where would you use an anti-corruption layer?
+4. Compute instability for a component with 12 incoming and 3 outgoing dependencies. Should it be abstract or concrete? Why?
+5. How would you detect from version-control history that a boundary is in the wrong place?
+6. Your "shared" library has 40 consumers and changes weekly. What are the problems and the options?
+
+** 13. Exercises
+- Warm-up: generate the module dependency graph of a codebase you work on; list the cycles and the three modules with the highest fan-in.
+- Core: run a co-change analysis on a repository (pairs of files that change together across commits) and compare the clusters to the intended modules.
+- Core: run an event-storming session (or a solo version) for a subdomain and propose bounded contexts with a context map.
+- Core: add an automated architecture rule to CI that forbids one forbidden dependency, and fix the existing violations.
+- Stretch: pick a table read by three modules and design the ownership change (owner, API, events, read model) with a migration plan.
+
+** 14. Resources
+- Parnas, /On the Criteria To Be Used in Decomposing Systems into Modules/ (1972), and /A Rational Design Process: How and Why to Fake It/ (1986).
+- Evans, /Domain-Driven Design/; Vernon, /Implementing Domain-Driven Design/ and /Domain-Driven Design Distilled/; Fowler on bounded contexts: https://martinfowler.com/bliki/BoundedContext.html
+- Martin, /Clean Architecture/ (component principles: ADP, SDP, SAP, and the main sequence).
+- Skelton and Pais, /Team Topologies/ (team-aligned boundaries): https://teamtopologies.com
+- Tornhill, /Software Design X-Rays/ and /Your Code as a Crime Scene/ (change coupling and hotspot analysis).
+- Löwy, /Righting Software/ (volatility-based decomposition); Ousterhout, /A Philosophy of Software Design/ (deep modules).
+- Conway, /How Do Committees Invent?/ (1968): http://www.melconway.com/Home/Committees_Paper.html
+
+** What to remember
+- Modules hide decisions likely to change; boundaries follow business capability, volatility, ownership, and data, not technical layers.
+- Choose boundary strength by stability and cost; start cheap and tighten with evidence.
+- Bounded contexts keep models consistent; context maps make integration relationships explicit.
+- Keep dependencies acyclic and pointed toward stable abstractions; own data with behavior.
+- Enforce boundaries automatically, and treat them as hypotheses to be revised.

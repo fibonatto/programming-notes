@@ -1,0 +1,373 @@
+#+title: Software Architecture
+#+startup: overview
+
+* Software Architecture
+Ten files on architectural decision-making for Staff and Principal engineers: styles, boundaries, coupling, interfaces, patterns, quality attributes, decision records, evolution, technical debt, and architecture review. This page gives the reading order, what to do with each file, and links to the sections that matter most. Follow links with =C-c C-o= (cursor on the link) and return with =C-c &=.
+
+** Scope and expectations
+- *Focus*: how to decide, document, evolve, and review the structure of software systems, with explicit trade-offs. The emphasis is on judgment: forces, evidence, costs, reversibility, and communication.
+- *Level*: for engineers who can build systems and now shape them across teams. The notes assume working familiarity with services, databases, and delivery pipelines.
+- *What these notes are not*: a catalog of technologies or cloud services, a methodology to follow blindly, or a substitute for knowing your own system. Architectural advice is contextual; every file states costs and when not to use a technique.
+- *Relation to the Foundations notes*: this folder applies the theory in the Foundations folder (complexity, data structures, type systems, memory, concurrency and distributed systems) to design decisions. Useful companions are listed below.
+
+** How to use these files
+1. Read in order the first time; later use the files as references by topic.
+2. Apply each file to a system you know: draw its real boundaries, write its real decisions, list its real debt. Reading without applying yields little.
+3. Do the exercises with a real codebase and real stakeholders where possible. The capstone projects below integrate several files.
+4. Treat every table and checklist as a starting point for your context, not as a rule.
+5. Read at least one primary source per file (listed at the end of each file) and form your own opinion.
+
+** Progress [0/10]
+- [ ] [[file:01_architectural-styles.org][01_architectural-styles]]
+- [ ] [[file:02_modularity-and-boundaries.org][02_modularity-and-boundaries]]
+- [ ] [[file:03_coupling-and-cohesion.org][03_coupling-and-cohesion]]
+- [ ] [[file:04_abstraction-and-interfaces.org][04_abstraction-and-interfaces]]
+- [ ] [[file:05_architectural-patterns.org][05_architectural-patterns]]
+- [ ] [[file:06_quality-attributes-and-tradeoffs.org][06_quality-attributes-and-tradeoffs]]
+- [ ] [[file:07_architecture-decision-records.org][07_architecture-decision-records]]
+- [ ] [[file:08_evolutionary-architecture.org][08_evolutionary-architecture]]
+- [ ] [[file:09_technical-debt.org][09_technical-debt]]
+- [ ] [[file:10_architecture-review.org][10_architecture-review]]
+
+** Reading order and rationale
+- *Structure first (01, 02, 03, 04)*: the styles available, where boundaries go, how components depend on each other, and how interfaces keep them independent.
+- *Patterns and qualities (05, 06)*: reusable solutions with their costs, and the quality attributes and trade-offs that should drive every choice.
+- *Decisions and change (07, 08, 09)*: recording decisions, evolving the system safely, and managing the debt that accumulates.
+- *Evaluation (10)*: reviewing designs before reality does.
+Experienced readers can start from the quality attributes (06) and decision records (07) and return to the structural files as needed. Each file begins with a Staff-level lens that says what the topic means for that role.
+
+** The sequence
+*** 01: architectural-styles
+File: [[file:01_architectural-styles.org][01_architectural-styles]]
+
+Monolith, modular monolith, microservices, event-driven, and layered architectures: what each costs, what each buys, and how to choose and move between them.
+
+After this file you should be able to: Select and defend a style from the forces actually present, name the extraction triggers, and avoid the distributed monolith.
+
+Key sections:
+- [[file:01_architectural-styles.org::*2. The monolith][§2 The monolith]]
+- [[file:01_architectural-styles.org::*3. The modular monolith][§3 The modular monolith]]
+- [[file:01_architectural-styles.org::*4. Microservices][§4 Microservices]]
+- [[file:01_architectural-styles.org::*5. Event-driven architecture][§5 Event-driven architecture]]
+- [[file:01_architectural-styles.org::*8. Comparing styles][§8 Comparing styles]]
+- [[file:01_architectural-styles.org::*9. Choosing a style: a decision framework][§9 Choosing a style: a decision framework]]
+- [[file:01_architectural-styles.org::*10. Failure modes and anti-patterns][§10 Failure modes and anti-patterns]]
+
+Practice:
+- Write a one-page style decision for a real system, with forces, options, and the triggers that would change it; turn it into an ADR.
+- Design the public interface and data ownership needed to extract one module from a monolith.
+- Answer the questions in [[file:01_architectural-styles.org::*11. Self-check][the self-check section]] without notes, then do the exercises that fit your work.
+
+*** 02: modularity-and-boundaries
+File: [[file:02_modularity-and-boundaries.org][02_modularity-and-boundaries]]
+
+Decomposition by capability and volatility, bounded contexts, boundary strength, dependency direction, data ownership, and enforcement.
+
+After this file you should be able to: Draw boundaries that follow the axes of change, pick their strength, and enforce them automatically.
+
+Key sections:
+- [[file:02_modularity-and-boundaries.org::*1. Why modularity][§1 Why modularity]]
+- [[file:02_modularity-and-boundaries.org::*2. Decomposition strategies][§2 Decomposition strategies]]
+- [[file:02_modularity-and-boundaries.org::*3. What a module is, and the strength of a boundary][§3 What a module is, and the strength of a boundary]]
+- [[file:02_modularity-and-boundaries.org::*4. Bounded contexts][§4 Bounded contexts]]
+- [[file:02_modularity-and-boundaries.org::*5. Dependencies between components][§5 Dependencies between components]]
+- [[file:02_modularity-and-boundaries.org::*6. Data boundaries][§6 Data boundaries]]
+- [[file:02_modularity-and-boundaries.org::*10. Finding boundaries in an existing system][§10 Finding boundaries in an existing system]]
+- [[file:02_modularity-and-boundaries.org::*11. Boundaries are hypotheses][§11 Boundaries are hypotheses]]
+
+Practice:
+- Run a co-change analysis on a repository and compare the clusters with the intended modules.
+- Draw a context map for a domain you know, marking anti-corruption layers and shared kernels.
+- Answer the questions in [[file:02_modularity-and-boundaries.org::*12. Self-check][the self-check section]] without notes, then do the exercises that fit your work.
+
+*** 03: coupling-and-cohesion
+File: [[file:03_coupling-and-cohesion.org][03_coupling-and-cohesion]]
+
+Connascence, forms of coupling at code and system scale, the strength-distance-volatility balance, cohesion, cycles, and the cost of change.
+
+After this file you should be able to: Name the kind of coupling in a review, weigh it by strength, distance, and volatility, and measure it with evidence.
+
+Key sections:
+- [[file:03_coupling-and-cohesion.org::*2. Connascence: a common vocabulary][§2 Connascence: a common vocabulary]]
+- [[file:03_coupling-and-cohesion.org::*3. Classic forms of coupling between modules][§3 Classic forms of coupling between modules]]
+- [[file:03_coupling-and-cohesion.org::*4. Coupling at architectural scale][§4 Coupling at architectural scale]]
+- [[file:03_coupling-and-cohesion.org::*5. A balance model: strength, distance, volatility][§5 A balance model: strength, distance, volatility]]
+- [[file:03_coupling-and-cohesion.org::*7. Cyclic dependencies][§7 Cyclic dependencies]]
+- [[file:03_coupling-and-cohesion.org::*8. The cost of change][§8 The cost of change]]
+- [[file:03_coupling-and-cohesion.org::*9. Measuring coupling and cohesion][§9 Measuring coupling and cohesion]]
+- [[file:03_coupling-and-cohesion.org::*10. Decoupling techniques and their costs][§10 Decoupling techniques and their costs]]
+
+Practice:
+- Compute afferent and efferent coupling and instability for a small codebase and compare with your intuition.
+- Find the largest dependency cycle and write the plan to break it with dependency inversion.
+- Answer the questions in [[file:03_coupling-and-cohesion.org::*12. Self-check][the self-check section]] without notes, then do the exercises that fit your work.
+
+*** 04: abstraction-and-interfaces
+File: [[file:04_abstraction-and-interfaces.org][04_abstraction-and-interfaces]]
+
+Deep modules, information hiding, contracts, interface design, compatibility and versioning, anti-corruption layers, and APIs as products.
+
+After this file you should be able to: Design stable interfaces, evolve them without breaking unseen consumers, and decide when an abstraction pays for itself.
+
+Key sections:
+- [[file:04_abstraction-and-interfaces.org::*1. Abstraction and its cost][§1 Abstraction and its cost]]
+- [[file:04_abstraction-and-interfaces.org::*3. Contracts][§3 Contracts]]
+- [[file:04_abstraction-and-interfaces.org::*4. Designing good interfaces][§4 Designing good interfaces]]
+- [[file:04_abstraction-and-interfaces.org::*5. Stability and evolution of interfaces][§5 Stability and evolution of interfaces]]
+- [[file:04_abstraction-and-interfaces.org::*7. Anti-corruption layers and adapters][§7 Anti-corruption layers and adapters]]
+
+Practice:
+- Rewrite the contract of one endpoint you own, including errors, idempotency, ordering, and latency expectations.
+- Plan a compatible rename of a widely used field with telemetry and a removal criterion.
+- Answer the questions in [[file:04_abstraction-and-interfaces.org::*10. Self-check][the self-check section]] without notes, then do the exercises that fit your work.
+
+*** 05: architectural-patterns
+File: [[file:05_architectural-patterns.org][05_architectural-patterns]]
+
+Ports and adapters, CQRS, event sourcing, outbox, sagas, integration, data, and resilience patterns, each with when to use and when to avoid.
+
+After this file you should be able to: Tie each pattern to a measured force, price its costs, and write down when not to use it.
+
+Key sections:
+- [[file:05_architectural-patterns.org::*1. Layered, onion, clean, and hexagonal architectures][§1 Layered, onion, clean, and hexagonal architectures]]
+- [[file:05_architectural-patterns.org::*2. CQRS: command query responsibility segregation][§2 CQRS: command query responsibility segregation]]
+- [[file:05_architectural-patterns.org::*3. Event sourcing][§3 Event sourcing]]
+- [[file:05_architectural-patterns.org::*4. Messaging and consistency patterns][§4 Messaging and consistency patterns]]
+- [[file:05_architectural-patterns.org::*8. Choosing patterns][§8 Choosing patterns]]
+- [[file:05_architectural-patterns.org::*9. Misuse stories (generic)][§9 Misuse stories (generic)]]
+
+Practice:
+- Implement a transactional outbox with a crash test (commit before publish, duplicate delivery).
+- Write a decision record for adopting or rejecting event sourcing for a real domain.
+- Answer the questions in [[file:05_architectural-patterns.org::*10. Self-check][the self-check section]] without notes, then do the exercises that fit your work.
+
+*** 06: quality-attributes-and-tradeoffs
+File: [[file:06_quality-attributes-and-tradeoffs.org][06_quality-attributes-and-tradeoffs]]
+
+Quality attribute scenarios, performance, availability, scalability, maintainability, security, trade-off analysis, and worked quantitative examples.
+
+After this file you should be able to: Turn wishes into measurable scenarios, quantify trade-offs, and make owners accept them explicitly.
+
+Key sections:
+- [[file:06_quality-attributes-and-tradeoffs.org::*1. Quality attributes and how to specify them][§1 Quality attributes and how to specify them]]
+- [[file:06_quality-attributes-and-tradeoffs.org::*2. Performance and latency][§2 Performance and latency]]
+- [[file:06_quality-attributes-and-tradeoffs.org::*3. Availability and reliability][§3 Availability and reliability]]
+- [[file:06_quality-attributes-and-tradeoffs.org::*4. Scalability and elasticity][§4 Scalability and elasticity]]
+- [[file:06_quality-attributes-and-tradeoffs.org::*8. Trade-offs][§8 Trade-offs]]
+- [[file:06_quality-attributes-and-tradeoffs.org::*9. Quantifying: worked examples][§9 Quantifying: worked examples]]
+- [[file:06_quality-attributes-and-tradeoffs.org::*10. Staff-level practice][§10 Staff-level practice]]
+
+Practice:
+- Write a utility tree for a system you own with at least six scenarios.
+- Define SLIs, an SLO, and the error budget policy for a service.
+- Answer the questions in [[file:06_quality-attributes-and-tradeoffs.org::*11. Self-check][the self-check section]] without notes, then do the exercises that fit your work.
+
+*** 07: architecture-decision-records
+File: [[file:07_architecture-decision-records.org][07_architecture-decision-records]]
+
+What deserves a decision record, the anatomy of a good one, lifecycle and storage, decision processes, worked examples, and documentation beyond decisions.
+
+After this file you should be able to: Capture decisions with context, alternatives, and consequences, and run decision processes proportional to reversibility.
+
+Key sections:
+- [[file:07_architecture-decision-records.org::*1. What deserves a record][§1 What deserves a record]]
+- [[file:07_architecture-decision-records.org::*2. Anatomy of a record][§2 Anatomy of a record]]
+- [[file:07_architecture-decision-records.org::*3. Writing the sections well][§3 Writing the sections well]]
+- [[file:07_architecture-decision-records.org::*5. Process: how a decision gets made][§5 Process: how a decision gets made]]
+- [[file:07_architecture-decision-records.org::*6. Worked examples][§6 Worked examples]]
+- [[file:07_architecture-decision-records.org::*7. Anti-patterns][§7 Anti-patterns]]
+- [[file:07_architecture-decision-records.org::*8. Documenting architecture beyond decisions][§8 Documenting architecture beyond decisions]]
+
+Practice:
+- Write an ADR for a recent decision with at least three real alternatives and the negative consequences.
+- Set up an ADR directory, template, and pull-request checklist in a repository.
+- Answer the questions in [[file:07_architecture-decision-records.org::*10. Self-check][the self-check section]] without notes, then do the exercises that fit your work.
+
+*** 08: evolutionary-architecture
+File: [[file:08_evolutionary-architecture.org][08_evolutionary-architecture]]
+
+Fitness functions, strangler fig, branch by abstraction, parallel change, data migration, compatibility, planning long migrations, and organizational evolution.
+
+After this file you should be able to: Make architecture changeable and defended by automated checks, and lead migrations to completion.
+
+Key sections:
+- [[file:08_evolutionary-architecture.org::*1. What evolutionary architecture means][§1 What evolutionary architecture means]]
+- [[file:08_evolutionary-architecture.org::*2. Fitness functions][§2 Fitness functions]]
+- [[file:08_evolutionary-architecture.org::*3. Incremental migration strategies][§3 Incremental migration strategies]]
+- [[file:08_evolutionary-architecture.org::*4. Migrating data][§4 Migrating data]]
+- [[file:08_evolutionary-architecture.org::*6. Planning a long migration][§6 Planning a long migration]]
+- [[file:08_evolutionary-architecture.org::*8. Organizational evolution][§8 Organizational evolution]]
+- [[file:08_evolutionary-architecture.org::*9. Detecting drift and erosion][§9 Detecting drift and erosion]]
+
+Practice:
+- Add one dependency-rule fitness function to CI with a ratchet baseline.
+- Plan a strangler migration of one capability, including rollback and decommission criteria.
+- Answer the questions in [[file:08_evolutionary-architecture.org::*11. Self-check][the self-check section]] without notes, then do the exercises that fit your work.
+
+*** 09: technical-debt
+File: [[file:09_technical-debt.org][09_technical-debt]]
+
+Principal and interest, architecture debt, debt registers, evidence, prioritization, reduction strategies, deliberate debt, and communicating with the business.
+
+After this file you should be able to: Separate real debt from preferences, estimate payback, prioritize by interest, and argue the case in business terms.
+
+Key sections:
+- [[file:09_technical-debt.org::*1. What technical debt is][§1 What technical debt is]]
+- [[file:09_technical-debt.org::*2. Principal and interest][§2 Principal and interest]]
+- [[file:09_technical-debt.org::*4. Making debt visible and measuring it][§4 Making debt visible and measuring it]]
+- [[file:09_technical-debt.org::*5. Prioritization][§5 Prioritization]]
+- [[file:09_technical-debt.org::*6. Strategies for reducing debt][§6 Strategies for reducing debt]]
+- [[file:09_technical-debt.org::*7. Taking on debt deliberately][§7 Taking on debt deliberately]]
+- [[file:09_technical-debt.org::*8. Communicating with product and business][§8 Communicating with product and business]]
+
+Practice:
+- Build a debt register for one system with ranges and evidence, and rank the top five.
+- Run a hotspot analysis (change frequency against complexity) and compare it with the team's perception.
+- Answer the questions in [[file:09_technical-debt.org::*11. Self-check][the self-check section]] without notes, then do the exercises that fit your work.
+
+*** 10: architecture-review
+File: [[file:10_architecture-review.org][10_architecture-review]]
+
+Review types and tiers, preparing a reviewable design, the reviewer's method, risk identification, evaluating alternatives, feedback and approval, process design, and checklists.
+
+After this file you should be able to: Review designs efficiently, surface risks with evidence, reach clear decisions, and scale reviews with guardrails.
+
+Key sections:
+- [[file:10_architecture-review.org::*1. Kinds of reviews][§1 Kinds of reviews]]
+- [[file:10_architecture-review.org::*2. Preparing a design for review (the author)][§2 Preparing a design for review (the author)]]
+- [[file:10_architecture-review.org::*3. The reviewer's method][§3 The reviewer's method]]
+- [[file:10_architecture-review.org::*4. Identifying and recording risks][§4 Identifying and recording risks]]
+- [[file:10_architecture-review.org::*6. Giving feedback and reaching approval][§6 Giving feedback and reaching approval]]
+- [[file:10_architecture-review.org::*7. Running the process][§7 Running the process]]
+- [[file:10_architecture-review.org::*9. Checklists][§9 Checklists]]
+
+Practice:
+- Review a short design with the ten-question checklist, writing comments with severity labels.
+- Run a pre-mortem on an upcoming project and turn the top causes into plan changes.
+- Answer the questions in [[file:10_architecture-review.org::*11. Self-check][the self-check section]] without notes, then do the exercises that fit your work.
+
+** Capstone projects
+Each project integrates several files. Do at least one with a real system.
+*** A decision pack for a real system
+Pick a system you know and produce: a utility tree with scenarios and measures; five ADRs (including at least one rejected alternative that you now regret or endorse); two fitness functions; a debt register with ranges; and a review checklist tailored to it. Present it to a skeptical colleague and record the objections.
+
+Files exercised: [[file:06_quality-attributes-and-tradeoffs.org][06_quality-attributes-and-tradeoffs]], [[file:07_architecture-decision-records.org][07_architecture-decision-records]], [[file:08_evolutionary-architecture.org][08_evolutionary-architecture]], [[file:09_technical-debt.org][09_technical-debt]], [[file:10_architecture-review.org][10_architecture-review]].
+
+*** A migration plan from monolith to modular services
+Design the migration of a real or realistic monolith: boundaries from change coupling, the first three extractions with seams and data ownership, the strangler routing, data synchronization and cutover steps, compatibility rules, progress measures, rollback points, and the decommissioning date. Write the ADRs and the review document.
+
+Files exercised: [[file:02_modularity-and-boundaries.org][02_modularity-and-boundaries]], [[file:01_architectural-styles.org][01_architectural-styles]], [[file:05_architectural-patterns.org][05_architectural-patterns]], [[file:08_evolutionary-architecture.org][08_evolutionary-architecture]], [[file:04_abstraction-and-interfaces.org][04_abstraction-and-interfaces]], [[file:07_architecture-decision-records.org][07_architecture-decision-records]].
+
+*** A design review practice
+Define tiers, triggers, a design-document template, roles, and approval criteria for your organization; run three reviews with it; measure time in review and rework; revise the process; and write the retrospective.
+
+Files exercised: [[file:10_architecture-review.org][10_architecture-review]], [[file:07_architecture-decision-records.org][07_architecture-decision-records]], [[file:06_quality-attributes-and-tradeoffs.org][06_quality-attributes-and-tradeoffs]], [[file:09_technical-debt.org][09_technical-debt]].
+
+** Using the notes in daily work
+| When you are...                                      | Open |
+|------------------------------------------------------+------|
+| choosing a system style or deciding to split a service | [[file:01_architectural-styles.org::*9. Choosing a style: a decision framework][01_architectural-styles §9]] |
+| deciding where a module or team boundary should be | [[file:02_modularity-and-boundaries.org::*2. Decomposition strategies][02_modularity-and-boundaries §2]] |
+| reviewing a pull request that adds a dependency | [[file:03_coupling-and-cohesion.org::*5. A balance model: strength, distance, volatility][03_coupling-and-cohesion §5]] |
+| designing or changing a public API | [[file:04_abstraction-and-interfaces.org::*5. Stability and evolution of interfaces][04_abstraction-and-interfaces §5]] |
+| tempted to adopt CQRS, event sourcing, or sagas | [[file:05_architectural-patterns.org::*8. Choosing patterns][05_architectural-patterns §8]] |
+| turning vague requirements into measurable targets | [[file:06_quality-attributes-and-tradeoffs.org::*1. Quality attributes and how to specify them][06_quality-attributes-and-tradeoffs §1]] |
+| writing the record of an important decision | [[file:07_architecture-decision-records.org::*2. Anatomy of a record][07_architecture-decision-records §2]] |
+| planning a multi-quarter migration | [[file:08_evolutionary-architecture.org::*6. Planning a long migration][08_evolutionary-architecture §6]] |
+| asking for time to fix technical debt | [[file:09_technical-debt.org::*8. Communicating with product and business][09_technical-debt §8]] |
+| preparing or giving a design review | [[file:10_architecture-review.org::*3. The reviewer's method][10_architecture-review §3]] |
+
+** Find it fast
+| I want...                                  | Go to |
+|--------------------------------------------+-------|
+| Should we split this into microservices? | [[file:01_architectural-styles.org::*9. Choosing a style: a decision framework][01_architectural-styles §9]] |
+| What does a modular monolith need to be real? | [[file:01_architectural-styles.org::*3. The modular monolith][01_architectural-styles §3]] |
+| Distributed monolith warning signs | [[file:01_architectural-styles.org::*10. Failure modes and anti-patterns][01_architectural-styles §10]] |
+| Where should a boundary go? | [[file:02_modularity-and-boundaries.org::*2. Decomposition strategies][02_modularity-and-boundaries §2]] |
+| Context mapping patterns | [[file:02_modularity-and-boundaries.org::*4. Bounded contexts][02_modularity-and-boundaries §4]] |
+| Finding boundaries in an existing system | [[file:02_modularity-and-boundaries.org::*10. Finding boundaries in an existing system][02_modularity-and-boundaries §10]] |
+| Naming the kind of coupling (connascence) | [[file:03_coupling-and-cohesion.org::*2. Connascence: a common vocabulary][03_coupling-and-cohesion §2]] |
+| Strength, distance, and volatility | [[file:03_coupling-and-cohesion.org::*5. A balance model: strength, distance, volatility][03_coupling-and-cohesion §5]] |
+| Breaking dependency cycles | [[file:03_coupling-and-cohesion.org::*7. Cyclic dependencies][03_coupling-and-cohesion §7]] |
+| Evolving an API without breaking consumers | [[file:04_abstraction-and-interfaces.org::*5. Stability and evolution of interfaces][04_abstraction-and-interfaces §5]] |
+| What an interface contract must cover | [[file:04_abstraction-and-interfaces.org::*3. Contracts][04_abstraction-and-interfaces §3]] |
+| Two services must change atomically | [[file:05_architectural-patterns.org::*4. Messaging and consistency patterns][05_architectural-patterns §4]] |
+| CQRS versus event sourcing: use and avoid | [[file:05_architectural-patterns.org::*8. Choosing patterns][05_architectural-patterns §8]] |
+| Hexagonal architecture | [[file:05_architectural-patterns.org::*1. Layered, onion, clean, and hexagonal architectures][05_architectural-patterns §1]] |
+| Writing a quality attribute scenario | [[file:06_quality-attributes-and-tradeoffs.org::*1. Quality attributes and how to specify them][06_quality-attributes-and-tradeoffs §1]] |
+| Availability numbers and composition | [[file:06_quality-attributes-and-tradeoffs.org::*3. Availability and reliability][06_quality-attributes-and-tradeoffs §3]] |
+| Quantified trade-off examples | [[file:06_quality-attributes-and-tradeoffs.org::*9. Quantifying: worked examples][06_quality-attributes-and-tradeoffs §9]] |
+| ADR template and sections | [[file:07_architecture-decision-records.org::*2. Anatomy of a record][07_architecture-decision-records §2]] |
+| Which decisions deserve an ADR | [[file:07_architecture-decision-records.org::*1. What deserves a record][07_architecture-decision-records §1]] |
+| Fitness functions | [[file:08_evolutionary-architecture.org::*2. Fitness functions][08_evolutionary-architecture §2]] |
+| Strangler fig and other migration strategies | [[file:08_evolutionary-architecture.org::*3. Incremental migration strategies][08_evolutionary-architecture §3]] |
+| Migrating data safely | [[file:08_evolutionary-architecture.org::*4. Migrating data][08_evolutionary-architecture §4]] |
+| Estimating the payback of paying down debt | [[file:09_technical-debt.org::*2. Principal and interest][09_technical-debt §2]] |
+| Prioritizing debt | [[file:09_technical-debt.org::*5. Prioritization][09_technical-debt §5]] |
+| Explaining debt to product and business | [[file:09_technical-debt.org::*8. Communicating with product and business][09_technical-debt §8]] |
+| A design document template for review | [[file:10_architecture-review.org::*2. Preparing a design for review (the author)][10_architecture-review §2]] |
+| Review question bank | [[file:10_architecture-review.org::*3. The reviewer's method][10_architecture-review §3]] |
+| Review checklists | [[file:10_architecture-review.org::*9. Checklists][10_architecture-review §9]] |
+
+** A checklist of Staff-level architectural judgment
+Rate yourself honestly; the items are skills, not facts.
+- [ ] I derive architecture from forces and evidence, and I can say which forces I am ignoring and why.
+- [ ] I choose boundaries by capability, volatility, ownership, and data, and I choose their strength deliberately.
+- [ ] I can name the kind of coupling in a design and weigh it by strength, distance, and volatility.
+- [ ] I design interfaces as contracts with semantics, failure behavior, and a deprecation policy, and I evolve them compatibly.
+- [ ] I can tell when a pattern earns its complexity, and I write down when not to use it.
+- [ ] I turn quality requirements into measurable scenarios, quantify trade-offs, and make risk owners explicit.
+- [ ] I record significant decisions with alternatives and consequences, with revisit triggers.
+- [ ] I plan migrations in reversible slices with measured progress and a finish line, and I guard the architecture with automated checks.
+- [ ] I treat debt as an economic decision, and I can make the case to product and business in their language.
+- [ ] I run reviews that find real risks quickly, scale through tiers and guardrails, and close the loop.
+
+** Companions in the Foundations folder
+Cross-references from these files point to the following material (paths relative to the repository root):
+- [[file:../Foundations/04_complexity.org][Foundations: 04_complexity.org]]: cost models, queueing intuition, NP-hardness in disguise.
+- [[file:../Foundations/05_data-structures.org][Foundations: 05_data-structures.org]]: indexes, storage engines, B-tree versus LSM-tree.
+- [[file:../Foundations/08_paradigms.org][Foundations: 08_paradigms.org]]: language and paradigm selection axes.
+- [[file:../Foundations/10_type-systems.org][Foundations: 10_type-systems.org]]: making illegal states unrepresentable; API design with types.
+- [[file:../Foundations/11_memory-management.org][Foundations: 11_memory-management.org]]: memory limits, garbage collection, leak diagnosis.
+- [[file:../Foundations/12_concurrency.org][Foundations: 12_concurrency.org]]: consistency models, consensus, failure models, Little's law, overload behavior.
+
+** Sources used
+The notes synthesize widely used books, papers, and public documentation, and point to them. They paraphrase; they do not reproduce.
+| Area | Source | Link |
+|------+--------+------|
+| Styles | Lewis, Fowler: Microservices | [[https://martinfowler.com/articles/microservices.html][link]] |
+| Styles | Fowler: MonolithFirst | [[https://martinfowler.com/bliki/MonolithFirst.html][link]] |
+| Boundaries | Fowler: Bounded Context | [[https://martinfowler.com/bliki/BoundedContext.html][link]] |
+| Boundaries | Conway: How Do Committees Invent? | [[http://www.melconway.com/Home/Committees_Paper.html][link]] |
+| Teams | Skelton, Pais: Team Topologies | [[https://teamtopologies.com][link]] |
+| Coupling | Connascence catalog | [[https://connascence.io][link]] |
+| Interfaces | Google API Improvement Proposals | [[https://google.aip.dev][link]] |
+| Interfaces | Semantic Versioning | [[https://semver.org][link]] |
+| Interfaces | Pact documentation (consumer-driven contracts) | [[https://docs.pact.io][link]] |
+| Patterns | Cockburn: Hexagonal Architecture | [[https://alistair.cockburn.us/hexagonal-architecture/][link]] |
+| Patterns | Fowler: CQRS | [[https://martinfowler.com/bliki/CQRS.html][link]] |
+| Patterns | Fowler: Event Sourcing | [[https://martinfowler.com/eaaDev/EventSourcing.html][link]] |
+| Patterns | Fowler: Strangler Fig Application | [[https://martinfowler.com/bliki/StranglerFigApplication.html][link]] |
+| Patterns | Richardson: microservices.io patterns | [[https://microservices.io/patterns/index.html][link]] |
+| Patterns | Hohpe, Woolf: Enterprise Integration Patterns | [[https://www.enterpriseintegrationpatterns.com][link]] |
+| Patterns | Azure Architecture Center: cloud design patterns | [[https://learn.microsoft.com/en-us/azure/architecture/patterns/][link]] |
+| Quality | Google SRE books | [[https://sre.google/books/][link]] |
+| Quality | AWS Well-Architected Framework | [[https://aws.amazon.com/architecture/well-architected/][link]] |
+| Quality | DORA research | [[https://dora.dev][link]] |
+| Decisions | Nygard: Documenting Architecture Decisions | [[https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions][link]] |
+| Decisions | ADR community site and MADR | [[https://adr.github.io][link]] |
+| Decisions | Curated ADR templates and examples | [[https://github.com/joelparkerhenderson/architecture_decision_record][link]] |
+| Documentation | C4 model | [[https://c4model.com][link]] |
+| Documentation | arc42 template | [[https://arc42.org][link]] |
+| Debt | Fowler: Technical Debt | [[https://martinfowler.com/bliki/TechnicalDebt.html][link]] |
+| Debt | Fowler: Technical Debt Quadrant | [[https://martinfowler.com/bliki/TechnicalDebtQuadrant.html][link]] |
+| Review | SRE book: launch checklist | [[https://sre.google/sre-book/launch-checklist/][link]] |
+| Career | StaffEng guides | [[https://staffeng.com/guides/][link]] |
+
+Books recommended without links (Bass, Clements, Kazman; Richards and Ford; Evans; Vernon; Martin; Ousterhout; Ford, Parsons, Kua; Kleppmann; Newman; Nygard's /Release It!/; Harmel-Law; Feathers; Tornhill; Kruchten, Nord, Ozkaya; and others) were not checked for free copies; borrow or buy them.
+
+** Provenance and limits
+- The files synthesize the standard literature on software architecture and public documentation from the sources above. They are written at the level of an informed practitioner's notes, and where research or practice is contested (microservices sizing, event sourcing trade-offs, the value of fitness functions in particular contexts), the notes say so.
+- The links in this folder were collected from established, well-known locations and were not re-verified one by one when the files were written; confirm a link before relying on it, and prefer the primary source over the summary.
+- Code snippets (TypeScript, Java, SQL, protobuf, configuration) are illustrative and were not compiled or run. Numerical examples (availability, capacity, latency) are worked models with stated assumptions, not measurements.
+- Architecture is contextual. Treat the heuristics as hypotheses to test against your constraints; when a note contradicts your evidence, trust the evidence and fix the note.

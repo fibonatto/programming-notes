@@ -1,0 +1,153 @@
+#+title: Technical Debt
+#+startup: overview
+
+* Technical Debt
+** 0. Staff-level lens
+Technical debt is the most abused metaphor in software and one of the most useful when treated as an economic model. At Staff and Principal scope you are expected to:
+- separate real debt (a conscious or discovered trade-off that charges ongoing interest) from plain defects, risks, and taste;
+- estimate principal and interest well enough to prioritize and to argue with product and finance in their language;
+- decide when to pay down, when to contain, when to live with it, and when to write it off;
+- take on debt deliberately, with a repayment trigger, when speed has real value;
+- make debt visible and keep the conversation honest on both sides.
+Companion files: =03_coupling-and-cohesion.org= (the main source of interest), =06_quality-attributes-and-tradeoffs.org=, =07_architecture-decision-records.org= (recording deliberate debt), =08_evolutionary-architecture.org= (paying it down incrementally), and =10_architecture-review.org=.
+
+** 1. What technical debt is
+- *Origin*: Ward Cunningham introduced the metaphor in the early 1990s to explain why shipping code that reflects an incomplete understanding of the problem can be sensible, provided you go back and refactor as your understanding improves; unpaid, it accrues interest in the form of slower and riskier change. Notably, the original meaning was about /learning/ and was not an excuse for sloppy code.
+- *Common drift*: "technical debt" now often means "any code I dislike". That makes the term useless. A useful test: does it impose a recurring cost on future work (interest) and would fixing it have a cost (principal)? If neither, it is not debt; it is a preference, a defect, or a risk.
+- *Fowler's technical debt quadrant* classifies by intent and prudence: deliberate-prudent ("we must ship now and will deal with the consequences, here is the plan"), deliberate-reckless ("we do not have time for design"), inadvertent-prudent ("now we know how we should have built it"), and inadvertent-reckless ("what is layering?"). Prudent debt is a normal cost of learning; reckless debt is a management and skills problem.
+- *Kinds of debt* worth distinguishing: code and design debt; /architecture debt/ (wrong boundaries, cycles, shared databases, missing abstractions or accidental ones); test debt (missing or flaky tests); documentation and knowledge debt (undocumented decisions, a single person who knows); dependency and platform debt (outdated libraries, end-of-life runtimes); infrastructure and operations debt (manual deployment, no observability); data debt (inconsistent schemas, unmigrated formats); security debt (known unpatched weaknesses); process and organizational debt (unclear ownership).
+- *Not debt*: a defect (the code is wrong now; fix it), a missing feature (scope decision), a risk with no ongoing cost (monitor it), a style disagreement, or a legacy system that works and is rarely touched.
+
+** 2. Principal and interest
+- *Principal*: the cost to remove the debt (effort, risk, opportunity cost).
+- *Interest*: the ongoing extra cost of living with it: slower changes, more bugs and incidents, more coordination, higher cognitive load, slower onboarding, and lost options. Interest is paid on every change that touches the affected area, not on a calendar.
+- *Key insight*: the interest rate depends on how often the area changes and how many people work in it. Debt in code that is stable and rarely touched has near-zero interest; fixing it is usually a waste. Debt in a hotspot (frequent change, high complexity) charges heavily.
+- *A simple model*: interest per month is approximately (extra time per change) x (changes per month) x (people affected), plus the expected cost of incidents attributable to it. Payback time is principal divided by monthly interest. Example: a coupling problem adds about two hours to each change; the area gets 20 changes a month, so the interest is about 40 hours per month. Removing it costs about 120 hours; payback is about three months. That is an easy decision; a fix costing 1,200 hours with the same interest would need a different justification.
+- *Tail-risk debt*: some debt does not charge a steady rate but carries a probability of a large loss (unpatched security flaws, single points of failure, unrestorable backups, expiring certificates, end-of-life platforms). Evaluate it as expected loss (probability times impact), plus the cost of delay as the deadline approaches.
+- *Compounding*: debt interacts. Coupling makes tests harder, which raises fear, which slows refactoring, which grows coupling. The cost of delay for platform upgrades grows nonlinearly: skipping several major versions turns a routine upgrade into a migration project.
+- *Estimation honesty*: ranges, not false precision. Estimates of principal are often low; estimates of interest are often anecdotal. Collect evidence (section 4) and update.
+
+** 3. Architecture-level debt
+Architectural debt is the most expensive form because its principal is large and its interest is paid by many teams.
+- Cyclic dependencies and tangled modules (see =03_coupling-and-cohesion.org=).
+- Boundaries drawn in the wrong place; shared databases; one team's change requiring others'.
+- A god service or god module that every feature touches.
+- Missing abstractions (the same concept implemented in several ways) and accidental abstractions (generic frameworks that fit no case).
+- Obsolete technology choices: unsupported runtimes, abandoned frameworks, single-vendor lock-in that has become a liability.
+- Manual or fragile deployment, missing observability, no automated rollback.
+- Single points of failure and unclear ownership.
+- Inconsistent patterns across services (ten ways to authenticate, five logging formats) that tax every engineer who crosses teams.
+Treat these as system-level work with owners and measured goals; they are rarely fixed by individual refactoring.
+
+** 4. Making debt visible and measuring it
+- *A debt register (ledger)*: one list, owned by the engineering leads, of significant items. For each: description, area, why it exists (the original trade-off), the observed impact (evidence), estimated principal (a range), estimated interest, risk (probability and impact), the trigger or deadline that makes it urgent, proposed remediation, owner, and links to incidents, tickets, and ADRs. Keep it short enough to review; archive resolved items.
+- *Evidence sources*:
+  - *Hotspots*: files and modules with both high change frequency and high complexity (Tornhill); combine version-control churn with a complexity measure. A simple churn count: list files by the number of commits that touched them.
+  - *Change coupling*: files that change together across modules.
+  - *Delivery metrics by area or team*: lead time, deployment frequency, change failure rate, time to restore (DORA); where they are worst, ask why.
+  - *Incident and postmortem tags*: recurring causes and the components they implicate.
+  - *Developer friction*: surveys and interviews ("what slows you down most?"), onboarding time, bus factor, time spent in builds and flaky tests.
+  - *Static analysis and "debt ratio" tools*: useful as signals for hotspots and dependency problems; their "hours of debt" outputs are rough guesses, not accounting.
+  - *Dependency age and vulnerability exposure* ("libyears", advisories, end-of-life dates).
+- *Pitfalls*: precision theater (a number with two decimals derived from rules of thumb); measuring only code metrics and missing process and architecture debt; metrics used to rank teams (they will be gamed); a register nobody reads.
+
+** 5. Prioritization
+Rank by the return on removing the interest, adjusted for risk and strategy.
+Criteria:
+- *Interest*: the observed cost per period, and how it will change (growth in team or traffic).
+- *Frequency of change* of the area, and who works there.
+- *Blast radius and risk*: the chance and cost of an incident, a security failure, a compliance finding.
+- *Cost and risk of the fix* (principal), including the risk of making things worse.
+- *Strategic alignment*: will this area change heavily soon (a new product line, a migration)? Fix debt on the path of upcoming work first; leave dead-end areas alone.
+- *Enablement*: does paying this unblock other work (a platform upgrade that unlocks a security fix, a boundary that lets a team deploy independently)?
+- *Opportunity*: you are touching the area anyway; the marginal cost of improving it is low.
+- *Deadlines*: end-of-life dates, certificate expiry, compliance deadlines.
+Tools: cost of delay divided by duration (CD3) to rank competing efforts; an impact versus effort grid for a first pass; a risk matrix for tail-risk items.
+Principles: stop the bleeding first (prevent new debt in the area), then pay down the highest-interest items; do not fix what nobody touches; prefer small, reversible steps that reduce interest early over a large project that pays off at the end.
+
+** 6. Strategies for reducing debt
+1. *Opportunistic refactoring ("leave it better")*: improve the code you touch as part of feature work, with tests; the cheapest repayment, effective for local debt, and ineffective against architecture debt because no single change is big enough.
+2. *Reserved capacity*: allocate a fixed share of each team's capacity (teams often use a range such as 10 to 25 percent; the right share comes from measured interest) to debt, chosen by the register and by the team's own pain. Frame it as a standing investment policy, not a heroic cleanup.
+3. *Targeted projects*: bounded efforts with a measurable result (remove a framework, split a module, retire a library) that are justified by interest and aligned with product goals; include the metric that should improve (lead time in that area, incident count, build time).
+4. *Incremental structural change*: apply the migration techniques in =08_evolutionary-architecture.org= (strangler, branch by abstraction, parallel change) so that payment occurs in shippable steps.
+5. *Containment*: if you cannot pay it now, reduce its interest by isolating it behind an interface or an anti-corruption layer so that it does not spread, and by documenting and testing its behavior.
+6. *Prevention*: definitions of done that include tests and documentation, code review standards, architecture fitness functions with ratchets, dependency update automation, templates and paved roads, ADRs that record deliberate shortcuts with repayment triggers.
+7. *Deletion and retirement*: the cheapest debt payment is removing code, features, services, and dependencies that no longer earn their keep; measure usage, then delete.
+8. *Write-off*: consciously accept some debt, record the decision and the reason, and stop spending attention on it.
+9. *Rewrite*: a last resort for a bounded component with a clear contract, an explicit migration, and a measurable benefit; rarely for whole systems.
+Always pair debt work with tests first; refactoring without a safety net is a source of new debt.
+
+** 7. Taking on debt deliberately
+Debt is a financing tool. It is rational when speed has real value (a market window, a regulatory deadline, a time-boxed experiment, learning that only production can provide) and when the interest is bounded and understood.
+Conditions for prudent debt:
+- Name the shortcut and the reason; record it in the ledger or an ADR with the owner.
+- Estimate the interest and the principal, and set a repayment trigger (a date, a usage threshold, a milestone such as "before onboarding the second customer").
+- *Contain it*: put it behind an interface, mark it in code, keep it out of the core, and make it reversible.
+- *Never take on tail-risk debt silently* (security, data integrity, compliance); such debt needs the explicit acceptance of the person who owns the risk.
+- *Prototypes are not products*: decide at the start whether the prototype will be discarded, and enforce it; the most expensive debt is a throwaway promoted to production.
+- Make the expiry visible to product management; a shortcut with a hidden deadline becomes permanent.
+
+** 8. Communicating with product and business
+Technical debt conversations fail when engineers argue for "quality" and the business hears "gold plating".
+- *Speak outcomes*: delivery speed, reliability, customer-visible defects, security exposure, cost, and the options the business loses. "This module adds about two days to every change in checkout; we make 15 changes a quarter" lands better than "the code is bad".
+- *Bring evidence*: lead-time charts by area, incident counts and costs, the register with estimates, comparisons of similar features before and after.
+- *Offer options with costs*: do nothing (interest continues, risks listed); contain; pay down partially; pay down fully. Include the effect on the roadmap of each.
+- *Propose bounded investments*: a defined scope, a measurable outcome, a time box, and exit criteria; report results.
+- *Use shared language*: principal, interest, risk, cost of delay, and, where appropriate, the same prioritization framework product uses.
+- *Make the trade-off the business's decision where it is a business trade-off*: engineers inform; the accountable owner decides how much speed to buy with how much debt. Document the decision.
+- *Show wins*: when debt work pays off (faster releases, fewer incidents), say so with numbers; credibility compounds.
+- *Align with goals* (objectives and key results): link debt items to goals that leadership already cares about (reliability targets, time to market, security posture).
+
+** 9. Dynamics and failure spirals
+- *Death spiral*: debt slows delivery; pressure grows; more shortcuts are taken; debt grows faster; the best engineers leave; knowledge is lost; the remaining team takes more shortcuts.
+- *Broken windows*: visible neglect lowers the standard; people stop caring about new mess.
+- *Knowledge decay*: undocumented decisions and departing people turn working code into untouchable code.
+- *Platform drift*: dependencies, certificates, cloud APIs, and security patches age on their own schedule; the cost of catching up grows the longer you wait.
+- *Doing nothing has a price*: it is a decision to keep paying interest; make it explicitly.
+- *Cultural levers*: reward prevention and deletion, make quality visible, protect capacity from permanent crisis mode, and let teams push back on shortcuts with data.
+
+** 10. Anti-patterns
+- Calling every flaw "debt", so the register fills with preferences and nothing gets prioritized.
+- A "zero debt" mandate: unrealistic and wasteful; some debt is optimal.
+- Refactoring for aesthetics in code that never changes.
+- A debt register as a graveyard: items added, none removed, no owner.
+- Large debt-only "sprints" with no outcome measures, followed by relapse because the causes were not addressed.
+- Rewriting instead of incrementally improving, with the same debt reappearing in the new system.
+- Hiding debt from stakeholders, then being surprised by the interest.
+- Measuring only code-level metrics and ignoring process, architecture, and knowledge debt.
+- Paying debt without tests, creating new defects.
+- Treating the metaphor literally (debt must always be repaid), when deletion or write-off may be right.
+
+** 11. Self-check
+1. For a piece of "technical debt" in your system, state the original trade-off, the principal range, the observed interest, and the evidence for each.
+2. Why is debt in rarely changed code usually not worth paying? What would change your mind?
+3. A security library is three major versions behind. Explain how the cost of delay grows and how you would present the case.
+4. How would you decide the share of team capacity to reserve for debt, and how would you adjust it?
+5. A product manager says "ship now, we will clean up later". What conditions do you attach to make that prudent debt?
+6. Which of these is debt, and which is something else: a known race condition; a missing feature; an outdated runtime six months from end of life; code written in a style you dislike?
+
+** 12. Exercises
+- Warm-up: list ten items that your team calls technical debt; classify each (debt, defect, risk, preference) and drop the ones that are not debt.
+- Core: build a debt register for one system with ranges for principal and interest and the evidence you used; rank the top five.
+- Core: run a hotspot analysis (for example commit counts per file crossed with a complexity measure) and compare the result with the team's perception of the worst code.
+- Core: estimate the payback period for three remediation options and prepare a one-page proposal for the product owner.
+- Stretch: define a debt policy for a team: what is recorded, who decides, the capacity share, the review cadence, and the rules for taking on deliberate debt.
+- Stretch: run a retrospective on a past shortcut: what was the interest actually, when was it repaid, and what would you have done differently?
+
+** 13. Resources
+- Cunningham, /The WyCash Portfolio Management System/ (OOPSLA 1992 experience report, origin of the debt metaphor) and his later talks clarifying the metaphor.
+- Fowler, /Technical Debt/ and /Technical Debt Quadrant/: https://martinfowler.com/bliki/TechnicalDebt.html and https://martinfowler.com/bliki/TechnicalDebtQuadrant.html
+- Kruchten, Nord, Ozkaya, /Managing Technical Debt: Reducing Friction in Software Development/.
+- Tornhill, /Software Design X-Rays/ (hotspots, change coupling, prioritizing by behavior).
+- Ousterhout, /A Philosophy of Software Design/ (strategic versus tactical programming: investing in design); Fowler, /Refactoring/; Feathers, /Working Effectively with Legacy Code/.
+- Forsgren, Humble, Kim, /Accelerate/ and the DORA research: https://dora.dev
+- Reinertsen, /The Principles of Product Development Flow/ (cost of delay and prioritization).
+- StaffEng guides on managing technical quality and building the case for investment: https://staffeng.com/guides/
+
+** What to remember
+- Debt is a trade-off with principal and interest; if it has neither, it is not debt.
+- Interest depends on how often the area changes: pay down hotspots, ignore the dead ends.
+- Architecture debt is the costliest; fix it incrementally with measurable goals.
+- Take on debt only deliberately, with a contained scope, an owner, and a repayment trigger.
+- Talk to the business in outcomes, evidence, and options; let the accountable owner decide.
+- Prevent, contain, delete, and write off, as well as pay down.

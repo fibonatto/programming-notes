@@ -1,0 +1,140 @@
+#+title: Abstraction and Interfaces
+#+startup: overview
+
+* Abstraction and Interfaces
+** 0. Staff-level lens
+Interfaces are the points where independent change becomes possible, and the points where independent change becomes dangerous. At Staff and Principal scope you are expected to:
+- design interfaces that hide the right decisions, are small enough to keep stable, and are expressive enough to be useful;
+- treat an interface as a contract with semantics, failure behavior, and lifecycle, not just a set of signatures;
+- evolve interfaces without breaking consumers you cannot see, and know the cost of each compatibility promise;
+- resist both under-abstraction (leaking internals) and over-abstraction (speculative indirection);
+- understand that for a team, an API is a product with users, support obligations, and a roadmap.
+Companion files: =02_modularity-and-boundaries.org= (where interfaces sit), =03_coupling-and-cohesion.org= (what they weaken), =05_architectural-patterns.org= (ports and adapters), and =08_evolutionary-architecture.org= (compatibility during migrations).
+
+** 1. Abstraction and its cost
+An abstraction hides detail to let you reason at a higher level. Done well, it creates a new vocabulary in which statements can be precise. Done badly, it is vagueness or a layer of pass-through code.
+- *Deep modules* (Ousterhout): a simple interface that hides substantial functionality. They reduce complexity for callers. *Shallow modules* have an interface nearly as complex as their implementation (pass-through methods, thin wrappers); they add concepts without hiding anything.
+- *Costs*: indirection (harder to follow), more concepts to learn, performance overhead, and the risk of freezing a wrong decomposition.
+- *Leaky abstractions* (Spolsky): non-trivial abstractions leak details of what they hide (ORMs and SQL performance, virtual memory and thrashing, network file systems and latency). The consequence is that using an abstraction well requires knowing the layer below, at least in outline, and that abstractions should leak /predictably/ and /documentedly/.
+- *Abstraction level consistency*: a function or module should operate at one level of abstraction; mixing levels (business rules and byte manipulation) signals a missing layer.
+- *Abstract over what varies*: if two implementations do not exist and none is imminent, an interface is speculation. Interfaces created only to enable mocking are a smell that the design needs a different seam.
+
+** 2. Information hiding
+Parnas's principle: each module hides a design decision, especially one likely to change, behind an interface that does not reveal it. Callers depend on what the module promises, not on how it keeps the promise.
+- *What to hide*: data representation, algorithms, storage technology, third-party libraries, protocols, ordering and timing decisions, error-recovery strategies.
+- *What to expose*: the minimum needed to use the module correctly, in the domain's vocabulary.
+- *Tests of good hiding*: you can replace the implementation without touching callers; callers cannot observe which implementation is in use (within the contract); the interface survives a change of storage or vendor.
+- *Encapsulation of state*: expose behavior, not mutable data structures; return immutable or copied values, or narrow views.
+- *Exceptions*: hiding performance characteristics completely is impossible; callers need to know the cost model (is this call O(1) or a network round trip?). State it in the contract.
+
+** 3. Contracts
+An interface specification is more than types. A usable contract covers:
+- *Preconditions and postconditions* and *invariants* (Meyer's design by contract): what the caller must ensure, what the callee guarantees, what is always true of the object.
+- *Behavioral substitutability* (Liskov): any implementation must honor the contract of the interface; a subtype may accept more and promise more, never less. This is the real meaning of "implements the interface".
+- *Error model*: which errors can occur, which are retryable, which are programmer errors, how they are reported (types, codes, exceptions), what state remains after a failure.
+- *Idempotency and retry semantics*: can the operation be repeated safely? Is there an idempotency key?
+- *Ordering and concurrency*: are calls ordered? Is the object thread-safe? What happens on concurrent updates (last write wins, optimistic concurrency with versions)?
+- *Time*: timeouts, deadlines, cancellation, rate limits, expected latency (as a service level objective).
+- *Resource ownership*: who frees, closes, or retains what; lifetime of returned handles.
+- *Data semantics*: units, encodings, time zones, null versus absent, precision, ordering of lists.
+- *What is not promised*: explicitly say what callers must not rely on (iteration order, error message text, internal timing).
+*Hyrum's law*: with enough users of an interface, every observable behavior, whether promised or not, will be depended on by somebody. Consequences: assume your implementation details become contracts; deliberately randomize or vary what you do not promise (such as iteration order); and treat observable behavior changes as potentially breaking.
+
+** 4. Designing good interfaces
+- *Minimal surface*: it is easy to add to an interface and nearly impossible to remove. Start small; expose only what a real consumer needs.
+- *Design from the consumer's side*: write the calling code first, then the signatures; use consumer-driven requirements.
+- *Domain language*: names from the ubiquitous language of the bounded context, not from the database or framework.
+- *Make misuse hard*: types that prevent invalid combinations, required parameters explicit, safe defaults, separate operations for different intentions instead of flags and modes (see the type-systems notes in Foundations).
+- *Orthogonality and composability*: small operations that combine, instead of one large operation with many options.
+- *Granularity*: chatty interfaces (many small calls) multiply latency and failure points; chunky interfaces (one big call) couple callers to a shape and waste data. For remote interfaces, offer operations that match use cases, support batching and field selection where needed, and avoid forcing N+1 call patterns.
+- *Consistency*: the same concept named and modeled the same way everywhere; uniform errors, pagination, filtering, and identifiers.
+- *Remote interface specifics*: pagination (cursor-based for large or changing sets), idempotency keys for creates, bulk operations with partial-failure reporting, long-running operations as resources with status, streaming for large or unbounded results, explicit rate limits, and timeouts and cancellation on every call.
+- *Style choices* (resource-oriented HTTP APIs, RPC, GraphQL, event streams): each fits different needs. RPC fits internal, typed, performance-sensitive calls; resource-oriented HTTP fits broad public consumption and caching; GraphQL fits clients with diverse data needs at the cost of server-side complexity (query cost, caching, authorization per field); events fit decoupled notification. Choose by consumer needs and operational constraints, not preference.
+- *Synchronous versus asynchronous*: an asynchronous interface is more decoupled but harder to use; expose a synchronous facade only if the latency allows it.
+
+** 5. Stability and evolution of interfaces
+Interfaces outlive implementations, so plan for change from the start.
+*Kinds of compatibility*:
+- *Source compatibility*: existing code recompiles. *Binary (ABI) compatibility*: existing compiled code still links and runs. *Wire/protocol compatibility*: old and new peers can exchange messages. *Schema/data compatibility*: stored data remains readable. *Behavioral (semantic) compatibility*: the meaning of operations is unchanged. A change can preserve one and break another.
+- *Backward compatibility*: a new version still works with existing clients, consumers, and stored data. *Forward compatibility*: an old version tolerates input from a newer one (for example by ignoring unknown fields). Rolling deployments, mobile clients, and long-lived data require both.
+
+*Practices*:
+- *Additive change by default*: add optional fields, new operations, and new enum values (with consumers prepared for unknown values); do not change the meaning, type, or optionality of existing ones.
+- *Tolerant reader*: consumers ignore fields they do not understand and validate only what they use. (The older "be liberal in what you accept" maxim, applied indiscriminately, leads to protocol decay and security issues; be tolerant of extensions, strict about the data you act on.)
+- *Never reuse identifiers*: removed field numbers, error codes, and endpoint names must stay retired. Protocol Buffers makes this explicit:
+#+begin_src text
+message Order {
+  string id = 1;
+  reserved 2;               // formerly status_code; never reuse this number
+  reserved "status_code";
+  string status = 3;
+}
+#+end_src
+- *Parallel change (expand, migrate, contract)*: add the new form beside the old, migrate consumers, then remove the old one after measuring that nobody uses it.
+- *Deprecation policy*: announce, document the replacement, give a defined window, emit warnings or telemetry, track remaining consumers, and then remove. A policy you do not enforce is not a policy.
+- *Versioning strategies*: version in the URL, in a header, or by content negotiation; or avoid explicit major versions through strictly additive evolution with date-based or capability-based negotiation (some providers do this). Whatever the scheme, define what constitutes a breaking change and who decides.
+- *Semantic versioning* communicates intent for libraries (major for breaking, minor for additive, patch for fixes) but cannot detect semantic breakage by itself; combine it with compatibility tests.
+- *Tooling*: schema registries with compatibility checks on publish, API diff tools in CI that flag breaking changes, contract tests (consumer-driven contracts) that verify providers against consumers' expectations, and consumer inventory through telemetry.
+- *Consumer visibility*: you cannot deprecate what you cannot see. Require API keys or client identification, log usage per consumer, and keep an owner for each integration.
+- *Cost of promises*: the more consumers and the longer-lived the interface, the stronger the compatibility promise must be, and the more expensive each mistake. Keep internal interfaces internal, and make public ones deliberate.
+
+** 6. Stability gradients and internal versus public interfaces
+- Put /stable/ abstractions at the center and /volatile/ details at the edges, and let the volatile depend on the stable (see the stable dependencies and stable abstractions principles in =02_modularity-and-boundaries.org=).
+- *Public API versus internal API*: mark and enforce the difference (language visibility, internal packages, separate artifacts). Anything reachable is eventually used.
+- *Open host service and published language*: when many consumers depend on you, publish a stable, documented, versioned interface and format instead of negotiating with each consumer.
+- *Platform interfaces as products*: documentation, examples, SDKs, a changelog, a support channel, service levels, a deprecation policy, and a roadmap. The measure of a good internal platform API is that other teams adopt it without asking for help.
+- *API governance without bureaucracy*: a style guide, automated linting and breaking-change checks, a light review for new public APIs, and shared design vocabulary (some organizations publish their API design improvement proposals as open references).
+
+** 7. Anti-corruption layers and adapters
+When you must integrate with a system whose model you do not want in yours (legacy, vendor, another context), wrap it.
+- An *adapter* or *anti-corruption layer* translates between the external model and your domain model, so that external changes and quirks stop at the layer.
+- *Worth it when*: the external model is volatile, differs semantically from yours, is poorly designed, is a vendor product you may replace, or is legacy you are migrating away from.
+- *Costs*: mapping code, duplicated concepts, and one more layer to test. Do not wrap stable, well-fitting dependencies without reason.
+- *Design*: the adapter implements an interface owned by your domain (the port); the external types never appear in the domain; errors from the outside are translated to domain errors; timeouts and retries live here.
+
+** 8. Abstractions inside architecture
+- *Repositories, gateways, message publishers, clocks, identity providers*: common ports that isolate infrastructure; define them in domain terms (a repository returns aggregates, not rows).
+- *Plugin and extension interfaces*: a small, stable core interface with many implementations (microkernel style); version the extension API carefully because third parties cannot be migrated by you.
+- *Portability layers* (cloud-agnostic wrappers, database-agnostic ORMs): they trade access to platform strengths for the option to switch. The option has a price (lowest common denominator, extra code) and a probability of being exercised; choose deliberately, and isolate the vendor-specific parts behind your own port rather than abstracting the entire platform.
+- *Premature abstraction*: abstractions created before three real uses tend to be wrong; wait for evidence (the rule of three), then abstract the concept that actually repeats. A wrong abstraction is more expensive than duplication.
+- *Abstraction debt*: abstractions that no longer fit accumulate special cases and flags; deprecate and replace them rather than patching forever (see =09_technical-debt.org=).
+
+** 9. Interfaces between teams
+- An interface between services or modules is also an interface between people: ownership, response times, support, and escalation paths are part of the contract.
+- *Service level objectives and error budgets* are the reliability interface: a dependency's SLO caps yours; agree on them explicitly.
+- *Documentation is part of the interface*: reference, guides, examples, changelog, known limitations, and a way to ask questions.
+- *Contract tests and sandbox environments* reduce the need for synchronous coordination.
+- *Team Topologies' interaction modes* (collaboration, facilitation, X-as-a-service): an X-as-a-service interface should be consumable with minimal collaboration; if consumers always need a conversation, the interface is not finished.
+
+** 10. Self-check
+1. Take an interface you own and list what it promises beyond its signatures (errors, ordering, idempotency, latency). Which of these promises are written down?
+2. Explain Hyrum's law with an example from your own work. What would you do now to limit its effect?
+3. A field is removed from a public API without warning because "nobody uses it". How could you know, and what process would you require?
+4. Design a compatible change from a single "status" string to a structured status with a code and a reason, without breaking old consumers.
+5. When is wrapping a vendor SDK in your own interface worth the cost, and when is it waste?
+6. Why can an interface with one implementation still be valuable, and when is it noise?
+7. What belongs in a "deprecation policy", and how do you enforce it?
+
+** 11. Exercises
+- Warm-up: rewrite the contract of one function or endpoint you own as a short specification covering preconditions, postconditions, errors, idempotency, and performance.
+- Core: design the compatibility plan for renaming a field in a widely used API (parallel change, telemetry, deprecation timeline, removal criteria).
+- Core: add a breaking-change check (schema or API diff) to a repository's CI and demonstrate it catching a break.
+- Core: write consumer-driven contract tests for one integration between two services.
+- Stretch: design the interface of a payment-provider port in domain terms, with an adapter for one provider; list the provider quirks the adapter absorbs.
+- Stretch: run an "interface archaeology" on a legacy module: what implicit promises do callers rely on that the documentation never stated?
+
+** 12. Resources
+- Parnas, /On the Criteria To Be Used in Decomposing Systems into Modules/ (1972) for information hiding; Ousterhout, /A Philosophy of Software Design/ (deep modules); Meyer, /Object-Oriented Software Construction/ (design by contract); Liskov and Wing, /A Behavioral Notion of Subtyping/ (1994).
+- Spolsky, /The Law of Leaky Abstractions/ (2002); Wright and Winters, /Software Engineering at Google/ (Hyrum's law and API evolution at scale).
+- Google API Improvement Proposals (API design guidance used as a public reference): https://google.aip.dev
+- Semantic Versioning specification: https://semver.org ; Pact documentation for consumer-driven contract testing: https://docs.pact.io
+- Newman, /Building Microservices/ (evolving service interfaces); Hohpe and Woolf, /Enterprise Integration Patterns/: https://www.enterpriseintegrationpatterns.com
+- Evans, /Domain-Driven Design/ (anti-corruption layer, open host service, published language).
+
+** What to remember
+- Deep modules with small interfaces beat shallow wrappers; hide design decisions likely to change.
+- An interface is a contract of semantics, failure behavior, and lifecycle, not just signatures.
+- With enough users, every observable behavior becomes a contract (Hyrum's law).
+- Evolve additively, never reuse identifiers, deprecate with data, and verify with contract and diff checks.
+- Wrap what is volatile or foreign; do not abstract speculatively.
+- For teams, an API is a product: documentation, service levels, and a deprecation policy are part of it.

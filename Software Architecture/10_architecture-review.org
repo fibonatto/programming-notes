@@ -1,0 +1,219 @@
+#+title: Architecture Review
+#+startup: overview
+
+* Architecture Review
+** 0. Staff-level lens
+Reviews are where architecture is tested before reality tests it. A good review finds the risks the author could not see, spreads context, and improves the decision; a bad one is a ritual that delays work and approves what was already decided. At Staff and Principal scope you are expected to:
+- review designs efficiently and kindly, finding the few things that matter most;
+- facilitate reviews so that the right people raise the right concerns at the right time;
+- identify risks and unknowns, compare alternatives on evidence, and recommend decisions with clear reasoning;
+- design a review system that scales (tiers, checklists, guardrails) instead of becoming a bottleneck;
+- close the loop: record decisions and follow-ups, and learn from outcomes.
+Companion files: =06_quality-attributes-and-tradeoffs.org= (what to evaluate against), =07_architecture-decision-records.org= (recording outcomes), =08_evolutionary-architecture.org= (fitness functions and guardrails), and =09_technical-debt.org= (accepted risks and shortcuts).
+
+** 1. Kinds of reviews
+Match the review to the risk, the stage, and the question.
+| Review                           | When                                      | Purpose                                                              |
+|----------------------------------+-------------------------------------------+----------------------------------------------------------------------|
+| Peer design review (RFC or design document) | Before implementation          | Improve a proposal; share context; find problems early              |
+| Architecture review board (ARB) or council | For high-impact or cross-cutting decisions | Governance, consistency, risk acceptance                            |
+| Quality-attribute evaluation (ATAM-style)  | For major systems or redesigns | Evaluate how the architecture satisfies prioritized scenarios; find trade-offs and risks |
+| Security design review / threat model      | When trust boundaries, data, or auth change | Identify threats and mitigations                           |
+| Privacy and data review          | New personal-data flows                   | Compliance, retention, minimization                                  |
+| Production readiness review (PRR) | Before launch or ownership transfer      | Operability: SLOs, alerts, runbooks, capacity, rollback              |
+| Pre-mortem                       | Before committing to a plan               | Imagine failure and list causes                                      |
+| Post-implementation review       | After delivery or an incident             | Did the design hold? Calibrate estimates and predictions             |
+| Periodic architecture health review | On a schedule                          | Drift, debt, risks, and whether decisions still hold                 |
+*Tiering*: not everything needs a heavy review. Define tiers by risk, with triggers: a new data store or messaging backbone, a public or cross-team API, personal or regulated data, an irreversible or costly-to-reverse choice, a change in availability or security tier, a new critical dependency or vendor, a large cost, or a migration of a core system. Low-risk changes get a lightweight peer review (or none); high-risk ones get a structured review with named reviewers.
+
+** 2. Preparing a design for review (the author)
+The quality of the review depends on the quality of the document. A reviewable design describes:
+1. *Context and problem*: who is affected, why now, and what happens if nothing is done.
+2. *Goals and non-goals*, and success measures.
+3. *Requirements* with quality attribute scenarios and numbers (load, latency, availability, data volume, growth, compliance).
+4. *Current state* briefly, and what must stay compatible.
+5. *Proposal*: the design at the right level of detail, with diagrams of context, containers or components, key flows, and data model (see the C4 and arc42 notes in =07_architecture-decision-records.org=).
+6. *Alternatives considered*, including doing nothing, with honest trade-offs.
+7. *Interfaces and contracts*: APIs, events, schemas, versioning and compatibility, ownership.
+8. *Failure modes and mitigations*: what happens when each dependency fails, slows down, or lies; retries, idempotency, degradation, data loss, recovery.
+9. *Security and privacy*: trust boundaries, authentication and authorization, secrets, data classification, tenant isolation.
+10. *Operability*: observability, SLOs and alerts, deployment, configuration, runbooks, on-call ownership.
+11. *Capacity and cost*: estimates and the assumptions behind them.
+12. *Rollout, migration, and rollback*: steps, safe stopping points, compatibility.
+13. *Testing strategy*: functional, load, failure injection, contract tests.
+14. *Risks and open questions*: what you are least sure about.
+15. *Questions for reviewers*: the decisions where you most want input.
+Keep it as short as the stakes allow, lead with the decision and the reasons, and put detail in appendices. Share early enough that feedback can change the design, not only polish it.
+
+** 3. The reviewer's method
+1. *Understand the problem first*: restate the goals and constraints. Is it the right problem? Are the goals measurable? Are non-goals explicit? Many design flaws are requirement flaws.
+2. *Find the key decisions*: the two to five choices that are costly to reverse. Spend your attention there.
+3. *Check the alternatives*: were credible options considered fairly? Is there a simpler one? What is the strongest argument against the proposal?
+4. *Trace the critical paths and the data*: how does a request flow, where does state live, who owns what, where are the consistency boundaries?
+5. *Ask "what happens when..." questions* (below); look for assumptions that are not stated.
+6. *Check evidence*: benchmarks, prototypes, production numbers, and prior art, not opinions. Ask how recent and representative they are.
+7. *Look for hidden coupling and one-way doors*: shared data, shared deploys, lock-in, public contracts.
+8. *Consider the organization*: does the team have the skills and capacity? Is ownership clear? Who is on call?
+9. *Consider evolution*: how does the design change when requirements change? How will it be migrated, versioned, and eventually retired?
+10. *Calibrate severity* and give actionable feedback (section 6).
+*Question bank* (use the ones that matter for the design):
+- Dependencies and failure: What if a dependency is down, slow, or returns wrong data? What if a message is duplicated, delayed, or reordered? What if two instances run at once? What if a deployment is half done? What if a region or zone fails? What are the timeouts, retries, and their budgets?
+- Load and scale: What is 10x the load? Which component saturates first? What are the hot keys? What is the worst-case input size? What if a client misbehaves?
+- Data: Who owns each dataset? How is it backed up and restored (and has restore been tested)? How long is it retained, and how is it deleted? What is the consistency model, and what do users see in between? How do schemas change?
+- Security and privacy: What are the trust boundaries? How are identity and permissions propagated? What is the blast radius of a stolen credential? Is sensitive data encrypted and minimized? How are secrets rotated?
+- Operations: How will we know it is broken (before customers do)? What are the SLOs? Who is paged, and can they act with the runbook? How do we roll back, and how long does it take? What does a bad day cost?
+- Change: How does the API evolve? How do we migrate? What does decommissioning look like?
+- Cost: What is the cost per unit of work at current and 10x scale? What dominates?
+- People: Who maintains this in two years? What skills does it require?
+
+** 4. Identifying and recording risks
+- *Vocabulary* (from ATAM): a *risk* is a decision that may lead to an undesirable consequence in light of the quality goals; a *non-risk* is a decision judged safe; a *sensitivity point* is a property of a component critical to a quality attribute; a *trade-off point* is a decision that affects several attributes in opposite directions.
+- *Risk register entries*: description, cause, likelihood, impact, detectability, mitigation or acceptance, owner, trigger for action, and review date. Rank by risk (likelihood times impact) and by how hard it is to detect before it hurts.
+- *Unknowns*: separate known risks from open questions; convert the riskiest unknowns into spikes, prototypes, or a tracer bullet with a deadline and a decision rule.
+- *Pre-mortem* (Klein): assume the project has failed a year from now; each participant writes the reasons; cluster and rank them; add mitigations to the plan. It surfaces concerns people hesitate to raise in a normal review.
+- *Failure modes and effects analysis (lightweight)*: list components and interactions; for each, the failure mode, the effect, how it is detected, and the mitigation. Even an hour of this on the critical path finds gaps.
+- *Red-team the design*: assign someone to attack it (security, scale, operations) and report.
+- *Accepting risk is a decision*: name the person who accepts it, record the reason, and set an expiry or revisit trigger (see =09_technical-debt.org=).
+
+** 5. Evaluating alternatives
+- *Derive criteria from the drivers* (quality attribute scenarios, cost, time, team capability, strategic fit), in priority order, before looking at the options.
+- *Trade-off analysis*: for each option, what it gains and loses on each criterion; the cost of being wrong; reversibility; and what would have to be true for it to be best.
+- *Weighted decision matrices* help structure a discussion but hide disagreement behind numbers; use them to expose weights, test sensitivity (does the winner change if a weight moves?), and never as the decision.
+- *Build versus buy versus reuse*: total cost of ownership including integration, operation, upgrades, licensing, support, and exit; fit to the need (80% fit may be the trap of the last 20%); vendor viability and lock-in; security and compliance; control of the roadmap.
+- *Evidence hierarchy*: production data from your own system, then benchmarks on realistic workload and data, then credible third-party measurements, then reasoning from first principles, then opinion and fashion. Time-box experiments.
+- *Include the null option*: do nothing or do the minimum, and its consequences.
+- *Beware*: familiarity bias (the known tool wins by default), novelty bias, sunk cost, anchoring on the first option, and authority bias; structured criteria and written alternatives help.
+
+** 6. Giving feedback and reaching approval
+*Feedback*:
+- Critique the design, not the person; assume competence and good intent.
+- Be specific and evidence-based: the scenario, the consequence, a suggestion or a question.
+- Label severity so authors know what must change: *blocker* (must be resolved before proceeding), *major* (should be addressed; justify if not), *minor*, *question* (need understanding), and *nit* or *FYI*. Do not bury a blocker among nits.
+- Separate preferences from risks: "I would do it differently" is not a finding. Offer alternatives, not just objections.
+- Write concerns once, in a place the author can track (the document comments or a review summary); avoid scattered chat feedback.
+*Example comments*:
+#+begin_src text
+[blocker] Payment confirmation is published after the database commit in a separate step.
+  If the process crashes in between, orders are paid but never confirmed (dual write). Suggest
+  the transactional outbox, or document why loss is acceptable and how reconciliation detects it.
+[major] The design assumes the inventory service answers within 50 ms at p99, but its current
+  p99 is 220 ms (dashboard link). What is the fallback when the budget is exceeded?
+[question] Who owns the "customer segments" table after the split? Two modules write to it today.
+[minor] The diagram shows a cache but the text does not say who invalidates it.
+#+end_src
+*Approval criteria* (adapt to the tier). A design is ready to proceed when:
+- the problem, goals, non-goals, and success measures are clear;
+- the quality attribute scenarios that drive the design are addressed, with evidence (estimates, prototypes, numbers);
+- alternatives were considered and the decision is recorded with reasons and consequences (an ADR);
+- failure modes were analyzed and mitigations or accepted risks are explicit and owned;
+- security and privacy reviews required for the tier are done;
+- operability is planned: SLOs, alerts, dashboards, runbooks, and on-call ownership;
+- the rollout, migration, compatibility, and rollback plans are credible and tested where possible;
+- capacity and cost are estimated with assumptions;
+- dependencies and contracts are agreed with their owners;
+- the testing strategy covers failure and load, not only the happy path;
+- the team has the skills and capacity, and ownership is assigned;
+- remaining open questions are tracked with owners and dates.
+*Outcomes*: approve; approve with conditions (specific, owned, dated); revise and re-review (with a clear list); defer (insufficient information; define what would unblock); reject (with reasons and a path forward, if any). The outcome is recorded where the team will find it.
+*Avoid approval theater*: rubber stamps because the work is already built; late reviews that can only bless; checklists filled without thought; reviewers who never see production consequences.
+
+** 7. Running the process
+- *Timing*: review early and iteratively ("shift left"): a rough direction with options costs little to change; a finished build is expensive. For large designs, hold a short early review on the problem and the key decisions, and a later one on details and rollout.
+- *Async first*: authors share the document; reviewers comment in writing within a deadline; a synchronous session (30 to 60 minutes) handles the open and contentious points. This respects time and gives quieter voices room.
+- *Roles*: author (owns the design), reviewers (cover required areas: security, data, operations, relevant domains), facilitator (keeps time and focus), scribe (records outcomes), decider (accountable for the final decision).
+- *Meeting hygiene*: pre-read required (some teams read silently at the start), agenda focused on decisions and risks, explicit time-boxes, decisions and action items recorded before the meeting ends.
+- *Psychological safety*: junior engineers and dissenters must feel able to raise concerns; the most senior person speaks last; invite the "who sees a risk here?" question; thank people for finding problems.
+- *Diversity of perspective*: include operations (SRE), security, data, product, and the teams that consume or are affected by the design.
+- *Handling disagreement*: separate facts, values, and risk appetite; seek evidence for facts; let the decider resolve values; the owner of the risk decides on risk; record dissent and the reasoning; escalate only with options laid out.
+- *Scaling reviews*: tiers, templates, self-service checklists, office hours, rotating reviewers, delegating to domain leads, and automated checks (fitness functions) for rules that can be enforced mechanically. A central board that sees every change becomes a bottleneck and loses touch with reality; keep it for decisions that are truly cross-cutting or irreversible, and provide guardrails so that most decisions need no board (see =08_evolutionary-architecture.org=).
+- *Advice process alternative*: the decision owner seeks advice from those affected and from experts, decides, and records it; reviews become consultations, not permissions.
+
+** 8. After the review
+- *Track follow-ups*: action items with owners and dates; conditions of approval verified before launch.
+- *Record the decision* (ADR) with the final design, alternatives, accepted risks, and revisit triggers.
+- *Re-review triggers*: changes in scale, scope, dependencies, or assumptions listed in the record.
+- *Post-implementation review*: after launch or after the first incident, compare predictions and reality (latency, cost, effort, failure behavior). This calibrates your reviewers and estimates and improves checklists.
+- *Learn from incidents*: each postmortem should ask "which review question would have caught this?" and update the checklists.
+- *Measure the process lightly*: time in review, rework after review, incidents traced to risks that were identified (accepted) or missed, reviewer load, and author satisfaction. Avoid targets that reward speed or volume of comments.
+
+** 9. Checklists
+Checklists support judgment; they do not replace it. Keep them short, tied to incidents, and revised.
+
+*Quick version (ten questions)*:
+- [ ] What problem does this solve, and how will we know it worked?
+- [ ] What are the two or three decisions that are hardest to reverse?
+- [ ] What alternatives were considered, and why was each rejected?
+- [ ] What happens when each dependency fails or is slow?
+- [ ] Who owns the data, and what is the consistency model?
+- [ ] What is the load model, and what breaks first at 10x?
+- [ ] How is it secured, and what is the blast radius of a compromise?
+- [ ] How do we deploy, observe, and roll it back?
+- [ ] How does it evolve and eventually get retired?
+- [ ] Who is accountable, and does the team have what it needs?
+
+*Production readiness*:
+- [ ] SLIs and SLOs defined; alerts tied to symptoms; dashboards for the four golden signals.
+- [ ] On-call ownership and escalation; runbooks for known failures; tested rollback.
+- [ ] Capacity and load tests at expected and peak load; autoscaling limits and quotas checked.
+- [ ] Timeouts, retries, backoff, and limits on every dependency; graceful degradation defined.
+- [ ] Backups configured, restore tested, retention and deletion defined.
+- [ ] Security review done; secrets managed; least privilege; audit logging.
+- [ ] Rollout plan with canary or progressive delivery and feature flags; kill switch.
+- [ ] Dependencies' owners informed; contracts and quotas agreed.
+
+*Data and migration*:
+- [ ] Ownership, schema, and compatibility rules defined; migration is expand-and-contract.
+- [ ] Backfill is idempotent, resumable, throttled, and verified; reconciliation exists.
+- [ ] Cutover and rollback steps rehearsed; point of no return identified.
+
+*API and contracts*:
+- [ ] Contract documents semantics, errors, idempotency, ordering, limits, and versioning policy.
+- [ ] Compatibility tests and breaking-change checks in CI; consumers identified.
+- [ ] Pagination, timeouts, and partial-failure behavior specified.
+
+** 10. Anti-patterns
+- *Review as audit or approval theater*: late, symbolic, and unable to change outcomes.
+- *The central bottleneck*: one board reviewing everything, with a queue measured in weeks.
+- *Bikeshedding*: debating naming and trivia while ignoring the decisions that matter.
+- *Seagull architecture*: swooping in, dropping criticism, and leaving without owning consequences.
+- *Reviewing a diagram, not the system*: no discussion of failure, data, operations, or cost.
+- *Checklists as ritual*: ticking boxes without thought, or never updating them from incidents.
+- *Review by the loudest voice or the highest title*: opinions beat evidence.
+- *Vague feedback* ("this seems risky") with no scenario or suggestion.
+- *Gatekeeping preferences*: forcing personal style and tools as requirements.
+- *No follow-up*: conditions never verified; risks accepted without owners; decisions not recorded.
+- *One-sided process*: reviewers who never run production and cannot judge operability.
+
+** 11. Self-check
+1. Take a design document you wrote; what would a skeptical reviewer attack first? Write three questions you hope nobody asks, and answer them.
+2. Define review tiers and triggers for your organization. What is reviewed lightly, and what needs a board?
+3. Write five "what happens when..." questions specific to a system with a message broker and a relational database.
+4. A design depends on a new vendor. List the evidence and the questions you would require before approval.
+5. A reviewer insists on an approach as a blocker; the author disagrees. How do you resolve it?
+6. After an outage, how do you turn the root cause into a review question?
+
+** 12. Exercises
+- Warm-up: review a short design (yours or a public one) using the ten-question checklist; write the comments with severity labels.
+- Core: run a pre-mortem on an upcoming project with your team; convert the top five failure causes into plan changes or checks.
+- Core: write a one-page design-review guide for your team: tiers, triggers, document template, roles, timeline, and approval criteria.
+- Core: do a lightweight failure-mode analysis of one critical request path (components, failure modes, effects, detection, mitigations).
+- Stretch: facilitate a quality-attribute workshop for a system: build the utility tree with stakeholders, rate scenarios by importance and difficulty, and list sensitivity points, trade-off points, risks, and non-risks.
+- Stretch: run a post-implementation review on a launched design: compare predicted and actual load, latency, cost, and failures, and update your checklist.
+
+** 13. Resources
+- Kazman, Klein, Clements, /ATAM: Method for Architecture Evaluation/ (Software Engineering Institute technical report); Bass, Clements, Kazman, /Software Architecture in Practice/ (evaluating architectures); Rozanski and Woods, /Software Systems Architecture/ (viewpoints and perspectives).
+- Beyer et al., /Site Reliability Engineering/: the chapter on reliable product launches (launch checklists) and the production readiness material: https://sre.google/sre-book/launch-checklist/
+- AWS Well-Architected Framework and its review process: https://aws.amazon.com/architecture/well-architected/ ; Azure Well-Architected Framework: https://learn.microsoft.com/en-us/azure/architecture/
+- Klein, /Performing a Project Premortem/ (Harvard Business Review, 2007).
+- Harmel-Law, /Facilitating Software Architecture/ (advice process, guardrails, decision records).
+- Nygard, /Release It!/ (failure modes and stability patterns); Shostack, /Threat Modeling/.
+- ISO/IEC/IEEE 42010 (architecture description, stakeholders and concerns); the C4 model and arc42 for review-friendly documentation: https://c4model.com and https://arc42.org
+- StaffEng guides on technical decision-making and reviews: https://staffeng.com/guides/
+
+** What to remember
+- Match the review to the risk; tier it so that most work flows and the few high-stakes decisions get depth.
+- Review early, async first, with a written design that states goals, alternatives, failure modes, and operations.
+- Focus on the decisions that are costly to reverse; ask failure-mode questions; demand evidence.
+- Label severity, give actionable feedback, and make approval criteria explicit with named owners for accepted risks.
+- Record outcomes, track conditions, and review the review: calibrate against what actually happened.
+- Replace gates with guardrails wherever a rule can be automated.

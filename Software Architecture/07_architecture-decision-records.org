@@ -1,0 +1,247 @@
+#+title: Architecture Decision Records
+#+startup: overview
+
+* Architecture Decision Records
+** 0. Staff-level lens
+Decisions are the real output of architecture work, and most organizations lose them: a year later nobody remembers why the system looks this way, so people either preserve accidents as if they were principles or overturn deliberate choices without understanding them. At Staff and Principal scope you are expected to:
+- make important decisions explicit, with context, alternatives, and consequences, at a cost the team will actually pay;
+- run decision processes that are fast for reversible choices and careful for irreversible ones;
+- keep a durable, searchable record that new engineers, auditors, and your future self can trust;
+- use the record to prevent re-litigation without freezing the organization.
+Companion files: =05_architectural-patterns.org= (decisions about patterns), =06_quality-attributes-and-tradeoffs.org= (what drives the decisions), =08_evolutionary-architecture.org= (when to revisit), and =10_architecture-review.org= (how decisions get reviewed).
+
+** 1. What deserves a record
+An *architecturally significant decision* is one that affects the structure of the system, its important quality attributes, its dependencies, its interfaces, or its construction techniques, and that is costly to change. Test with questions:
+- Would reversing this take more than a few weeks of work, or involve several teams?
+- Does it affect a quality attribute that is a driver (latency, availability, security, cost)?
+- Does it create an external commitment (a public API, a data format, a vendor contract, a compliance claim)?
+- Will someone, in a year, ask "why did we do it this way?"
+- Does it constrain future choices (a database, a messaging backbone, a language, a deployment model, a tenancy model)?
+- Was it contentious, or did you reject an attractive alternative?
+Typical records: choice of a primary data store; adopting or rejecting a style or pattern (modular monolith, CQRS, event sourcing); an authentication model; a versioning policy for public APIs; a build-versus-buy decision; a cloud or region strategy; a migration strategy; a standard that all teams must follow.
+*Do not record*: local, easily reversed choices (a library for date formatting, a naming convention inside one module), or decisions already captured by code and tests. Too many records dilute the signal and the habit dies.
+*Reversibility framing*: some decisions are one-way doors (hard to reverse; decide carefully, with broad input) and many are two-way doors (cheap to reverse; decide fast, close to the work). Put the process effort where reversal is costly.
+
+** 2. Anatomy of a record
+The original format (Nygard, 2011) is deliberately small: *Title*, *Status*, *Context*, *Decision*, *Consequences*. Many teams extend it. A practical structure:
+| Section                  | Purpose                                                                                    |
+|--------------------------+--------------------------------------------------------------------------------------------|
+| Title                    | Short noun phrase naming the decision, with a number (ADR-0042)                            |
+| Status                   | Proposed, accepted, rejected, deprecated, superseded by ADR-NNNN                           |
+| Date and deciders        | When and who decided; who was consulted                                                    |
+| Context                  | Forces: the problem, constraints, quality drivers, assumptions, relevant facts and numbers |
+| Decision drivers         | The criteria, in priority order, that the options are judged against                       |
+| Options considered       | Each credible option with its pros and cons, including doing nothing                       |
+| Decision                 | What we will do, stated as an active sentence ("We will use ...")                          |
+| Rationale                | Why this option wins against the drivers, and what we knowingly give up                    |
+| Consequences             | Positive, negative, and neutral effects; follow-up work; new risks; operational impact     |
+| Validation               | How we will know it is working: metrics, tests, fitness functions, a pilot                 |
+| Revisit triggers         | Conditions or dates that reopen the decision (assumptions that could stop being true)      |
+| Links                    | Related ADRs, design documents, tickets, pull requests, vendor docs, benchmarks            |
+Templates in circulation include Nygard's original, MADR (Markdown Architectural Decision Records), and the Y-statement ("In the context of X, facing Y, we decided Z to achieve A, accepting B"). Pick one, keep it short, and use it consistently.
+
+#+begin_src text
+# ADR-0000: <Short title: the decision as a noun phrase>
+
+- Status: proposed | accepted | rejected | deprecated | superseded by ADR-NNNN
+- Date: YYYY-MM-DD
+- Deciders: <names or roles>      Consulted: <names or roles>
+
+## Context
+<The problem and the forces: requirements, constraints, quality drivers, facts, numbers, assumptions.>
+
+## Decision drivers
+1. <most important criterion>
+2. <next criterion>
+
+## Options considered
+### Option A: <name>
+- Pros: ...
+- Cons: ...
+### Option B: <name>
+- Pros: ...
+- Cons: ...
+### Option C: do nothing / keep the current approach
+- Pros: ...
+- Cons: ...
+
+## Decision
+We will <do X>.
+
+## Consequences
+- Positive: ...
+- Negative: ...
+- Neutral / follow-up work: ...
+
+## Validation and revisit triggers
+- We will know this works if <metric/test/pilot>.
+- Revisit if <assumption changes: volume exceeds N, vendor changes terms, team grows beyond M> or by <date>.
+
+## Links
+- ...
+#+end_src
+
+** 3. Writing the sections well
+*Context*: facts before opinions; quantify (traffic, data size, team size, deadlines, budgets); list the quality attributes in priority order; say which constraints are fixed and which are assumptions. Include non-goals so that reviewers do not argue about problems you are not solving. Write for a reader who joins in two years and does not know today's politics, vendors, or incident.
+*Alternatives*: this is the most valuable part later. List real alternatives, each described fairly enough that its advocate would agree (steelman, not straw man). Always include "do nothing" or "minimal change", and a "buy" option when relevant. Compare against the drivers, not against taste. Record why rejected options were rejected, including the evidence.
+*Decision*: one decision per record, in the active voice, specific enough to be checkable ("all new services use PostgreSQL 16 on the managed platform; exceptions need a new ADR").
+*Consequences*: list the negatives honestly: what becomes harder, what risks you accept, what operational burden appears, and what follow-up work is required. A record with no downsides is not credible.
+*Evidence*: link benchmarks, prototypes, incident data, cost models, and prior art, and say how recent and representative they are. Distinguish measured facts from estimates.
+*Length*: one to two pages. If you need more, the exploration belongs in a design document or RFC (see section 5) and the ADR holds the outcome.
+
+** 4. Lifecycle and storage
+- *Immutability*: once accepted, a record is not rewritten to hide history. To change a decision, write a new ADR that supersedes the old one; mark the old one "superseded by ADR-NNNN" and keep it. Small factual corrections and clarifications can be appended with a date.
+- *Status transitions*: proposed, then accepted or rejected; later deprecated (no longer applies, nothing replaces it) or superseded (replaced). Keep rejected records: they stop the same idea from being re-proposed without new information.
+- *Numbering and naming*: sequential ids and a descriptive file name (for example 0042-use-managed-postgres.md) in one directory.
+- *Location*: next to the code (a docs/adr directory in the repository) for decisions about that system, so changes to code and decisions move together and are reviewed in the same pull request. Organization-wide decisions (standards, platform choices) live in a central repository owned by the group that governs them. Link both ways.
+- *Discoverability*: an index or generated table of contents, tags (data, security, messaging, frontend), links from READMEs and architecture overviews, and a search that people actually use. A decision that cannot be found does not exist. Tools such as adr-tools and Log4brains manage templates, numbering, and static sites.
+- *Review triggers*: each ADR lists the assumptions it depends on; a periodic review (for example each quarter or at each planning cycle) checks which triggers have fired.
+- *Retention*: do not delete; archive or mark deprecated.
+
+** 5. Process: how a decision gets made
+Decide how decisions get made before arguing about particular ones.
+- *Roles*: a single accountable *decider* (an owner, tech lead, or architect), *consulted* people with relevant expertise or who bear consequences, and *informed* stakeholders. Ambiguous decision rights create delay and resentment. Frameworks such as DACI or the advice process formalize this.
+- *RFC or design document versus ADR*: a design document or RFC explores a problem and a proposal, gathers feedback, and may be long; the ADR records the decision that came out of it, briefly. Use the document for convergence and the ADR for memory.
+- *Typical flow*: draft context and options early, even with a leaning, then share for asynchronous comments with a deadline; hold a short synchronous session only for unresolved points; the decider decides; the ADR is merged as accepted; implementation links back to it.
+- *The advice process* (as described by Harmel-Law): anyone may make an architectural decision after seeking advice from those affected and those with expertise; the decider records the advice and the reasoning. It scales decision-making while preserving accountability, provided the decisions are written down.
+- *Speed*: time-box. Reversible decisions are made by the team that owns the area, within days. Irreversible or cross-cutting ones go through a broader group and take longer, with a clear deadline. Perfect information is unavailable; decide at the last responsible moment, with enough evidence for the stakes.
+- *Disagreement*: separate facts (resolve with evidence), values and priorities (resolve by the decider with the drivers), and risk appetite (resolve by the owner who bears the risk). Record dissent; "disagree and commit" works only when the disagreement was heard and written.
+- *In the pull request*: for decisions about one repository, propose the ADR as a pull request, review it like code, and merge when accepted. This gives history, comments, and links for free.
+- *Retroactive records* ("ADR archaeology") are valuable for existing systems: reconstruct the major past decisions from the people who remember, and mark them as retroactive with the uncertainty of the reconstruction.
+
+** 6. Worked examples
+Short, realistic records show the level of detail that works. (Illustrative content; adapt numbers and names.)
+
+#+begin_src text
+# ADR-0007: Use PostgreSQL as the system of record; defer a dedicated event store
+
+- Status: accepted     Date: 2026-03-02
+- Deciders: Payments tech lead     Consulted: SRE, data platform, security
+
+## Context
+The ledger service must store roughly 2 million transactions per day (peak 150/s) with strong
+consistency, 7-year retention, and audit queries by account. The team of six has production
+experience with PostgreSQL and none with a dedicated event store. Time to first release: 4 months.
+
+## Decision drivers
+1. Correctness (ACID) for balances. 2. Operability by the current team. 3. Audit and history.
+4. Ability to change course later.
+
+## Options considered
+- A: PostgreSQL with an append-only transactions table and an audit trail table.
+  Pros: known tooling, transactional with balances, managed offering. Cons: history by convention only.
+- B: Dedicated event store with projections. Pros: native history and replay.
+  Cons: new operational skill, eventual consistency for balances, 2-3 months extra.
+- C: Do nothing special (mutable balances only). Cons: fails the audit requirement.
+
+## Decision
+We will use PostgreSQL with append-only ledger entries and derive balances transactionally.
+
+## Consequences
+- Positive: one operational technology; strong consistency; fast delivery.
+- Negative: history is a convention, not a guarantee; large-table maintenance needed beyond ~2 TB.
+- Follow-up: partition by month; add database-level permissions forbidding UPDATE/DELETE on entries.
+
+## Validation and revisit triggers
+- Verify: audit queries under 2 s at 100 M rows in the load test.
+- Revisit if: volume exceeds 1,000 tx/s sustained, or regulators require cryptographic tamper evidence.
+#+end_src
+
+#+begin_src text
+# ADR-0012: Adopt a modular monolith with enforced module boundaries
+
+- Status: accepted     Date: 2026-04-14
+## Context
+Three teams share one codebase; releases are coupled; the domain (orders, catalog, billing) is still
+changing. We considered splitting into services. Ops capacity: one platform engineer, no distributed tracing yet.
+## Decision
+We will keep a single deployable and enforce module boundaries (public API per module, data owned per
+module, dependency rules checked in CI). Extraction of a module requires a new ADR with evidence.
+## Consequences
+- Positive: in-process calls, single transaction scope, cheap refactoring across modules.
+- Negative: one release train; shared runtime failure domain; module discipline must be policed.
+- Follow-up: add dependency-rule checks; assign module owners; track co-change between modules monthly.
+## Revisit triggers
+- Billing needs an independent release cadence or isolation (PCI scope); build time exceeds 20 minutes;
+  two or more teams blocked by module coupling in a quarter.
+#+end_src
+
+#+begin_src text
+# ADR-0031: Extract Billing into a separate service    (supersedes part of ADR-0012)
+
+- Status: accepted     Date: 2026-11-20
+## Context
+ADR-0012 listed billing isolation as a trigger. The payment-card audit scope now covers the whole
+monolith (cost: about 6 weeks of audit work per cycle). Billing changes weekly; the rest monthly.
+## Decision
+We will extract Billing as a service behind the existing module interface, using the strangler
+approach: route new traffic through a facade, dual-run results in shadow mode for 4 weeks, then switch.
+## Consequences
+- Positive: audit scope shrinks to one service; independent release cadence.
+- Negative: network failure modes; eventual consistency with Orders (saga); new on-call rotation.
+- Follow-up: outbox for BillingEvents; contract tests; runbook; migration plan in ADR-0032.
+#+end_src
+
+** 7. Anti-patterns
+- *Post-hoc justification*: writing the record after the fact to defend a decision already made by someone's preference; the alternatives are straw men.
+- *No alternatives, no consequences*: a record that only states the decision adds little over the code.
+- *Novel-length records*: nobody reads them; the exploration belongs in a design document.
+- *Decisions in chat and meetings only*: they evaporate. Rule: if it is not written, it is not decided.
+- *ADR theater and bureaucracy*: mandatory records for trivial choices, approval chains that delay reversible decisions, templates filled with boilerplate.
+- *Rewriting history*: editing accepted records instead of superseding them.
+- *Orphans*: records with no owner, no links, no revisit triggers, never reviewed.
+- *Conflicting records* with no supersession links.
+- *Using ADRs to avoid deciding*: an endless proposed status; no decider.
+- *Copy-pasted vendor material* instead of the team's context and reasoning.
+- *Records without enforcement*: a decision ("all services use library X") with no way to detect violations; pair important ones with fitness functions (see =08_evolutionary-architecture.org=).
+
+** 8. Documenting architecture beyond decisions
+ADRs capture /why/. You also need descriptions of /what/ exists, at several levels, kept close to the code and cheap to update.
+- *Views and viewpoints* (ISO/IEC/IEEE 42010): an architecture description is organized around stakeholders and their concerns, with views (structure, runtime behavior, deployment, data) each defined by a viewpoint. Ask who needs to know what, and describe that.
+- *C4 model* (Brown): four levels of zoom: system context, containers (deployable or runnable units), components, and code; with a small set of notations. Diagrams as code (Structurizr and similar tools) keep them versioned and reviewable: https://c4model.com
+- *arc42*: a practical template for architecture documentation (context and scope, solution strategy, building blocks, runtime view, deployment, cross-cutting concepts, decisions, quality requirements, risks, glossary): https://arc42.org
+- *Docs as code*: Markdown or Org in the repository, reviewed in pull requests, published automatically; diagrams generated from text sources.
+- *Living documentation*: generate what can be generated (dependency graphs, API specifications, schemas), and describe the rest briefly with dates and owners; stale documentation is worse than none because it is trusted.
+- *Operational documentation*: runbooks, on-call guides, dashboards linked from the architecture overview, and the dependency and ownership map.
+
+** 9. Measuring the practice
+Lightweight signals, not targets:
+- share of significant changes (new data stores, public APIs, cross-team contracts) that have an ADR;
+- time from proposal to decision, split by reversible and irreversible decisions;
+- how often a decision is re-litigated without new information (a sign the record was not found or not convincing);
+- supersession rate: records that were superseded for good reasons indicate a healthy loop; records ignored in practice indicate decay;
+- onboarding feedback: can new engineers find the "why" for the main structures?
+- incidents or migrations where a missing record cost time.
+
+** 10. Self-check
+1. Pick a major structure in a system you work on. Can you find its decision record? If not, write down what you believe the context and alternatives were, and ask someone who was there.
+2. Which of the following deserve an ADR: switching a logging library; adopting a message broker; choosing the primary key type for a core table; a team naming convention? Why?
+3. Write the "revisit triggers" for the decision to use a managed database service.
+4. What is wrong with a record that lists a single option? What do you add?
+5. Your team disagrees about a decision and the decider is unavailable for two weeks. How do you proceed?
+6. How do you keep a central ADR repository from becoming a bottleneck?
+
+** 11. Exercises
+- Warm-up: write an ADR (one page) for a decision you made recently, including at least three real alternatives and the negative consequences.
+- Core: review five existing decisions in a codebase retroactively; produce records marked retroactive, and note which could not be reconstructed.
+- Core: set up an ADR directory with a template, an index, and a pull request checklist item ("does this change need an ADR?").
+- Core: pair an ADR with a fitness function that detects violation of the decision.
+- Stretch: design the decision process for a company-wide standard (roles, deadline, escalation, records), and test it on a real proposal.
+- Stretch: write a C4 diagram set (context, containers, components for one container) for a system, as text, and link each major box to its ADRs.
+
+** 12. Resources
+- Nygard, /Documenting Architecture Decisions/ (2011): https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions
+- ADR community site and templates (including MADR): https://adr.github.io ; a curated list of ADR templates and examples: https://github.com/joelparkerhenderson/architecture_decision_record
+- Brown, the C4 model for visualizing software architecture: https://c4model.com ; arc42 documentation template: https://arc42.org
+- ISO/IEC/IEEE 42010, Architecture description; Clements et al., /Documenting Software Architectures: Views and Beyond/.
+- Harmel-Law, /Facilitating Software Architecture/ (the advice process and decentralized decision-making).
+- Parnas and Clements, /A Rational Design Process: How and Why to Fake It/ (documenting decisions as if the design had been rational).
+- Richards and Ford, /Fundamentals of Software Architecture/ (architecture decisions and their documentation).
+
+** What to remember
+- Record the decisions that are costly to reverse; let the rest be fast and local.
+- The value of an ADR is in the context, the rejected alternatives, and the honest consequences.
+- Accepted records are immutable; supersede, do not rewrite.
+- Put records next to the code, make them findable, and give each one revisit triggers.
+- Match process effort to reversibility; name a decider; record dissent.
+- Pair important decisions with automated checks so they stay true.
