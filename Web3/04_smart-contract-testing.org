@@ -1,0 +1,221 @@
+#+title: Smart Contract Testing
+#+startup: overview
+
+* Smart Contract Testing
+** 0. Staff-level lens
+Contracts cannot be hot-fixed, run against hostile inputs, and hold money, so testing is the main engineering control. A green test suite means little unless it checks the properties that matter against the adversaries that matter. At Staff and Principal scope you are expected to:
+- define the test strategy (layers, tools, environments, quality gates) and keep it affordable;
+- turn specifications into executable properties (invariants) and drive the team toward them;
+- judge test quality by what it would catch, not by line coverage;
+- connect testing to security, audits, deployment, and monitoring (see =03_smart-contract-security.org=, =16_security-auditing.org=, =15_deployment-and-upgrades.org=).
+Companion files: =02_evm-and-solidity.org= (the Vault used in examples), =20_tooling-and-development-workflow.org=. Foundations: logic and proofs (invariants and properties), algorithms (differential testing against oracles).
+
+** 1. A layered strategy
+| Layer                         | What it checks                                           | Typical tools                               | When to run               |
+|-------------------------------+----------------------------------------------------------+---------------------------------------------+---------------------------|
+| Unit tests                    | One function or behavior, including revert conditions    | Foundry, Hardhat (Solidity or TypeScript)   | Every commit              |
+| Fuzz tests                    | A property over many random inputs                       | Foundry fuzzing, Echidna, Medusa            | Every commit (short runs); nightly (long) |
+| Invariant (stateful) tests    | A property across random sequences of calls              | Foundry invariants, Echidna, Medusa         | Nightly and before release |
+| Integration tests             | Several contracts together                               | Same                                        | Every commit              |
+| Fork tests                    | Your code against real deployed protocols and state      | Foundry and Hardhat forking, pinned block   | CI (pinned), manual exploration |
+| Differential tests            | Two implementations agree (a reference model in Python or TypeScript versus Solidity; an optimized versus a simple version) | Foundry FFI, scripts | Targeted        |
+| Formal and symbolic checks    | A property for all inputs (within a model)               | Halmos, Certora, SMTChecker                 | For critical math/logic   |
+| Static analysis               | Known bug patterns                                       | Slither, Aderyn, linters                    | Every commit              |
+| Upgrade and deployment tests  | Storage layout, initialization, migration scripts        | Upgrade plugins, fork rehearsal             | Before each release       |
+| Mutation testing              | Whether tests detect small code changes                  | Mutation tools for Solidity                 | Periodically on critical modules |
+The strategy should be risk-weighted: spend most on code that holds funds or sets prices, and the least on view helpers.
+
+** 2. Writing good unit tests
+- *Test behavior and requirements, not implementation*: one assertion theme per test, named for the behavior (~test_Deposit_IncreasesBalance~, ~test_RevertWhen_WithdrawExceedsBalance~, ~testFuzz_...~, ~invariant_...~ are Foundry conventions).
+- *Cover every revert path and every access-control check*: each restricted function must be tested for authorized and unauthorized callers; each custom error should be triggered by a test.
+- *Test edge values*: zero, one, maximum, the largest amount that does not overflow, the smallest that does; rounding boundaries; empty and single-element structures.
+- *Test events and return values* in addition to state; indexers and integrators depend on them.
+- *Use realistic actors and misbehaving actors*: contracts as callers with hostile callbacks, tokens with unusual behavior (fee on transfer, no return value, reverting), receivers that reject ETH.
+- *Keep tests independent and deterministic*: fresh state in setUp; no hidden ordering; no dependence on wall-clock time or live networks except through pinned forks.
+- *Write the test before or with the code* and review tests with the same care as code: a test that cannot fail is noise.
+
+#+begin_src solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+import {Test} from "forge-std/Test.sol";
+import {Vault} from "../src/Vault.sol";
+
+contract VaultTest is Test {
+    Vault vault;
+    address alice = makeAddr("alice");
+
+    function setUp() public {
+        vault = new Vault();
+        vm.deal(alice, 10 ether);
+    }
+
+    function test_Deposit_IncreasesBalance() public {
+        vm.prank(alice);
+        vault.deposit{value: 1 ether}();
+        assertEq(vault.balanceOf(alice), 1 ether);
+        assertEq(address(vault).balance, 1 ether);
+    }
+
+    function test_RevertWhen_WithdrawExceedsBalance() public {
+        vm.prank(alice);
+        vm.expectRevert(Vault.InsufficientBalance.selector);
+        vault.withdraw(1);
+    }
+
+    function testFuzz_DepositThenWithdraw_RestoresBalance(uint96 amount) public {
+        amount = uint96(bound(amount, 1, 10 ether));
+        vm.startPrank(alice);
+        vault.deposit{value: amount}();
+        vault.withdraw(amount);
+        vm.stopPrank();
+        assertEq(vault.balanceOf(alice), 0);
+        assertEq(alice.balance, 10 ether);
+    }
+}
+#+end_src
+(Illustrative; assumes the Vault of =02_evm-and-solidity.org= and Foundry's standard library. Not compiled here.)
+
+** 3. Fuzzing
+- *Property-based testing*: instead of examples, state a property ("withdrawing what I deposited returns it") and let the fuzzer search for a counterexample. Fuzzers mutate inputs guided by coverage.
+- *Constraining inputs*: use ~bound~ to map random values into a valid range (it preserves more of the fuzzer's exploration than ~vm.assume~, which discards cases); use types to restrict (uint96) when natural.
+- *Choosing properties*: round trips (deposit then withdraw), monotonicity (more shares never means fewer assets), conservation (sum of balances equals total supply), idempotence, commutativity where expected, and equivalence between an optimized and a simple implementation.
+- *Seeds and reproducibility*: record failing seeds; most tools print a replay command or a counterexample you can turn into a unit test.
+- *Budgets*: low run counts locally and on every commit; high run counts nightly and before a release (configure profiles).
+- *Limits*: random inputs rarely find deep logic bugs that need a specific multi-step sequence; that is the role of invariant tests and formal methods.
+
+** 4. Invariant (stateful) testing
+An *invariant* is a property that must hold after any sequence of valid calls. The fuzzer repeatedly calls randomly chosen functions with random arguments (a /run/ of a given /depth/) and checks the invariants after each call.
+- *Typical protocol invariants*: solvency (assets held are at least the liabilities), conservation (total supply equals the sum of balances), share price never decreases except by realized losses, collateral ratios hold after any liquidation, only authorized roles change parameters, a user cannot withdraw more than they own.
+- *Handlers*: a handler contract wraps the system's functions to constrain random calls to meaningful ones (bounded amounts, valid actors), and tracks /ghost variables/ (for example total deposited minus total withdrawn) that the invariants compare with on-chain state.
+- *Actors*: model several users and an attacker; include time and block progression (warp and roll), price changes through a mock oracle, and failures of external dependencies.
+- *Coverage and calibration*: check that the fuzzer actually reaches deep states (log call counts per function, reverts per function); a handler that reverts 99 percent of the time tests nothing. Remove unreachable branches by tightening the bounds.
+- *Treat each failure as a bug report*: shrink the sequence, convert it into a unit test, fix, and keep the test.
+
+#+begin_src solidity
+// Invariant test sketch: the vault holds at least what it owes.
+import {Test} from "forge-std/Test.sol";
+import {StdInvariant} from "forge-std/StdInvariant.sol";
+import {Vault} from "../src/Vault.sol";
+
+contract VaultHandler is Test {
+    Vault public vault;
+    uint256 public ghostDeposited;
+    uint256 public ghostWithdrawn;
+    address[] public actors;
+
+    constructor(Vault v) {
+        vault = v;
+        for (uint256 i = 0; i < 3; i++) actors.push(makeAddr(string(abi.encodePacked("actor", i))));
+    }
+
+    function deposit(uint256 actorSeed, uint256 amount) external {
+        address a = actors[actorSeed % actors.length];
+        amount = bound(amount, 1, 100 ether);
+        vm.deal(a, amount);
+        vm.prank(a);
+        vault.deposit{value: amount}();
+        ghostDeposited += amount;
+    }
+
+    function withdraw(uint256 actorSeed, uint256 amount) external {
+        address a = actors[actorSeed % actors.length];
+        uint256 bal = vault.balanceOf(a);
+        if (bal == 0) return;
+        amount = bound(amount, 1, bal);
+        vm.prank(a);
+        vault.withdraw(amount);
+        ghostWithdrawn += amount;
+    }
+}
+
+contract VaultInvariantTest is StdInvariant, Test {
+    Vault vault;
+    VaultHandler handler;
+
+    function setUp() public {
+        vault = new Vault();
+        handler = new VaultHandler(vault);
+        targetContract(address(handler));
+    }
+
+    function invariant_VaultHoldsWhatItOwes() public view {
+        assertEq(address(vault).balance, handler.ghostDeposited() - handler.ghostWithdrawn());
+    }
+}
+#+end_src
+(Sketch; actors that are plain addresses accept ETH, so withdrawals succeed. Adjust names and APIs to your toolchain version.)
+
+** 5. Fork testing and integration with live protocols
+- *Why*: your contract will run against real tokens, oracles, and protocols whose behavior you cannot fully mock. A fork test runs against a snapshot of real chain state at a chosen block.
+- *Pin the block* so tests are reproducible and fast (cached); update the pin deliberately. Unpinned fork tests make CI flaky.
+- *Use realistic whales and accounts* by impersonation (cheatcodes or RPC methods) to fund tests; check that your assumptions about token behavior (decimals, return values, hooks) hold for the real tokens you integrate.
+- *Test integrations at their edges*: oracle staleness and zero values, token pauses or blacklists, liquidity at various depths, protocol upgrades (simulate admin changes in the integrated protocol).
+- *Simulate attacks and incidents*: flash-loan manipulation of your oracle path; sandwiching; governance proposals; a drained dependency.
+- *Know the limits*: forks use local simulation; consensus-level behavior, mempool dynamics, and L2 sequencer behavior are not reproduced exactly.
+- *RPC hygiene*: use paid or self-hosted endpoints for CI, cache state, and keep keys in secrets.
+
+#+begin_src solidity
+// Fork test skeleton (pinned block; RPC URL from the environment).
+function setUp() public {
+    vm.createSelectFork(vm.envString("MAINNET_RPC_URL"), 20_000_000);
+}
+#+end_src
+
+** 6. Testing special concerns
+- *Upgrades*: deploy the old version through a proxy, populate state, upgrade, and check that state and behavior are preserved; run storage-layout diff tools; test initializers (cannot be re-run; the implementation cannot be initialized directly); test unauthorized upgrades (see =15_deployment-and-upgrades.org=).
+- *Signatures and permits*: test valid, expired, replayed, wrong-chain, wrong-contract, and malleable signatures; test contract-wallet signers (ERC-1271).
+- *Access control and roles*: enumerate privileged functions and assert the role matrix; test role renunciation and transfer flows.
+- *Time-dependent logic*: use time-warping cheatcodes; test around boundaries (exactly at the deadline, one second before and after).
+- *Gas*: gas snapshots and diffs in CI to detect regressions; benchmark on the target chain's EVM version; do not assert exact gas in unit tests.
+- *Token integrations*: run the same test suite against several token mocks (standard, fee on transfer, rebasing, no return value, reverting, hook-bearing).
+- *Cross-chain*: test message handling for replays, reordering, and failures; simulate message delays and out-of-order delivery (see =11_layer-2-and-cross-chain.org=).
+- *Frontend and integration*: end-to-end tests with a local node, wallet mocks, and the real ABIs; tests that the indexer reproduces the on-chain state (see =13_indexing-and-data-access.org=).
+- *Scripts and deployments*: tests or dry runs for deployment scripts on a fork, including role setup and verification.
+
+** 7. Measuring test quality
+- *Coverage* (line, branch) shows what was executed, not what was checked. Use it to find untested code, not as a target; chasing 100 percent without assertions produces false confidence. Branch coverage of revert paths is more useful.
+- *Mutation testing*: change the code in small ways (flip a comparison, delete a statement) and see whether tests fail; surviving mutants show weak tests. Expensive; apply to critical modules.
+- *Fuzz and invariant diagnostics*: how many distinct states, calls per function, reverts per function, and whether deep branches are hit.
+- *Bug-driven regression*: every bug found by audit, bounty, or production incident gets a test that fails before the fix.
+- *Specification traceability*: map each requirement and invariant to the tests that check it; gaps are risks.
+- *Review of the tests themselves*: tautological assertions, over-mocking, tests coupled to internals, and missing negative tests.
+
+** 8. Environments and infrastructure
+- *Local development*: fast in-process or local node (Foundry's Anvil, Hardhat's network) with snapshots, time control, impersonation, and mining control.
+- *Testnets*: use them for integration with real infrastructure (wallets, indexers, relayers, oracles), not for security validation; testnets are deprecated and replaced periodically (check which are current), faucets are scarce, and infrastructure differs from mainnet.
+- *Staging on forks or dedicated deployments*: rehearse deployments, migrations, and incident runbooks.
+- *CI*: build, format check, tests (short fuzz budgets), static analysis, gas snapshot check, storage layout check; a nightly pipeline with long fuzz and invariant runs; artifacts saved.
+- *Determinism*: pinned compiler and dependency versions, pinned fork blocks, seeded random where reproducibility matters.
+- *Toolchain notes*: Foundry is the de facto standard for Solidity-native testing (forge, cast, anvil, chisel); Hardhat 3 (a Rust-powered rewrite) supports Solidity tests compatible with Foundry's style as well as TypeScript tests with viem or ethers, and Hardhat 2 remains in use in older projects; mixing both in one project is common. See =20_tooling-and-development-workflow.org=.
+
+** 9. Self-check
+1. For a lending market, write five invariants and the handler actions needed to exercise them.
+2. A fuzz test passes with 256 runs and fails with 100,000. What does that tell you, and how do you make it part of the workflow?
+3. Why can a fork test be flaky, and how do you make it deterministic?
+4. Describe how you would test an upgrade from V1 to V2 of a proxy-based contract.
+5. What does 100 percent line coverage fail to tell you? Name two techniques that add information.
+6. Design the test matrix for an integration that accepts arbitrary ERC-20 tokens.
+
+** 10. Exercises
+- Warm-up: write unit tests for the vault: deposits, withdrawals, zero amounts, insufficient balance, and an attacker contract that tries reentrancy (against the vulnerable version and the fixed one).
+- Core: add the invariant test above; then introduce a deliberate accounting bug and confirm the invariant catches it; shrink the sequence into a unit test.
+- Core: write a handler with several actors, time progression, and a mock oracle for a small lending or AMM contract; report call distribution.
+- Core: build a differential test comparing a Solidity fixed-point math function with a Python reference using Foundry's FFI (or a TypeScript implementation via a script).
+- Stretch: run a mutation-testing tool on one module; classify surviving mutants and add tests.
+- Stretch: write a fork test that integrates your contract with a real DEX and oracle; simulate a price manipulation and show your guard (TWAP, deviation check) holding.
+
+** 11. Resources
+- Foundry Book (forge, cast, anvil; fuzzing and invariant testing; cheatcodes): https://book.getfoundry.sh
+- Hardhat documentation (Hardhat 3: Solidity tests, TypeScript tests with viem and ethers, gas statistics, coverage): https://hardhat.org
+- Echidna and Medusa documentation (property-based fuzzers); Halmos documentation (symbolic testing); Certora documentation (formal verification).
+- OpenZeppelin test helpers and upgrades plugins documentation: https://docs.openzeppelin.com/
+- Trail of Bits, /Building Secure Contracts/ (guidance on fuzzing, invariants, and development process).
+- Foundations notes in this repository: logic and proofs (invariants), algorithms (testing against brute-force oracles).
+
+** What to remember
+- Test layers by risk: unit, fuzz, invariant, fork, differential, formal, and static analysis.
+- Invariants and handlers find the multi-step bugs that examples miss.
+- Pin forks and toolchains; keep tests deterministic and reviewable.
+- Coverage shows what ran, not what was checked; add mutation testing and bug-driven regressions.
+- Every incident or audit finding becomes a failing test first.

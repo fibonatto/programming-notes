@@ -1,0 +1,156 @@
+#+title: Tooling and Development Workflow
+#+startup: overview
+
+* Tooling and Development Workflow
+** 0. Staff-level lens
+Tooling is leverage: the right defaults catch bugs before review, make safe practices cheap, and keep teams fast. In Web3 the toolchain also carries security weight (compiler versions, dependencies, signing, deployment). At Staff and Principal scope you are expected to:
+- choose and standardize a toolchain and workflow for smart contracts, infrastructure, and frontends, with reasons and an upgrade policy;
+- design CI/CD that enforces quality and security gates without slowing the team unnecessarily;
+- manage dependencies, secrets, and keys safely throughout development and deployment;
+- evaluate new tools critically in a fast-changing ecosystem.
+Companion files: =04_smart-contract-testing.org=, =15_deployment-and-upgrades.org=, =13_indexing-and-data-access.org=, =19_technical-leadership.org=. Tool versions and features change quickly: confirm against current documentation.
+
+** 1. The smart contract toolchain
+- *Foundry*: forge (build, test, fuzz, invariant testing, gas reports, snapshots, coverage, scripting, formatting), cast (RPC command-line and ABI tools), anvil (local node with forking and impersonation), and chisel (a Solidity REPL). Tests are written in Solidity with cheatcodes; fast; the common default for Solidity-native workflows.
+- *Hardhat*: a JavaScript and TypeScript environment; Hardhat 3, the current major version at the time of writing, supports Solidity tests alongside TypeScript tests (with viem or ethers), a local simulated network, deployment tooling (Ignition), and multichain workflows; many existing projects still use Hardhat 2 plugins. Teams often use Foundry for contract tests and Hardhat for deployment and integration; either alone can suffice.
+- *Remix*: a browser IDE for learning and quick experiments; not for production workflows.
+- *Retired tools*: Truffle and Ganache were sunset; migrate old projects.
+- *Libraries*: OpenZeppelin Contracts (and the upgradeable variants) for tokens, access control, proxies, and utilities; Solady and Solmate for gas-optimized components (read what they omit); protocol-specific libraries (Uniswap, Aave, Chainlink interfaces). Pin versions and review what you import.
+- *Compilers*: solc (pin exact versions), Vyper for Vyper-based code; set the EVM version to match the target chains; record compiler settings in the repository and in deployment metadata.
+- *Static analysis and linting*: Slither, Aderyn, solhint, and formatters (forge fmt, Prettier with a Solidity plugin); treat warnings as errors in CI.
+- *Fuzzing and formal tools*: Foundry fuzz and invariant runners, Echidna, Medusa, Halmos, Certora (see file 04 and file 16).
+- *Debugging and exploration*: Foundry traces (-vvvv), the Foundry debugger, transaction simulators and debuggers (such as Tenderly), block explorers (Etherscan-style, Blockscout, Sourcify for verification), and cast for decoding calldata, selectors, and storage.
+- *Documentation generation*: NatSpec with forge doc or similar; keep specifications next to code.
+
+** 2. Project structure and dependency management
+#+begin_src text
+project/
+  src/            contracts (one concern per file; interfaces in src/interfaces/)
+  test/           unit, fuzz, invariant, fork tests (mirrors src/)
+  script/         deployment and operational scripts (Foundry scripts or Hardhat Ignition modules)
+  lib/            vendored dependencies (submodules) or managed by a package tool
+  docs/           specification, threat model, ADRs, runbooks
+  foundry.toml    toolchain configuration (profiles for default and CI)
+  .github/        CI workflows
+#+end_src
+- *Dependency sources*: git submodules (Foundry's default), npm packages (Hardhat and shared tooling), and newer package managers for Solidity (for example Soldeer). Whatever you choose: pin exact versions or commits, record them, review upgrades, and avoid fetching unpinned code during builds.
+- *Remappings* keep imports stable; avoid deep relative paths; keep a single source of truth for each dependency version.
+- *Monorepo versus multi-repo*: contracts and off-chain code in one repository simplify ABI and type sharing; separate repositories simplify access control and audit scoping; choose deliberately.
+- *Generated artifacts*: ABIs and TypeScript types generated in the build (for example with viem-compatible ABI typing or TypeChain), not hand-maintained.
+- *Supply chain hygiene*: lockfiles, dependency review in pull requests, automated vulnerability alerts, minimal and audited dependencies, restricted CI permissions.
+
+** 3. Configuration examples
+#+begin_src toml
+# foundry.toml (sketch)
+[profile.default]
+src = "src"
+test = "test"
+script = "script"
+libs = ["lib"]
+solc_version = "0.8.28"      # pin the exact compiler version you audit and deploy
+optimizer = true
+optimizer_runs = 200
+evm_version = "cancun"       # match the weakest target chain's supported EVM version
+
+[fuzz]
+runs = 256
+
+[invariant]
+runs = 128
+depth = 50
+
+[profile.ci.fuzz]
+runs = 5000
+
+[profile.ci.invariant]
+runs = 512
+depth = 100
+#+end_src
+
+#+begin_src yaml
+# .github/workflows/ci.yml (sketch)
+name: ci
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: foundry-rs/foundry-toolchain@v1
+      - run: forge fmt --check
+      - run: forge build --sizes
+      - run: forge test -vvv
+      - run: forge snapshot --check          # fail on unexpected gas changes
+#+end_src
+(Illustrative; adjust to the current tool versions, add static analysis, coverage, storage-layout checks, and a scheduled job running the long fuzz and invariant profile.)
+
+** 4. CI/CD for Web3
+- *Pull request gates*: format and lint; compile with warnings as errors; all tests; static analysis (Slither or similar) with triaged baselines; gas snapshot diff; contract size check; storage layout compatibility for upgradeable contracts; dependency and secret scanning; required reviews, with CODEOWNERS for sensitive paths (permissions, upgrade code, oracles).
+- *Scheduled jobs*: long fuzz and invariant runs; fork tests against current mainnet state; dependency update checks; mutation testing on critical modules; monitoring of the deployed system's invariants.
+- *Release pipeline*: tagged releases; reproducible build artifacts; deployment simulation on forks; manual approval gates for mainnet; scripts executed by hardware-backed or multisig signers; post-deployment verification and smoke tests; automatic publication of ABIs, addresses, and verified sources.
+- *Environments and secrets*: separate credentials per environment; no private keys in repositories, CI variables, or logs; use keystores, hardware wallets, or KMS-backed signers; short-lived tokens; secret scanning; rotate on suspicion.
+- *Infrastructure as code* for nodes, indexers, relayers, and monitoring; review changes like code; keep runbooks next to the configuration.
+- *Observability of the pipeline itself*: build times, flaky tests, and failure causes; keep CI fast enough that people do not bypass it.
+
+** 5. Frontend and off-chain tooling
+- *Client libraries*: viem and ethers for RPC and contract interaction (viem emphasizes type safety and modularity); wagmi and similar React hooks for wallet and chain state; wallet connection kits and WalletConnect (under the Reown brand); the standard provider interfaces (EIP-1193, EIP-6963).
+- *Type safety*: generate typed ABIs so incorrect calls fail at compile time; share ABIs between contracts, backend, and frontend through one source.
+- *Testing frontends*: run against anvil forks with mock wallets or test accounts; end-to-end tests for connection, signing, transaction, and error flows; simulate chain switches and rejected signatures.
+- *Backends and bots*: use the same libraries with explicit retry and nonce management; typed configuration per chain; structured logging with transaction hashes and chain ids (see =06_transactions-and-gas.org=).
+- *Indexing and data tooling*: indexer frameworks, ORMs, and migration tools; local development databases; reproducible backfills (see =13_indexing-and-data-access.org=).
+- *Infrastructure*: node providers and self-hosted nodes; secrets management; metrics and alerting stacks (see =17_reliability-and-monitoring.org=).
+- *Content and storage*: IPFS pinning services, gateways, and content tooling with integrity checks; ENS tooling.
+- *Frontend integrity*: pinned dependencies, subresource integrity, reproducible builds, controlled deployment access, and monitoring for unexpected changes.
+
+** 6. A recommended workflow for a contract change
+1. *Specify*: update the specification and invariants; discuss the design (design document or ADR for significant changes).
+2. *Write tests first or alongside*: unit tests for behaviors and reverts, fuzz tests for properties, invariants for state-wide properties; add a failing test for any bug.
+3. *Implement* with pinned tools and standard libraries; keep changes small.
+4. *Run local checks*: format, build, tests, static analysis, gas and size reports.
+5. *Open a pull request* with the specification link, risk notes, and test evidence; get reviews by people who understand the domain; for sensitive paths require additional reviewers.
+6. *CI gates* pass; long-running fuzzing runs on schedule or on demand for high-risk changes.
+7. *Audit or internal security review* for changes touching value flows, permissions, math, or upgradeability; fix and re-review.
+8. *Deploy to a testnet or fork rehearsal* with the real scripts; run post-deploy checks.
+9. *Mainnet release* through the gated pipeline, with monitoring and caps; announce and document.
+10. *Observe and learn*: monitor, review, and update tests and checklists after any incident or finding.
+
+** 7. Choosing and evaluating tools
+- *Criteria*: correctness and maturity, security posture of the tool itself, community and maintenance, performance, integration with your stack, debuggability, lock-in and portability, licensing, and cost.
+- *Pilot first*: run a new tool on a non-critical module with measurable goals; compare against the incumbent; keep an exit.
+- *Standardize*: a small set of approved tools and versions reduces cognitive load and supply-chain risk; allow exceptions with justification.
+- *Upgrade policy*: schedule regular dependency and toolchain updates; test them in CI; read release notes (especially compiler and EVM version changes); avoid upgrading the compiler between audit and deployment without re-validation.
+- *Build internal tooling* only where it pays: deployment manifests, address registries, simulation harnesses, monitoring scripts, and test utilities are common high-value targets.
+- *Documentation*: a developer handbook (setup, commands, conventions, release process, runbooks) that new engineers can follow on day one.
+
+** 8. Self-check
+1. Which gates would you put in CI for a repository containing upgradeable contracts, and which run only on a schedule?
+2. How do you manage deployment keys across environments without storing private keys in CI?
+3. A teammate upgrades the compiler between the audit and the release. What risks does that create and what process prevents it?
+4. Compare Foundry and Hardhat for a team with both contract and frontend engineers; when would you use both?
+5. What would you include in a developer handbook for new smart contract engineers?
+6. How do you evaluate a new static analysis or fuzzing tool before adopting it?
+
+** 9. Exercises
+- Warm-up: set up a Foundry project with the sketch configuration; add the vault and its tests; run format, build, tests, and a gas snapshot.
+- Core: write the CI workflow including static analysis, a storage-layout check for an upgradeable contract, and a scheduled long-fuzz job; make a deliberately failing change and confirm each gate catches the right problem.
+- Core: set up deployment with a hardware wallet or keystore signer (no plaintext keys), simulate on a fork, and produce a deployment manifest and verification.
+- Core: generate typed ABIs and use them in a small frontend and a backend script; show a compile-time error for a wrong call.
+- Stretch: write an internal "address registry" tool that records deployments across chains and verifies on-chain code hashes in CI.
+- Stretch: evaluate two fuzzing or static analysis tools on the same codebase and write a short comparison with a recommendation.
+
+** 10. Resources
+- Foundry Book: https://book.getfoundry.sh ; Hardhat documentation (Hardhat 3, Solidity tests, Ignition, plugins): https://hardhat.org
+- Solidity documentation and release notes: https://docs.soliditylang.org and https://soliditylang.org/blog/category/releases/
+- OpenZeppelin documentation (Contracts, Upgrades, Wizard): https://docs.openzeppelin.com/
+- viem, wagmi, and ethers documentation; Sourcify and block explorer verification documentation.
+- Trail of Bits, /Building Secure Contracts/ (tooling and process guidance); Slither, Echidna, and Medusa documentation.
+- Software Architecture notes (evolutionary architecture, fitness functions) for turning rules into automated checks.
+
+** What to remember
+- Pin and record the toolchain; the compiler, settings, and dependencies are part of the audited artifact.
+- Encode quality and security rules as CI gates; keep fast checks per commit and deep checks on a schedule.
+- Keep keys out of repositories and CI; deploy through reviewed, simulated, gated pipelines.
+- Share typed ABIs across contracts, backend, and frontend.
+- Evaluate tools with pilots and an exit; update on a schedule and with care.

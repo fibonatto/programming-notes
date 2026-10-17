@@ -1,0 +1,134 @@
+#+title: The EVM and Solidity
+#+startup: overview
+
+* The EVM and Solidity
+** 0. Staff-level lens
+The EVM is a small, deterministic, metered machine; Solidity is a high-level language compiled to it, with sharp edges that map directly to losses of funds. At Staff and Principal scope you are expected to:
+- reason at the level of the machine (storage slots, calldata, call semantics, gas) when a bug or a cost question needs it;
+- set language-level standards for a team (compiler versions, patterns, library usage) with reasons;
+- evaluate alternatives (other languages, other VMs, other chains) from first principles;
+- review code for what it does on the machine, not for what it appears to do.
+Companion files: =03_smart-contract-security.org=, =06_transactions-and-gas.org=, =15_deployment-and-upgrades.org=, and the Foundations files on memory management and type systems.
+
+** 1. The machine model
+- *Words and stack*: 256-bit words; a stack (max depth 1024, with 16 reachable slots by DUP/SWAP, which causes "stack too deep" errors); no registers; no floating point; no native randomness; no clocks except block data.
+- *Data areas*:
+| Area               | Lifetime                      | Cost profile                        | Notes                                              |
+|--------------------+-------------------------------+-------------------------------------+----------------------------------------------------|
+| Stack              | Per call frame                | Cheap                               | 256-bit values                                     |
+| Memory             | Per call (byte-addressable)   | Cheap, quadratic expansion          | Scratch space; reset between external calls        |
+| Calldata           | Per call (read-only)          | Paid per byte at transaction time   | Cheapest way to read inputs                        |
+| Storage            | Persistent, per contract      | Very expensive (first write, cold read) | 2^256 slots of 32 bytes                        |
+| Transient storage  | Per transaction, per contract | Cheaper than storage                | Cleared at transaction end (EIP-1153, since Cancun) |
+| Code               | Immutable after deployment    | Paid at deployment (per byte)       | Max deployed size 24,576 bytes (EIP-170); initcode limit 49,152 bytes (EIP-3860) |
+| Logs (events)      | Persist in receipts, not readable by contracts | Cheap per byte           | Indexed by topics for off-chain filtering          |
+- *Accounts*: externally owned accounts (EOAs, controlled by a private key) and contract accounts (code and storage). Only EOAs originate transactions (account delegation under EIP-7702 changes how an EOA can behave; see =08_wallets-and-cryptography.org=).
+- *Execution*: a transaction triggers a call; each call frame has its own stack, memory, and gas allowance; failure reverts the frame's state changes and returns revert data; out-of-gas consumes everything given to the frame.
+- *Call types*: CALL (new context, callee's storage), STATICCALL (read-only), DELEGATECALL (callee's code with the /caller's/ storage and msg.sender; the basis of proxies and libraries), CALLCODE (obsolete), CREATE and CREATE2 (deploy; CREATE2 gives deterministic addresses from deployer, salt, and init code hash).
+- *Gas forwarding*: a call may forward at most 63/64 of remaining gas (EIP-150); a callee can therefore not consume the caller's entire budget, but a caller must account for gas griefing (an external call that fails because it was given too little gas).
+- *Precompiles*: native implementations at fixed addresses for ecrecover, SHA-256, RIPEMD-160, identity, modular exponentiation, BN254 curve operations (used for zk verification), BLAKE2f, the KZG point evaluation (blobs), and, since Pectra, BLS12-381 operations. Later forks add further precompiles and opcodes; check the current fork list.
+- *Determinism and its consequences*: no I/O, no real randomness, no real time; block.timestamp and block.number are set by block producers within limits; everything a contract observes is public and reproducible.
+
+** 2. Storage layout and ABI
+- *Layout rules*: state variables occupy slots in declaration order starting at slot 0 (inheritance linearized, base contracts first); small types pack into one slot when adjacent; mappings place value at keccak256(key concatenated with slot); dynamic arrays store length at the slot and data at keccak256(slot); structs lay out member by member; constants and immutables do not use storage. Reordering variables in an upgradeable contract corrupts state (see =15_deployment-and-upgrades.org=). ERC-7201 defines namespaced storage to avoid collisions.
+- *Function selectors*: the first 4 bytes of keccak256 of the canonical signature (name and parameter types). Selector collisions are possible in principle and matter for proxies.
+- *ABI encoding*: arguments are encoded in 32-byte words with offsets for dynamic types; return data and revert data use the same scheme; custom errors encode as selector plus arguments. Tools decode them with the contract's ABI.
+- *Events*: up to 3 indexed arguments become log topics (plus the event signature hash as topic 0 for non-anonymous events); non-indexed arguments go in data. Events are the cheap, structured output for indexers (see =13_indexing-and-data-access.org=).
+- *Hashing*: Ethereum uses Keccak-256, which differs from NIST SHA3-256 in padding; do not confuse them.
+
+** 3. Solidity essentials
+- *Types*: unsigned and signed integers of 8 to 256 bits, bool, address and address payable, fixed and dynamic bytes, strings, arrays, mappings, structs, enums, user-defined value types, function types, and contract types. There is no floating point; fixed-point math is manual (WAD and RAY conventions, with explicit rounding direction).
+- *Data locations*: storage, memory, calldata. Copying between them has semantics (and costs) that cause real bugs; prefer calldata for read-only external parameters.
+- *Visibility and mutability*: public, external, internal, private; view and pure; payable. State-changing functions should be as restricted as possible.
+- *Checked arithmetic*: since 0.8.0, overflow and underflow revert by default; ~unchecked { ... }~ blocks opt out for proven-safe cases. Precision loss and rounding errors are still your responsibility.
+- *Errors*: ~revert CustomError(args)~ is cheaper and more informative than revert strings; ~require~ with custom errors is available in recent compilers on the IR pipeline; assertion failures (Panic codes) indicate bugs.
+- *Inheritance*: multiple inheritance with C3 linearization; ~virtual~ and ~override~; abstract contracts and interfaces; constructors run base-first. Deep hierarchies obscure storage layout and behavior.
+- *Libraries*: internal library functions are inlined; external libraries are deployed separately and called with DELEGATECALL.
+- *Special functions*: ~receive()~ and ~fallback()~ handle plain ETH and unknown selectors; accepting ETH widens the attack surface (also, ETH can be force-sent with SELFDESTRUCT or coinbase rewards, so ~address(this).balance~ is not a reliable invariant).
+- *Constants and immutables*: ~constant~ inlines at compile time; ~immutable~ is set in the constructor and embedded in bytecode; both avoid storage reads.
+- *Transient storage*: recent compilers support ~transient~ state variables and the underlying opcodes; they suit reentrancy locks and per-transaction accounting, and their lifecycle semantics (cleared at transaction end) require care across composed calls.
+- *Compiler pipeline and settings*: the legacy pipeline and the IR pipeline (via-IR) differ in optimization and in some language features; the optimizer runs setting (runs) tunes deploy size versus execution cost; the EVM version setting must match the target chain's supported opcodes (using a newer EVM version on a chain that does not support it makes deployments fail or misbehave). Pin the exact compiler version and settings, and record them with the deployment. Recent releases track forks: for example 0.8.30 changed the default EVM version to prague, later releases default to osaka, and 0.8.36 (July 2026) added support for the Amsterdam EVM version. Check the release notes when upgrading.
+
+#+begin_src solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+/// @notice Minimal ETH vault: checks, effects, then interaction.
+contract Vault {
+    mapping(address => uint256) public balanceOf;
+
+    event Deposited(address indexed account, uint256 amount);
+    event Withdrawn(address indexed account, uint256 amount);
+
+    error ZeroAmount();
+    error InsufficientBalance();
+    error TransferFailed();
+
+    function deposit() external payable {
+        if (msg.value == 0) revert ZeroAmount();
+        balanceOf[msg.sender] += msg.value;
+        emit Deposited(msg.sender, msg.value);
+    }
+
+    function withdraw(uint256 amount) external {
+        if (amount == 0) revert ZeroAmount();
+        uint256 bal = balanceOf[msg.sender];
+        if (bal < amount) revert InsufficientBalance();
+        balanceOf[msg.sender] = bal - amount;               // effect before interaction
+        (bool ok, ) = msg.sender.call{value: amount}("");   // interaction
+        if (!ok) revert TransferFailed();
+        emit Withdrawn(msg.sender, amount);
+    }
+}
+#+end_src
+(Illustrative and not compiled here. Note that this vault is intentionally minimal: it has no reentrancy guard, relying on state updates before the external call, and no handling for contracts that reject ETH. =03_smart-contract-security.org= discusses hardening.)
+
+** 4. Language and VM alternatives
+- *Vyper*: Python-like syntax, deliberately limited (no inheritance, no inline assembly in the usual sense) to aid auditability; compiles to the EVM. *Yul* is the intermediate language Solidity can target, used for hand-optimized code; *Huff* and similar tools give near-assembly control. Use low-level languages only where the gain is worth the audit burden.
+- *Other VMs*: WebAssembly-based chains (CosmWasm, Stylus on Arbitrum, which lets Rust, C, and C++ contracts run alongside the EVM), Solana's BPF-based runtime (Rust, with explicit account access), and the Move VM (resource-oriented, with linear types for assets). They change the security model: for example Move prevents copying or dropping assets by type rules, and Solana programs must declare accounts, which changes the shape of reentrancy and access-control bugs.
+- *Why EVM compatibility dominates*: tooling, audits, developer familiarity, liquidity, and composability. Compatibility is a spectrum (see the EVM-equivalence discussion in =11_layer-2-and-cross-chain.org=). Evaluate "EVM-compatible" claims by the opcodes, precompiles, gas costs, and block semantics they actually match.
+
+** 5. Reading and reviewing Solidity
+- *Start from the entry points*: external and public functions, receive and fallback; map who may call each and what state it changes.
+- *Trace the money*: every place value or tokens move; every external call; every approval.
+- *Check the ordering of effects and interactions* and the assumptions about callbacks (ETH transfers, token hooks, receivers).
+- *Check authorization* (modifiers, roles, initializers) and what happens if a privileged key is lost or malicious.
+- *Look at the storage layout* for upgradeable code and at DELEGATECALL targets.
+- *Examine arithmetic*: units, decimals, rounding direction (always round in the protocol's favor), unchecked blocks, casts that truncate (uint256 to uint128).
+- *Look at the compiler settings and library versions*, and whether code uses features introduced recently.
+- *Read the bytecode-level behavior when in doubt*: tests with traces, the storage diff of a call, and the gas profile.
+
+** 6. Standards and libraries
+Prefer audited, widely used libraries (OpenZeppelin Contracts for tokens, access control, proxies, cryptography utilities; Solady or Solmate for gas-optimized variants with care; Uniswap and Aave libraries for specific math) over rewriting primitives. Understand what you import: pin versions, read the code you rely on, and note known caveats.
+- Style: NatSpec for every external function, consistent naming, short functions, explicit visibility, events for every state change that off-chain systems need, custom errors, no magic numbers, and tests per behavior.
+- Avoid cleverness: inline assembly only with a stated reason, review, and tests; avoid deeply nested inheritance and unusual patterns.
+
+** 7. Self-check
+1. Draw the storage layout of a contract with a ~uint128~, a ~uint128~, an ~address~, and a ~mapping(address => uint256)~; at which slot does the mapping value for a key live?
+2. What does DELEGATECALL change about msg.sender, storage, and address(this)? Why is it dangerous with untrusted targets?
+3. Why can ~address(this).balance~ not be used to track deposits reliably?
+4. What do the compiler's EVM version and optimizer settings affect, and what must you record for reproducibility?
+5. Explain the 63/64 rule and one attack or failure it prevents or enables.
+6. Why are custom errors preferable to revert strings, and what are the compatibility trade-offs?
+
+** 8. Exercises
+- Warm-up: compile the vault above with a pinned compiler; inspect the ABI, the storage layout (the compiler can output it), and the gas of deposit and withdraw.
+- Core: write a contract with packed variables, a mapping, and a dynamic array; read raw storage slots with RPC calls and verify the layout rules.
+- Core: implement a minimal proxy with DELEGATECALL and an implementation contract; demonstrate a storage collision and fix it with namespaced storage.
+- Core: implement fixed-point math (WAD) with explicit rounding up and down, with tests including boundary values.
+- Stretch: write the same simple contract in Solidity and Vyper; compare bytecode size, gas, and auditability.
+- Stretch: read the bytecode of a small contract (disassemble) and identify the dispatcher, the checked-arithmetic code, and the storage accesses.
+
+** 9. Resources
+- Solidity documentation: https://docs.soliditylang.org ; release announcements and notes (compiler versions, EVM version support): https://soliditylang.org/blog/category/releases/ and the changelog: https://github.com/argotorg/solidity/blob/develop/Changelog.md
+- ethereum.org developer docs on the EVM and smart contracts: https://ethereum.org/en/developers/docs/
+- EIPs referenced: EIP-150 (gas), EIP-170 (code size), EIP-1153 (transient storage), EIP-3860 (initcode limit), ERC-7201 (namespaced storage): https://eips.ethereum.org
+- OpenZeppelin Contracts documentation: https://docs.openzeppelin.com/contracts
+- Wood, /Ethereum Yellow Paper/ (formal EVM specification); Antonopoulos and Wood, /Mastering Ethereum/; the Ethereum execution specs repository for readable reference behavior.
+
+** What to remember
+- The EVM is a metered, deterministic stack machine with expensive persistent storage and public state.
+- DELEGATECALL, storage layout, calldata, and the call stack explain most low-level bugs.
+- Pin the compiler, settings, and EVM version; they are part of the artifact.
+- Use audited libraries and simple patterns; review code at the level of the machine when it matters.
+- Other VMs change the shape of security bugs, not whether they exist.

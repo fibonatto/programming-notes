@@ -1,0 +1,106 @@
+#+title: Technical Leadership in Web3
+#+startup: overview
+
+* Technical Leadership in Web3
+** 0. Staff-level lens
+Leading engineering in Web3 means owning risk that is public, irreversible, and fast-moving, in teams that mix protocol engineers, infrastructure engineers, researchers, community contributors, and legal and business stakeholders. The technical content of the previous files is necessary and insufficient: Staff and Principal impact comes from setting direction, building the practices that keep systems safe, and growing people and decisions around them. You are expected to:
+- own technical strategy and the quality bar across teams, including security and reliability standards;
+- make and teach good decisions under uncertainty and time pressure, without normalizing recklessness;
+- communicate risk clearly to executives, lawyers, auditors, communities, and users;
+- build teams and processes (reviews, incident response, release gates) that scale beyond individual heroics;
+- keep up with an ecosystem that changes quarterly, with a disciplined way to evaluate and adopt change.
+Companion files: =16_security-auditing.org=, =17_reliability-and-monitoring.org=, =18_architecture-decisions.org=. Software Architecture notes: technical debt, architecture review, and decision records; the Staff-engineering references there (StaffEng guides) frame the role.
+
+** 1. The role and its scope
+- *What Staff and Principal engineers do* (common patterns, not a fixed job description): set technical direction for a protocol or product area; lead the hardest projects and incidents; raise the quality of designs and reviews; make cross-team decisions; mentor; represent engineering to leadership and to the community. StaffEng describes archetypes (Tech Lead, Architect, Solver, Right Hand); in Web3 organizations a Staff engineer is often also the de facto security owner, protocol architect, or reliability owner.
+- *Domain-specific responsibilities*: ownership of the threat model and launch gates; the audit and bounty programs; the on-chain operational procedures (keys, upgrades, pauses); relationships with auditors, infrastructure vendors, and ecosystem partners; the technical voice in governance discussions.
+- *Scope beyond code*: the cost of failure is public and sometimes existential for the project; that shapes how you plan, review, and communicate.
+
+** 2. Setting engineering standards
+- *Secure development lifecycle (SDL)*: requirements and threat model, design review, implementation standards, testing (unit, fuzz, invariant), static analysis, internal review, external audit, staged launch, monitoring, incident response, post-mortem. Write it down as a living document with owners, checklists, and entry and exit criteria for each stage.
+- *Definition of done for contract changes*: specification updated, invariants and tests written, gas and storage layout checked, static analysis clean or triaged, review by at least two engineers (one outside the author's immediate team for critical code), documentation and events updated, monitoring updated.
+- *Code standards*: compiler and library pinning, style and naming, NatSpec, error handling, upgrade and storage rules, restrictions on assembly and unchecked blocks, dependency policy.
+- *Review practices*: small pull requests, reviewers who understand the domain, mandatory review for any change touching value flows or permissions, explicit approval for privileged-role and parameter changes, and architecture review for new components (see =10_architecture-review.org= in the Software Architecture notes).
+- *Release management*: versioned releases, changelogs, deployment runbooks, rollback and migration plans, and a go or no-go meeting for mainnet changes.
+- *Tooling and automation*: CI gates for tests, static analysis, gas snapshots, storage layout checks, and secret scanning (see =20_tooling-and-development-workflow.org=); automation beats exhortation.
+- *Make the safe path the easy path*: templates, scaffolding, shared libraries, and internal documentation reduce variance; platform teams own these.
+
+** 3. Decision-making and managing irreversible risk
+- *Separate reversible from irreversible decisions*: decide the former quickly and locally; the latter with broader input, evidence, and a record (see =18_architecture-decisions.org=).
+- *Name the risk owner*: every accepted risk has a person who accepted it, a reason, and an expiry.
+- *Resist schedule pressure on irreversible steps*: market windows and token launches create pressure to cut review and audit time; your job is to quantify what shortcuts cost in risk and to offer alternatives (reduced scope, caps, staged launch) rather than only saying no.
+- *Pre-mortems and red teams* for major launches; treat dissent as information; reward people who find problems.
+- *Calibrated communication*: avoid false precision and false reassurance; give ranges and probabilities where honest, state assumptions, and distinguish facts, estimates, and opinions.
+- *Learning from incidents*: blameless post-mortems; ecosystem post-mortems studied as case material; feed lessons into standards.
+- *Technical strategy*: a written strategy (diagnosis, guiding policies, coherent actions) for security, architecture, infrastructure, and talent; revisit when the ecosystem changes.
+
+** 4. Communicating across audiences
+- *Executives and investors*: translate risk into business terms (probable loss, worst case, cost and benefit of controls, schedule impact); avoid jargon; bring options with costs.
+- *Legal and compliance*: engage early on token design, distribution, marketing, permissioning, data handling, and jurisdictional constraints; document the technical facts counsel needs; do not make legal claims yourself.
+- *Auditors and researchers*: be responsive, honest about known issues, and respectful of their time; treat reports as collaboration.
+- *Community and users*: transparent, timely, factual communication about releases, risks, incidents, and governance proposals; publish post-mortems; avoid hype and unverifiable claims; correct errors publicly.
+- *Governance participants and delegates*: technical proposals with clear problem statements, specifications, risk analysis, and simulation of on-chain actions; make review easy.
+- *Engineering teams*: context, goals, and rationale; written design documents and decision records; consistent standards.
+- *Writing*: decisive Staff-level work is mostly writing (design documents, decision records, strategy, post-mortems, standards); invest in clarity.
+
+** 5. Building teams and organizations
+- *Team structure*: protocol and contracts engineers, security engineering, infrastructure and SRE, data and indexing, frontend and wallet engineering, research and mechanism design, and product and legal liaisons; define ownership, interfaces, and on-call.
+- *Hiring and interviewing*: assess reasoning about adversarial systems, ability to read and write secure contracts, testing discipline, and ability to explain trade-offs; work samples (reviewing a vulnerable contract, designing a small protocol, debugging a failing test) predict better than trivia; check ethics and judgment; verify references; be alert to hiring-related social engineering and fraudulent candidates.
+- *Onboarding*: architecture overview, threat model, runbooks, a safe first change in a test environment, shadowing of reviews and incidents.
+- *Mentoring and growth*: pair on reviews and incident response; give feedback on design documents; create paths from smart contract developer to protocol engineer and security specialist; encourage writing and speaking.
+- *Culture*: psychological safety to raise concerns; blamelessness with accountability; humility about what is unknown; rigor in testing and review; sustainable on-call; resistance to hype.
+- *Career ladders and expectations*: define Staff and Principal expectations for scope, influence, and technical depth in this domain; use impact examples (launches secured, incidents handled, standards adopted).
+- *External contributors and open source*: contribution guidelines, security disclosure policy, review capacity, licensing, and clear communication of what is accepted; maintain relationships with the open-source ecosystem you depend on.
+- *Vendors and partners*: manage auditors, infrastructure providers, and custodians as dependencies with owners and review dates (see the dependency register in =18_architecture-decisions.org=).
+
+** 6. Operational security for engineers and teams
+- *Personal security*: hardware security keys for accounts; separate devices or profiles for signing and for browsing; no signing keys on development laptops; careful handling of unsolicited repositories, job tests, and links; verified channels for key ceremonies; screen for phishing in chat and email.
+- *Targeted attacks*: state-sponsored groups have targeted crypto engineers through fake recruiters, trojaned coding assignments, and compromised dependencies; train the team, and treat unsolicited code as untrusted.
+- *Repository and build security*: protected branches, required reviews, signed commits for critical repositories, secret scanning, dependency review and pinning, least-privilege CI tokens, and isolated release pipelines.
+- *Access control*: role-based access to infrastructure, regular access reviews, prompt offboarding, and break-glass procedures with audit trails.
+- *Key ceremonies and multisig operations*: documented, witnessed, and rehearsed (see =08_wallets-and-cryptography.org=).
+- *Insider risk*: separation of duties, multi-party approval for large movements, monitoring of privileged actions.
+
+** 7. Keeping up with a fast ecosystem
+- *Protocol and tooling change quickly* (hard forks, new EIPs, new compiler versions, new L2 stages, new standards). Build a lightweight, disciplined process: a technology radar (adopt, trial, assess, hold), a small group responsible for tracking upgrades and advisories, regular reviews of compiler and library versions, and a policy for adopting new standards (see =07_tokens-and-standards.org=).
+- *Sources*: Ethereum Foundation protocol updates and meta-EIPs, core developer call notes, compiler release notes, client release notes, audit firm advisories, security researcher feeds, L2BEAT, and the documentation of key dependencies.
+- *Evaluate with spikes*: time-boxed prototypes with measurable criteria; do not adopt new infrastructure in production without a pilot and an exit.
+- *Deprecation*: have a plan for retiring dependencies, testnets, and old interfaces; communicate dates.
+- *Avoid shiny-object drift*: protect focus; tie adoption to product and risk needs.
+
+** 8. Ethics, responsibility, and sustainability
+- *Responsibility to users*: user funds and data are at stake; be honest about risks, limits, and trust assumptions in documentation and marketing; do not oversell decentralization, security, or yields.
+- *Respect for the ecosystem*: coordinate disclosures, avoid exploiting vulnerabilities, credit researchers, and contribute fixes upstream.
+- *Compliance and law*: follow applicable laws; seek counsel; do not give legal advice yourself.
+- *Sustainable engineering*: avoid constant crisis mode; protect time for testing, reviews, and learning; rotate on-call; recognize the stress of irreversible systems; build teams that can say no to unsafe launches.
+- *Personal conduct*: conflicts of interest (holding tokens, advising projects) should be disclosed and managed; follow trading and information-handling policies relevant to your organization.
+
+** 9. Self-check
+1. Your CEO wants to launch next week; your audit found two unresolved high-severity issues. Write the options you present, with risks and costs.
+2. What belongs in your team's definition of done for a contract change, and how is each element enforced?
+3. Describe how you would run a pre-mortem and a blameless post-mortem, and what you do with the results.
+4. What would you include in a technical strategy document for a protocol team over the next year?
+5. How do you assess a candidate's ability to reason about adversarial systems?
+6. How do you evaluate and adopt a new standard or tool without destabilizing production?
+
+** 10. Exercises
+- Warm-up: write a one-page SDL for your team, with stages, owners, entry and exit criteria, and checklists.
+- Core: write a launch risk memo for executives for a hypothetical protocol: top risks, controls, residual risk, and options with schedule impact.
+- Core: design an interview loop for a smart contract engineer, including a vulnerable-contract review exercise and scoring rubric.
+- Core: run a blameless post-mortem on a past incident (yours or public), and produce action items with owners and dates.
+- Stretch: write a technology radar for your stack (adopt, trial, assess, hold) with rationale, and a process to update it quarterly.
+- Stretch: write a technical strategy document using diagnosis, guiding policies, and coherent actions for security, reliability, and architecture.
+
+** 11. Resources
+- StaffEng guides and book on the Staff role, technical strategy, writing, and decision-making: https://staffeng.com/guides/
+- Software Architecture notes in this repository (technical debt, architecture review, decision records, evolutionary architecture).
+- Rumelt, /Good Strategy / Bad Strategy/ (diagnosis, guiding policy, coherent action); Reilly, /The Staff Engineer's Path/; Larson, /Staff Engineer/ and /An Elegant Puzzle/; Forsgren, Humble, Kim, /Accelerate/.
+- Public post-mortems, audit reports, and incident reviews; emergency-response communities; protocol governance forums.
+- Security engineering references: Anderson, /Security Engineering/; Shostack, /Threat Modeling/.
+
+** What to remember
+- Leadership here is owning irreversible, public risk: standards, gates, and honest communication matter as much as technical skill.
+- Make safe practices the default through process and tooling; automate what you can.
+- Separate reversible and irreversible decisions; name risk owners; resist schedule pressure with options, not only refusals.
+- Communicate to each audience in its terms; write clearly; learn publicly from incidents.
+- Protect people and focus: sustainable teams, personal and operational security, and disciplined adoption of change.

@@ -1,0 +1,134 @@
+#+title: Smart Contract Security
+#+startup: overview
+
+* Smart Contract Security
+** 0. Staff-level lens
+Contracts are public programs, holding value, that anyone can call with arbitrary inputs, in any order, within one atomic transaction, with unlimited flash-loan capital, and that usually cannot be patched after deployment. Failures are immediate, irreversible, and visible. At Staff and Principal scope you are expected to:
+- own the threat model: what can an attacker control, what do they gain, what does it cost them;
+- turn security from an end-of-project audit into a development lifecycle with specifications, invariants, tests, reviews, monitoring, and response;
+- recognize that most losses come from a short list of bug classes plus key and operational failures, and design against them systematically;
+- make risk visible to decision makers and set launch gates (see =18_architecture-decisions.org=).
+Companion files: =04_smart-contract-testing.org=, =08_wallets-and-cryptography.org=, =10_oracles-and-mev.org=, =15_deployment-and-upgrades.org=, =16_security-auditing.org=, =17_reliability-and-monitoring.org=.
+
+** 1. The threat model
+- *Adversary capabilities*: calls any public function with any arguments; deploys contracts that call yours (so msg.sender may be a contract with hostile callbacks); observes the mempool and reorders transactions (see =10_oracles-and-mev.org=); borrows unlimited capital for one transaction (flash loans); manipulates prices of thin markets; controls many addresses; waits for upgrades or misconfigurations; targets off-chain components and keys.
+- *Assets*: user funds, protocol reserves, governance power, admin keys, oracle integrity, reputation.
+- *Properties to protect*: funds cannot be stolen or locked; accounting is conserved (no creation of value out of nothing); only authorized parties can perform privileged actions; the protocol remains solvent under stress; critical functions stay available (liveness).
+- *Attack surface* beyond the contract: the compiler and libraries, dependencies on other protocols (composability), oracles, bridges, proxies and upgrade paths, admin keys and multisigs, deployment scripts, frontends and wallets (users can be tricked into signing), off-chain bots and relayers, and people (social engineering, supply chain).
+- *Systemic view*: in DeFi, protocols compose. A weakness in a token, an oracle, or a lending market can propagate; your risk includes everything you integrate.
+- *Economics*: an exploit is profitable when the expected extracted value exceeds cost. Bug bounties and monitoring change that calculus; large concentrated value attracts well-resourced attackers, including state-sponsored groups that target keys and supply chains.
+
+** 2. Vulnerability classes and defenses
+For each class: what it is, why it happens, and the defensive pattern.
+*Reentrancy*. An external call lets the callee call back into your contract before the first call finished, while state is inconsistent. Variants: single-function, cross-function, cross-contract, and /read-only/ reentrancy (a view function returns stale values during a callback and another protocol trusts it). Callbacks hide in ETH transfers, ERC-777 hooks, ERC-721 and ERC-1155 receivers, and arbitrary token hooks.
+#+begin_src solidity
+// Vulnerable pattern: interaction before effect.
+function withdraw(uint256 amount) external {
+    require(balanceOf[msg.sender] >= amount);
+    (bool ok, ) = msg.sender.call{value: amount}("");   // external call first
+    require(ok);
+    balanceOf[msg.sender] -= amount;                     // state updated too late
+}
+// Defenses: checks-effects-interactions (update state first), a reentrancy guard
+// (OpenZeppelin ReentrancyGuard, or the transient-storage variant), pull payments,
+// and not trusting view functions of contracts that can be mid-call.
+#+end_src
+*Access control*. Missing or wrong authorization on privileged functions; incorrect use of ~tx.origin~; unprotected initializers; roles that can be changed by anyone; owner key as a single point of failure. Defense: explicit roles (OpenZeppelin AccessControl), least privilege, two-step ownership transfer, multisig plus timelock for admin, tests that every restricted function reverts for unauthorized callers.
+*Initialization and proxy bugs*. Uninitialized proxies or implementations that an attacker initializes and takes over; storage collisions between proxy and implementation; selector clashes; upgrade functions without protection; implementations that can self-destruct (pre-Cancun) or be called directly. Defense: ~initializer~ modifiers, ~_disableInitializers()~ in implementation constructors, standard proxy patterns, storage-layout checks in CI (see =15_deployment-and-upgrades.org=).
+*Arithmetic and precision*. Solidity 0.8 reverts on overflow, but ~unchecked~ blocks, unsafe casts, rounding direction errors, precision loss from dividing before multiplying, and mismatched decimals across tokens remain. Defense: round in the protocol's favor, multiply before divide, explicit decimals handling, invariant tests on conservation of value.
+*Unchecked external calls and token quirks*. Ignoring the success flag of low-level calls; tokens that do not return a boolean, that charge fees on transfer, rebase balances, block addresses, pause, or have ERC-777 hooks; tokens with decimals other than 18. Defense: SafeERC20, balance-difference accounting (measure what you actually received), allowlists of supported tokens, tests with misbehaving mock tokens.
+*Oracle and price manipulation*. Using a spot price from a thin pool; stale or zero prices; sequencer downtime on L2; manipulation within one transaction using a flash loan. Defense: robust oracles with staleness checks, time-weighted prices with adequate liquidity, bounds and circuit breakers (see =10_oracles-and-mev.org=).
+*Flash-loan and donation attacks*. State that depends on balances (address(this).balance, token balanceOf) or on the ratio of shares to assets can be manipulated by donating assets; classic ERC-4626 vaults suffer share-price inflation attacks on the first depositor. Defense: virtual shares and assets offsets, minimum liquidity burned at initialization, internal accounting instead of raw balances.
+*Front-running and MEV*. Public transactions can be copied, sandwiched, or reordered; commit-reveal and private submission help; slippage limits and deadlines bound losses (see =10_oracles-and-mev.org=).
+*Signature bugs*. Replay across chains, contracts, or time (missing domain separation, nonces, deadlines); malleable signatures; ecrecover returning address zero on invalid input; signing ambiguous data. Defense: EIP-712 typed data with chain id and verifying contract, per-signer nonces, deadlines, OpenZeppelin ECDSA, support ERC-1271 for contract signers deliberately.
+*Denial of service*. Unbounded loops over user-controlled arrays; one failing recipient blocking a batch (push payments); griefing by dust; reliance on external calls succeeding; block gas limit exhaustion. Defense: pull payments, bounded iteration or pagination, isolating failures, minimum amounts.
+*Randomness and time*. Using block hash, timestamp, or prevrandao as a source of randomness lets validators and users bias outcomes; timestamps can be shifted slightly by producers. Defense: verifiable randomness (VRF) or commit-reveal with penalties; avoid time sensitivity at second granularity.
+*Governance attacks*. Flash-loaned voting power, vote buying, proposals that hide malicious calls, low-quorum capture, treasury drain through upgrade rights. Defense: voting snapshots at a past block, timelocks, quorums, delegation transparency, guardian vetoes, public simulation of proposals (see =14_protocol-design.org=).
+*Cross-chain and bridge failures*. Forged messages, compromised validator sets, wrong domain separation, replay on other chains, bad initialization of trusted roots (see =11_layer-2-and-cross-chain.org=).
+*Forced ETH and selfdestruct semantics*. ETH can be sent to any contract; since the Cancun upgrade, SELFDESTRUCT no longer deletes code except when called in the same transaction as creation, which changed the metamorphic-contract pattern and some upgrade hazards.
+*Gas and L2 differences*. Gas costs and opcode support differ per chain; block.number and block.timestamp semantics differ on some L2s; code assuming L1 behavior breaks.
+*Supply chain and compiler/library bugs*. Vulnerable dependencies, malicious packages or compromised front ends, and compiler bugs (the Solidity team publishes a list of known bugs per version).
+
+** 3. Lessons from incidents (high level)
+Each of these is a pattern; read the post-mortems for details.
+- *The DAO (2016)*: reentrancy in a withdrawal function; led to a contested chain fork.
+- *Parity multisig (2017)*: an unprotected initializer on a shared library let a user take ownership and destroy the library, freezing wallets that depended on it.
+- *Bridge exploits (Poly Network 2021, Ronin and Wormhole and Nomad 2022 and others)*: compromised validator keys, signature-verification flaws, and a misconfigured trusted root; bridges concentrate value and trust and have been the largest category of losses.
+- *Lending and AMM exploits (for example Euler 2023)*: logic errors in accounting and liquidation paths exploited with flash loans.
+- *Key and operations failures (Bybit 2025)*: signers approved a malicious transaction through a compromised signing interface, so the contract code was not at fault; the lesson is that signing flows, front ends, and supply chains are part of the attack surface (see =08_wallets-and-cryptography.org=).
+Common thread: the root cause was often not an exotic bug but an assumption that no one checked: authorization, initialization, trust in an external input, or an operational control.
+
+** 4. Secure design principles
+- *Minimize attack surface and complexity*: fewer features, fewer external calls, less state; delete code that is not needed; prefer simple, well-understood patterns.
+- *Checks-effects-interactions* and reentrancy guards as defense in depth; pull over push for payments.
+- *Least privilege and separation of duties*: distinct roles for operations, upgrades, pausing, and treasury; no single key can do everything; timelocks on dangerous actions so users can exit.
+- *Fail closed*: on unexpected input or state, revert; pausable circuit breakers for incident response (with governance on who can pause and unpause, since a pause key is also an attack and a trust assumption).
+- *Invariants first*: write down properties that must always hold (solvency, conservation, monotonicity of shares, access invariants) and test them with fuzzing and formal tools (see file 04).
+- *Do not trust external code or data*: tokens, oracles, callbacks, other protocols; validate and bound.
+- *Defense in depth and blast-radius limits*: caps on deposits and per-transaction amounts, rate limits, whitelists during launch, circuit breakers.
+- *Immutability versus upgradeability is a risk decision*: immutable code limits operator power but cannot be patched; upgradeable code adds an admin trust assumption (see =15_deployment-and-upgrades.org=).
+- *Use standard, audited components*, pin versions, and read what you import.
+- *Make behavior observable*: events for all state changes and privileged actions; monitoring can only watch what is emitted.
+- *Design for incident response*: pause paths, key rotation, communication plans, and a way to recover from a partial compromise.
+
+#+begin_src solidity
+// Two-step ownership transfer and role separation are cheap protections against key mistakes.
+// OpenZeppelin v5: Ownable2Step and AccessControl.
+import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step.sol";
+
+contract Treasury is Ownable2Step {
+    constructor(address initialOwner) Ownable(initialOwner) {}
+    // onlyOwner functions: new owner must call acceptOwnership(), avoiding transfer to a wrong address.
+}
+#+end_src
+
+** 5. The security lifecycle
+1. *Requirements and threat model*: assets, actors, trust boundaries, abuse cases, invariants.
+2. *Design review*: architecture, dependencies, upgrade and key model, failure modes (see =10_architecture-review= in the Software Architecture notes).
+3. *Implementation standards*: pinned toolchain, style rules, NatSpec, libraries, no unreviewed assembly.
+4. *Testing*: unit, fuzz, invariant, fork, differential, and scenario tests (see =04_smart-contract-testing.org=).
+5. *Static analysis and linting* in CI (Slither and similar), plus compiler warnings as errors.
+6. *Formal verification where it pays*: critical math and invariants (SMT-based checkers, symbolic execution, specification tools).
+7. *Internal review*, then *external audits* (one or more), and optionally competitive audits; fix findings with regression tests (see =16_security-auditing.org=).
+8. *Launch gating*: caps, allowlists, bug bounty live, monitoring and alerts configured, runbooks rehearsed, keys in custody setups, timelocks configured.
+9. *Operations*: monitoring, anomaly detection, incident response, upgrades through the controlled process (see =17_reliability-and-monitoring.org=).
+10. *Post-mortems and learning*: every near miss updates the checklist and the tests.
+An audit is a sample of the risk, not a proof of safety: a clean report means the reviewers did not find issues in the scope and time available.
+
+** 6. Tools (overview)
+- *Static analysis*: Slither, Aderyn, and linters; fast, with false positives; run on every commit.
+- *Fuzzing and invariant testing*: Foundry's fuzzer and invariant runner, Echidna, Medusa.
+- *Symbolic execution and formal methods*: Halmos, hevm, the Certora Prover, the compiler's SMTChecker, K-framework semantics.
+- *Runtime protection and monitoring*: transaction simulation and alerts, pausing automation (see file 17).
+- *Dynamic analysis of past transactions*: trace explorers and debuggers to reproduce incidents.
+
+** 7. Self-check
+1. For a lending protocol, list five assets, three adversary capabilities, and the invariants you would test.
+2. Show a read-only reentrancy scenario and describe the safe pattern for consumers of the view function.
+3. A vault uses ~balanceOf(address(this))~ to compute share price. Describe an attack and a fix.
+4. Why is two-step ownership transfer cheap and valuable? What other low-cost controls belong in the baseline?
+5. Your pause key is a single EOA. What are the risks, and how would you restructure it?
+6. What does an audit not tell you? Which launch controls compensate?
+
+** 8. Exercises
+- Warm-up: exploit the vulnerable withdraw function above in a local test (with a malicious receiver) and then fix it three ways (reordering, guard, pull payment).
+- Core: write the invariant list for a small vault or AMM and implement them as Foundry invariant tests with a handler contract.
+- Core: create a mock token with fee-on-transfer behavior; show how a naive contract's accounting breaks and fix it with balance-difference accounting.
+- Core: implement an EIP-712 signature flow with nonces and deadlines; test replay across chains and contracts (see =08_wallets-and-cryptography.org=).
+- Stretch: reproduce a historical exploit on a fork from a public post-mortem; write what control would have prevented it and where it would sit in the lifecycle.
+- Stretch: run Slither and a fuzzer on an open-source protocol and triage the results into true and false positives with a short report.
+
+** 9. Resources
+- Ethereum smart contract security best practices (ConsenSys Diligence) and the SWC Registry for the classic weakness list: https://swcregistry.io
+- OWASP smart contract security guidance and the Smart Contract Security Verification Standard; Secureum materials; OpenZeppelin security documentation: https://docs.openzeppelin.com/contracts
+- Solidity documentation, security considerations: https://docs.soliditylang.org (section on security considerations and known compiler bugs).
+- Public post-mortems and the Rekt leaderboard for incident histories; audit reports from reputable firms and competitive-audit platforms as training material.
+- Atzei, Bartoletti, Cimoli, /A Survey of Attacks on Ethereum Smart Contracts/ (2017); Daian et al., /Flash Boys 2.0/ (2019).
+- Foundations notes in this repository: logic and proofs (invariants, model checking), type systems, concurrency (atomicity and ordering).
+
+** What to remember
+- Assume an adversary with unlimited capital in a single atomic transaction and full visibility.
+- A short list of bug classes plus key and operational failures explains most losses.
+- Design for minimal surface, least privilege, fail-closed behavior, invariants, and observability.
+- Security is a lifecycle, not an audit; launch gates and monitoring are part of the design.
+- An audit is evidence, not proof.

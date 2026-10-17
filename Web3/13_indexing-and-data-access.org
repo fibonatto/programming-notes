@@ -1,0 +1,145 @@
+#+title: Indexing and Data Access
+#+startup: overview
+
+* Indexing and Data Access
+** 0. Staff-level lens
+Chains are poor databases: they answer a few questions cheaply (the current state of a known key) and most questions badly (history, aggregates, search, joins). Every real product therefore runs an indexing and data-access layer, and that layer is a distributed system with chain-specific hazards (reorgs, provider limits, ABI drift, huge backfills). At Staff and Principal scope you are expected to:
+- design the data pipeline (ingest, decode, transform, store, serve) so that it is correct under reorgs, replayable, observable, and affordable;
+- choose between building, buying, and using shared indexers, with their trust and lock-in implications;
+- decide which data must be verified against the chain and which can be trusted from an index;
+- shape APIs and caches so frontends and services get consistent, fast reads.
+Companion files: =09_on-chain-and-off-chain.org=, =12_distributed-systems.org=, =17_reliability-and-monitoring.org=, =02_evm-and-solidity.org= (events and ABI). Foundations: data structures (storage engines, indexes) and data representation (encodings).
+
+** 1. What the chain gives you
+- *Blocks, transactions, receipts, logs*: raw history. Logs (events) are the cheap structured output emitted by contracts; they cannot be read by contracts but are efficient to filter off-chain by address and topics.
+- *State*: ~eth_getBalance~, ~eth_getStorageAt~, ~eth_call~ (execute a view function at a block), and proofs (~eth_getProof~, EIP-1186) for verifiable reads.
+- *Traces*: internal calls, value transfers, and revert traces via debug and trace methods (client-specific); needed to see ETH moved by contracts, which emits no logs, and to analyze incidents.
+- *JSON-RPC methods commonly used*: ~eth_blockNumber~, ~eth_getBlockByNumber~ (with or without full transactions), ~eth_getBlockReceipts~ (efficient bulk receipts where supported), ~eth_getLogs~, ~eth_call~, ~eth_subscribe~ (newHeads, logs; WebSocket), ~eth_feeHistory~, ~eth_getTransactionReceipt~.
+- *Limits*: providers cap block ranges and result sizes for ~eth_getLogs~, rate limit requests, and meter compute units; archive access (state at old blocks) costs more; subscriptions drop connections.
+- *Node choices*: self-hosted full or archive nodes (Geth, Nethermind, Erigon, Reth, Besu) give control and predictable cost at the price of operations; managed providers are convenient but a dependency and a cost line. Archive efficiency varies by client.
+
+** 2. Indexing approaches
+| Approach                           | Description                                                           | Strengths                          | Weaknesses                                   |
+|------------------------------------+-----------------------------------------------------------------------+------------------------------------+----------------------------------------------|
+| Direct RPC reads                   | Frontend or backend calls the node for what it needs (multicall)      | No extra infrastructure; fresh     | Poor for history and aggregates; rate limits; load |
+| Hosted indexing (subgraphs)        | Define mappings from events to entities; query by GraphQL             | Fast to build; ecosystem tooling   | Constrained model; vendor or network dependency; reindex cost |
+| Code-first indexers (for example Ponder, Envio, Subsquid) | TypeScript or similar handlers write to a database | Flexibility; your own database; local dev | You operate or pay for it                  |
+| Custom ETL pipeline                | Ingest blocks, receipts, and traces into Postgres, ClickHouse, or a warehouse | Full control; analytics-grade      | Engineering effort; reorg and decoding logic yours |
+| Public analytics datasets and platforms | SQL over decoded chain data (BigQuery public datasets, Dune, and others) | Exploration, dashboards, research | Latency; not for transactional product paths  |
+| Streaming data (for example Substreams, firehose-style) | Deterministic, parallel extraction of chain data              | High throughput backfills          | Specialized tooling                          |
+| Client-embedded extensions (for example Reth execution extensions) | Run indexing inside the node process                      | Efficient, consistent with the node | Tied to one client                          |
+Tool landscapes change quickly; evaluate by data model flexibility, reorg handling, multi-chain support, backfill speed, hosting and portability, cost model, observability, and exit path (can you move your data and logic elsewhere?).
+
+** 3. Designing an indexer
+- *Ingest*: follow the chain head with a persistent cursor (last processed block number and hash); fetch blocks and receipts (or logs by block range); handle pagination limits; use WebSocket subscriptions for latency but fall back to polling and range backfill to repair gaps.
+- *Decode*: use ABIs to decode logs and calldata; manage ABI versions for upgradeable contracts (the implementation ABI behind a proxy; ABI changes over upgrades); handle unknown events without crashing; preserve raw data so you can re-decode later.
+- *Transform*: deterministic, idempotent handlers that map events to entity changes; avoid external calls inside handlers where possible (non-determinism and slowness); when you must call ~eth_call~ at the event's block to read state, pin the block number.
+- *Store*: relational schema with natural keys (chain id, block number, transaction index, log index); store block hashes for reorg detection; keep raw tables (blocks, logs, transactions) separate from derived tables (balances, positions, orders); index for the queries you serve; consider partitioning by time or block range.
+- *Reorg handling*: keep unfinalized blocks in a buffer with their hashes; for each new block, check that its parent hash equals the stored head; on mismatch find the common ancestor, delete or rewind derived rows above it (with undo logs or by recomputing from raw tables), and replay the new branch. Mark data as unfinalized until the block is safe or finalized and expose that in APIs.
+- *Backfill*: split block ranges, run in parallel within provider limits, checkpoint progress, and make backfills resumable and idempotent; reprocess from raw tables when logic changes; keep deployment blocks of contracts to avoid scanning from genesis.
+- *Multi-chain*: separate cursors and finality policies per chain; include chain id in every key.
+- *Data quality*: reconcile derived values with on-chain state (for example balances from Transfer events versus ~balanceOf~ at a block); alert on drift; unit-test handlers with recorded logs; fuzz against edge cases (zero amounts, self-transfers, mints and burns, rebasing tokens, fee-on-transfer).
+- *Performance*: batch RPC requests, cache immutable data (finalized blocks, ABIs), avoid wide ~eth_getLogs~ queries without address filters, and use bloom filters where available through the node.
+- *Observability*: lag in blocks and seconds behind head, processing rate, error counts, reorg depth and frequency, RPC latency and error rate per provider, queue depth, and last finalized block indexed.
+
+#+begin_src sql
+-- Minimal reorg-aware storage (sketch).
+CREATE TABLE blocks (
+  chain_id     integer NOT NULL,
+  number       bigint  NOT NULL,
+  hash         bytea   NOT NULL,
+  parent_hash  bytea   NOT NULL,
+  timestamp    timestamptz NOT NULL,
+  finalized    boolean NOT NULL DEFAULT false,
+  PRIMARY KEY (chain_id, number)
+);
+
+CREATE TABLE logs (
+  chain_id     integer NOT NULL,
+  block_number bigint  NOT NULL,
+  block_hash   bytea   NOT NULL,
+  tx_hash      bytea   NOT NULL,
+  log_index    integer NOT NULL,
+  address      bytea   NOT NULL,
+  topics       bytea[] NOT NULL,
+  data         bytea   NOT NULL,
+  PRIMARY KEY (chain_id, block_number, log_index)
+);
+CREATE INDEX logs_address_topic0 ON logs (chain_id, address, (topics[1]));
+#+end_src
+
+#+begin_src typescript
+// Reorg-aware ingestion loop (pseudocode-level sketch).
+async function step(chainId: number) {
+  const head = await store.getHead(chainId)                 // last processed block (number, hash)
+  const next = await rpc.getBlockByNumber(head.number + 1n)
+  if (!next) return                                          // not produced yet
+  if (next.parentHash !== head.hash) {                       // reorg detected
+    const ancestor = await findCommonAncestor(chainId, head) // walk back until hashes match
+    await store.rollbackTo(chainId, ancestor.number)         // delete/rewind derived data above
+    return
+  }
+  const logs = await rpc.getLogsForBlock(next.hash)          // by block hash, not number, for consistency
+  await store.transaction(async (tx) => {
+    await handlers.process(tx, next, logs)                   // idempotent, deterministic
+    await tx.setHead(chainId, next.number, next.hash)
+  })
+}
+#+end_src
+
+** 4. Data access for applications
+- *Read patterns*: balances and simple state through ~eth_call~ batched with Multicall3 (deployed at the same address on most EVM chains); history, lists, search, and aggregates through the index; real-time updates through subscriptions with fallback polling.
+- *Consistency between indexer and chain*: after a user transaction confirms, the index may lag; frontends should combine the transaction receipt (which is immediate) with optimistic updates and reconcile when the indexer catches up; some systems expose "indexed up to block N" so clients can wait.
+- *Caching*: cache finalized data aggressively; short TTLs for latest data; use request deduplication and client-side libraries for query caching and invalidation on new blocks.
+- *API design*: GraphQL for flexible graphs of entities; REST for simple resources; include chain id and block context in responses; version APIs; paginate with cursors, not offsets; expose finalized and unfinalized states clearly.
+- *Verification and trust*: an index is a trusted third party. Critical decisions (large transfers, liquidations, permissions) should re-read on-chain state, ideally through multiple providers; light-client approaches (verifying headers and state proofs, for example with projects like Helios) can reduce trust in RPC providers for sensitive flows.
+- *Frontend infrastructure*: handle chain switches, wallet account changes, pending transactions, failed transactions, and replaced transactions in UI state; libraries such as viem and wagmi manage much of this with hooks and caching.
+- *Identity and naming*: resolve ENS names and reverse records carefully (cache, validate, handle off-chain resolution with CCIP-Read); display addresses with checksums and warn on lookalikes.
+- *Off-chain content*: NFT and token metadata through IPFS gateways or pinning services; cache and validate; handle slow or unavailable gateways; sanitize untrusted metadata (SVG and HTML can carry scripts).
+
+** 5. Data modeling for blockchain data
+- *Events as facts*: model an append-only log of domain events with their block and log coordinates; derive current state as projections; this matches event sourcing and makes replays straightforward (see the patterns notes in the Software Architecture folder).
+- *Token balances*: derive from Transfer events (mints and burns included) or snapshot by ~balanceOf~; rebasing, fee-on-transfer, and non-standard tokens break event-based accounting; decide the source of truth per token class and verify.
+- *Prices and valuations*: store prices with their source and timestamp; historical valuation requires historical prices, which are themselves data pipelines.
+- *Positions and aggregates*: maintain materialized views updated incrementally; recompute from raw data when handlers change.
+- *Multi-contract entities*: map factory-created instances (track the factory's creation events to discover addresses dynamically).
+- *Proxies and upgrades*: events come from the proxy address with the implementation's ABI; track implementation changes to decode correctly across versions.
+- *Schema evolution*: version derived schemas, support reindexing, and keep raw data so that new questions can be answered later.
+- *Privacy and compliance*: indexed data is public chain data, but joining it with off-chain identity creates personal data subject to regulation; control access and retention.
+
+** 6. Cost, scale, and operations
+- *Cost drivers*: RPC calls and compute units, archive access, storage of raw and derived data, backfill compute, and engineering time. Estimate per chain; multi-chain multiplies it.
+- *Scale limits*: high-throughput chains produce enormous volumes; filter at ingestion (only contracts you care about), compress and partition, and archive cold data.
+- *Reliability*: run more than one ingestion path and compare; keep raw data durable; practice restoring from backups and reindexing within a known time.
+- *Security*: protect RPC keys, validate untrusted event data (user-controlled strings can be huge or malicious), and rate-limit public APIs.
+- *Ownership*: assign an owner and an on-call for the data layer; define SLOs for freshness and correctness (see =17_reliability-and-monitoring.org=).
+
+** 7. Self-check
+1. A subgraph or indexer shows a balance that differs from ~balanceOf~. List five possible causes and how you diagnose them.
+2. Explain a reorg-aware ingestion algorithm and what state you must store to implement it.
+3. When should an application trust the index, and when should it re-read the chain?
+4. How do you design a backfill that is resumable, parallel, and respects provider limits?
+5. A token upgrades its implementation and adds a new event version. How does your indexer keep working and keep history correct?
+6. Choose between a hosted subgraph and a code-first indexer for a product with complex aggregations; state criteria and risks.
+
+** 8. Exercises
+- Warm-up: query logs for a popular token's Transfer events over a block range with viem; decode them and compute balances for a few addresses; compare with ~balanceOf~ at the end block.
+- Core: build a small indexer (TypeScript or another language) with a Postgres schema, cursor, and handlers for one contract; run it against a local node.
+- Core: add reorg handling and test it with a local node by creating a reorg (snapshot and revert) and verifying that derived tables roll back correctly.
+- Core: write a reconciliation job comparing indexed balances with on-chain values at a pinned block; add alerts.
+- Stretch: implement parallel backfill with checkpoints, rate limiting, and a retry policy; measure throughput against provider limits.
+- Stretch: add a verification layer that re-reads critical values on-chain through two providers before an API returns them as "verified".
+
+** 9. Resources
+- Ethereum JSON-RPC API documentation and the execution API specification: https://ethereum.org/en/developers/docs/apis/json-rpc/
+- viem and wagmi documentation (public clients, logs, multicall, caching); The Graph, Ponder, Envio, and Subsquid documentation; client documentation for trace and debug APIs (Geth, Erigon, Reth, Nethermind).
+- EIP-1186 (state proofs) and EIP-3668 (CCIP-Read): https://eips.ethereum.org
+- Kleppmann, /Designing Data-Intensive Applications/ (event sourcing, derived data, stream processing).
+- Foundations notes: data structures (indexes and storage engines) and the Software Architecture patterns notes (event sourcing, CQRS).
+
+** What to remember
+- The chain is a log and a state machine, not a query engine; build a derived data layer.
+- Make ingestion deterministic, idempotent, reorg-aware, and replayable from raw data.
+- Distinguish finalized from unfinalized data in storage and APIs.
+- Verify critical reads against the chain; an index is a trusted party.
+- Monitor lag, drift, and reorg handling; budget RPC and storage costs.

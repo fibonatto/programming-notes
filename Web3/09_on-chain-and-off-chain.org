@@ -1,0 +1,103 @@
+#+title: On-Chain and Off-Chain
+#+startup: overview
+
+* On-Chain and Off-Chain
+** 0. Staff-level lens
+The central design question in Web3 is what the chain must do and what it can merely check. Everything on-chain is expensive, public, slow, and hard to change; everything off-chain needs a trust or verification story. At Staff and Principal scope you are expected to:
+- draw the line deliberately, with an explicit statement of the trust assumption behind each off-chain component;
+- choose verification patterns (signatures, Merkle proofs, optimistic or validity proofs, commit-reveal) that let the chain enforce rules without doing all the work;
+- keep on-chain and off-chain state consistent through reorgs, failures, and upgrades;
+- price the design (gas, data availability, infrastructure) and plan for what happens when the off-chain part fails or turns hostile.
+Companion files: =05_web3-architecture.org=, =10_oracles-and-mev.org=, =11_layer-2-and-cross-chain.org=, =13_indexing-and-data-access.org=. Software Architecture notes: boundaries, contracts, and patterns (outbox, saga).
+
+** 1. What belongs on-chain
+Keep on-chain only what needs the chain's unique properties:
+- *Ownership and custody of assets* and the rules for moving them.
+- *Settlement and finality*: the irreversible record that something happened.
+- *Rules that must be enforced without trusting an operator*: access control, accounting, invariants such as solvency.
+- *Composability points*: interfaces other contracts need to call atomically.
+- *Commitments*: hashes and roots that bind off-chain data (Merkle roots, content hashes, state roots).
+- *Dispute and exit mechanisms*: the ability to challenge, force inclusion, or withdraw when off-chain actors fail.
+Everything else (computation, matching, ranking, search, storage of large data, notifications, UI, analytics, personal data) should usually live off-chain, with the chain verifying or settling the result.
+
+** 2. Patterns for combining the two
+| Pattern                             | How it works                                                                  | Trust assumption / risk                                  | Examples |
+|-------------------------------------+-------------------------------------------------------------------------------+----------------------------------------------------------+----------|
+| Signed messages, on-chain settlement | Users sign orders or permits off-chain (EIP-712); a relayer or counterparty submits; the contract verifies and executes | Relayer liveness and ordering; signature replay and phishing | Order-book DEXes, permits, gasless meta-transactions |
+| Merkle commitments                  | Post a root on-chain; users prove membership with a Merkle proof              | Whoever computes the root; data availability of the tree | Airdrops, allowlists, snapshots |
+| Commit-reveal                       | Publish a hash commitment, then reveal the value later                         | Reveal liveness; commitments leak timing                 | Auctions, randomness, games |
+| Optimistic verification             | Assume results are correct unless challenged within a window; fraud proofs resolve disputes | At least one honest, watching challenger; long exit delays | Optimistic rollups, optimistic oracles and bridges |
+| Validity (zero-knowledge) proofs    | Off-chain computation with an on-chain proof verifier                          | Soundness of the proof system and circuits; prover liveness | ZK rollups, private transfers |
+| State channels                      | Parties transact off-chain and settle the final state on-chain                 | Liveness for disputes; limited to a fixed set of participants | Payment channels |
+| Oracles                             | Off-chain data reported on-chain by a network                                  | Oracle honesty, freshness, manipulation resistance       | Price feeds, randomness, event outcomes |
+| Keepers and automation              | Off-chain bots call functions when conditions are met                          | Liveness and incentives; MEV                              | Liquidations, harvests, rebalancing |
+| Intents and solvers                 | Users sign desired outcomes; competing solvers fulfil them; the contract checks settlement | Solver competition; settlement-rule correctness; MEV protection | Intent-based swaps and bridges |
+| Escrow and timelocks                | Funds locked under rules that release by proof, timeout, or approval           | Rule correctness; dispute process                         | Marketplaces, vesting |
+| Off-chain data with on-chain hash   | Data stored elsewhere; its hash or CID recorded on-chain                       | Data availability and permanence; mutability of the source | NFT metadata, documents |
+| Off-chain lookups with proofs       | Contract asks the client to fetch data and verifies it (CCIP-Read, EIP-3668)   | Gateway availability; verification design                | ENS off-chain resolution |
+
+** 3. Data availability and storage
+- *Data availability (DA)*: for a system to be verifiable or recoverable, the data needed to reconstruct state must be retrievable by anyone. On Ethereum L1, calldata and blobs provide DA; since EIP-4844, blobs are the cheap option for rollups (they are retained for a limited window, so long-term archival is a separate concern). DA layers outside Ethereum (Celestia, EigenDA, Avail and others) trade security assumptions for cost.
+- *Content addressing*: IPFS identifies data by its hash (CID); anyone can pin and serve it, but availability requires at least one pinner. Arweave aims at permanent storage with an endowment model; Filecoin uses storage deals. Choose by durability requirements and cost; pin through more than one provider; document the permanence promise.
+- *Mutable versus immutable data*: a token URI pointing to a mutable web server can change what the token means; an immutable CID cannot. State clearly which parts are mutable and who can change them.
+- *Personal and regulated data stays off-chain*: write only commitments or pseudonymous identifiers on-chain; deletion rights and retention rules conflict with immutable ledgers.
+- *Encrypted data on-chain* is public forever: encryption that is safe today may not be later; do not put sensitive data on-chain even encrypted unless the threat model allows it.
+
+** 4. Keeping both sides consistent
+- *The chain is the source of truth for on-chain state*; off-chain stores are derived views. Derive them from events and state with reorg-aware, idempotent processing (see =13_indexing-and-data-access.org= and =12_distributed-systems.org=).
+- *Write path*: user intents or signed messages go off-chain, a service batches and submits them; the service must handle failures (a transaction not mined, reverted, or reorged) and make retries idempotent.
+- *Read path*: off-chain reads of chain state have latency and may be stale or inconsistent across providers; for critical decisions, read at the safe or finalized block, or verify against on-chain state before acting.
+- *Reconciliation*: periodically compare off-chain records (balances, positions, orders) with on-chain truth; alert on drift; define who is authoritative in each case.
+- *Ordering and race conditions*: off-chain order books and on-chain state can disagree (an order is valid when matched and invalid at settlement); settlement logic must re-check conditions on-chain.
+- *Versioning and upgrades*: contract upgrades and event schema changes must be coordinated with off-chain consumers (indexers, bots, frontends); version events and expose a registry of current addresses.
+
+** 5. Designing for failure of the off-chain part
+- *Liveness*: what happens if the relayer, sequencer, keeper, or oracle stops? Provide fallbacks (anyone can submit, forced inclusion, user-triggered withdrawals) or at least a bounded loss and a clear degraded mode.
+- *Censorship*: can the off-chain operator refuse specific users? Provide an on-chain path that cannot be blocked, even if slower or costlier.
+- *Malice*: can the operator steal or misreport? Bound their power with proofs, challenge windows, collateral (bonds) and slashing, and independent verification.
+- *Data loss*: if the data store disappears, can state be reconstructed? Keep data availability guarantees and backups appropriate to the value.
+- *Upgrade or migration*: can the off-chain system be replaced without breaking users? Avoid hard-coded dependencies on one operator's endpoints; publish interfaces and addresses on-chain or in registries.
+- *Exit*: define and test how users leave if the operator is gone.
+
+** 6. Worked example: an off-chain order book with on-chain settlement
+- *Flow*: makers sign orders (EIP-712) with price, amount, nonce, and deadline; a matching engine off-chain pairs orders; a relayer submits matched pairs to a settlement contract; the contract verifies signatures, enforces limits and nonces, and swaps assets atomically.
+- *On-chain*: signature checks, replay protection, fill accounting (partial fills), cancellation (a nonce or order-hash invalidation by the maker), token transfers via approvals, and fees.
+- *Off-chain*: order storage, matching, price discovery, API, and risk checks.
+- *Trust and risks*: the operator controls matching and ordering and can front-run or censor; users keep custody and can cancel on-chain; signatures must be scoped and short-lived; approvals to the settlement contract are a standing risk (use exact approvals or permits); a bug in the settlement contract affects all makers; the operator's infrastructure is a liveness dependency.
+- *Improvements*: batch auctions to remove ordering advantages (see =10_oracles-and-mev.org=), multiple independent relayers, on-chain cancellation and expiry, and monitoring that compares fills with orders.
+
+** 7. Cost and capacity modeling
+- *On-chain cost per action*: gas times gas price (and L1 data fees on L2s); multiply by expected volume at median and spike prices; include approvals, failures, and retries.
+- *Off-chain cost*: infrastructure, RPC and indexing, storage, monitoring, and engineering time; weigh against on-chain savings.
+- *Amortization*: batching, Merkle roots, and rollups reduce per-user cost at the price of complexity and assumptions.
+- *Scale limits*: the chain's throughput caps on-chain operations; design so that per-user work scales off-chain and only constant or logarithmic work lands on-chain.
+
+** 8. Self-check
+1. For a protocol you know, list every off-chain component and write one sentence on what it can do wrong and what protects users.
+2. Why must a settlement contract re-check order validity on-chain even if an off-chain engine already checked it?
+3. Compare optimistic and validity-proof verification in trust assumptions, latency, and cost.
+4. How would you design an airdrop for one million recipients, and what are the failure modes of the Merkle approach?
+5. Your NFT metadata sits at a URL owned by the team. What are the issues and the options?
+6. What is the minimum an operator-dependent system must provide to pass a "walkaway test"?
+
+** 9. Exercises
+- Warm-up: implement a Merkle airdrop contract and a script that builds the tree and proofs; test invalid proofs and double claims.
+- Core: implement signed-order settlement with EIP-712, nonces, expiry, partial fills, and cancellation; fuzz the accounting.
+- Core: build a reconciliation job that compares an indexer's balances with on-chain ~balanceOf~ at a fixed block and reports drift.
+- Core: design and test an escape hatch (forced exit) for an operator-dependent system, including the case where the operator is offline.
+- Stretch: implement a commit-reveal auction with deposits and penalties for non-reveal; analyze griefing.
+- Stretch: write the cost model (spreadsheet or script) for a feature at three gas prices and two chains; choose the design that meets the budget.
+
+** 10. Resources
+- ethereum.org documentation on scaling, data availability, storage, and oracles: https://ethereum.org/en/developers/docs/
+- EIP-3668 (CCIP-Read), EIP-712, EIP-4844: https://eips.ethereum.org ; Protocol Update posts on blob scaling: https://blog.ethereum.org/2025/08/22/protocol-update-002
+- IPFS, Arweave, and Filecoin documentation; the documentation of your chosen DA layer.
+- Rollup and bridge risk analyses at https://l2beat.com ; Buterin's essays on rollups and data availability.
+- Software Architecture notes in this repository: boundaries, patterns (outbox, saga), and architecture review.
+
+** What to remember
+- Put on-chain what needs trustless enforcement and composability; verify, do not recompute.
+- Every off-chain component carries a trust assumption; document it and bound it with proofs, bonds, or exits.
+- Derived off-chain state must be reorg-aware, idempotent, and reconcilable.
+- Design the failure of the off-chain part first: liveness, censorship, malice, data loss, exit.
+- Model costs on-chain and off-chain at spike conditions.

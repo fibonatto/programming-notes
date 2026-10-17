@@ -1,0 +1,128 @@
+#+title: Tokens and Standards
+#+startup: overview
+
+* Tokens and Standards
+** 0. Staff-level lens
+Tokens are the shared vocabulary of Web3: money, claims, access rights, shares, collectibles, governance power. Standards make tokens interoperable, and non-standard behavior is the root of many integration bugs. At Staff and Principal scope you are expected to:
+- choose, extend, and integrate token standards deliberately, knowing their quirks and the failure modes of non-conforming tokens;
+- treat tokens you integrate as untrusted code with specific hazards;
+- design token mechanics (supply, distribution, permissions, governance) with their security, economic, and regulatory consequences in mind;
+- read and contribute to the standards process, and evaluate emerging standards before adopting them.
+Companion files: =03_smart-contract-security.org= (token quirks), =08_wallets-and-cryptography.org= (permits, signatures), =14_protocol-design.org= (tokenomics and governance), =15_deployment-and-upgrades.org=.
+
+** 1. The standards process
+- *EIPs and ERCs*: Ethereum Improvement Proposals include protocol changes (Core) and application-level standards (ERCs, the contract and token interfaces). A proposal progresses through Draft, Review, Last Call, and Final; Final does not mean good, only specified, and several ERCs have known issues. Read the Security Considerations and the discussion thread, not only the abstract.
+- *Conformance* is behavioral, not nominal: a token that claims ERC-20 but returns nothing from ~transfer~, charges fees, or reverts for some addresses breaks integrators. Integrations must defend against deviations.
+- *ERC-165* (interface detection) lets contracts advertise supported interfaces via ~supportsInterface~; do not trust it blindly for security decisions.
+- *Evaluating a new standard*: how many production users, independent implementations, audits, and known incidents? What do wallets and indexers support? Adopt early standards only behind abstraction and with an exit.
+
+** 2. Fungible tokens: ERC-20 and extensions
+- *Interface*: ~totalSupply~, ~balanceOf~, ~transfer~, ~transferFrom~, ~approve~, ~allowance~, ~Transfer~ and ~Approval~ events, optional ~name~, ~symbol~, ~decimals~ (not guaranteed to be 18).
+- *Well-known quirks* (design integrations to handle them):
+  - missing return values (older tokens) or returning false instead of reverting;
+  - fee-on-transfer and deflationary tokens (received amount differs from the amount sent);
+  - rebasing and elastic-supply tokens (balances change without transfers);
+  - blocklists and freezes (issuer can block addresses), pausable transfers, upgradeable tokens whose behavior can change;
+  - non-standard decimals; ~approve~ that requires setting the allowance to zero first; reentrancy hooks (ERC-777 and similar);
+  - the approval race (changing an allowance from n to m lets a spender use both); mitigated by setting to zero first, using allowance increases, or permits.
+- *Integration practice*: use SafeERC20 wrappers; measure the balance before and after a transfer to learn what was actually received; maintain an allowlist of supported tokens for protocols that hold funds; test against a suite of mock misbehaving tokens (see =04_smart-contract-testing.org=); do not assume ~decimals()~ is 18; avoid unbounded approvals to untrusted contracts.
+- *ERC-2612 permit*: gasless approvals via an EIP-712 signature with nonce and deadline; saves a transaction and a UX step but creates signature-phishing risks (users sign messages that move funds), and some tokens implement permit incorrectly or not at all. Uniswap's Permit2 provides a shared, standardized approval and signature-transfer layer across tokens; it concentrates approvals in one contract that must be trusted.
+- *Votes and snapshots*: ERC20Votes (ERC-5805) tracks historical voting power with checkpoints and delegation, used for governance; flash-loan and snapshot semantics matter (see =14_protocol-design.org=).
+- *Minimal implementation* with OpenZeppelin (v5 style):
+
+#+begin_src solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+
+contract ExampleToken is ERC20, Ownable {
+    constructor(address initialOwner) ERC20("Example", "EXM") Ownable(initialOwner) {}
+
+    // Illustrative: unrestricted minting by an owner is a trust assumption users must accept.
+    function mint(address to, uint256 amount) external onlyOwner {
+        _mint(to, amount);
+    }
+}
+#+end_src
+(Not compiled here. Decide the supply policy, roles, and the owner (a multisig with a timelock) explicitly; document it.)
+
+** 3. Non-fungible and multi-token standards
+- *ERC-721*: unique tokens with ownership, approvals, and metadata; ~safeTransferFrom~ calls ~onERC721Received~ on contract recipients (a reentrancy surface, and a way for receivers to reject). Metadata via ~tokenURI~ pointing off-chain (see storage below).
+- *ERC-1155*: many token types in one contract (fungible, semi-fungible, and non-fungible), with batch operations and receiver hooks; efficient for games and editions.
+- *Metadata and storage*: on-chain data is expensive; most NFTs store a URI to content on IPFS, Arweave, or a web server. Mutable or centralized metadata is a trust assumption (the owner can change what the token "is"); content addressing (CID) with pinning improves integrity and availability; permanence requires an explicit storage plan.
+- *Royalties*: ERC-2981 exposes a royalty suggestion, but enforcement is up to marketplaces; designs that enforce royalties through transfer restrictions reduce composability.
+- *Soulbound and non-transferable tokens* (for example ERC-5192) represent credentials or membership; they raise privacy and revocation questions.
+- *Token-bound accounts* and smart-wallet-owned tokens extend ownership semantics; evaluate complexity before adopting.
+- *Marketplace and approval risks*: setApprovalForAll grants broad power; phishing signatures and approvals are a major theft vector (see =08_wallets-and-cryptography.org=).
+
+** 4. Vaults, yield-bearing tokens, and wrappers
+- *ERC-4626* standardizes tokenized vaults: ~asset~, ~totalAssets~, ~deposit~, ~mint~, ~withdraw~, ~redeem~, ~convertToShares~, ~convertToAssets~, and preview functions. Shares represent a claim on assets; the share price rises as yield accrues. Hazards: the first-depositor inflation (donation) attack, rounding direction errors (round shares down on deposit and up on withdrawal in the vault's favor), manipulable ~totalAssets~, and trust in strategies. Modern libraries offer virtual offsets and decimals offsets as mitigations.
+- *Liquid staking and restaking tokens*: represent staked assets; they bring slashing, withdrawal-queue, depeg, and governance risks, and concentrate stake (see =01_blockchain-fundamentals.org=).
+- *Wrapped assets*: WETH wraps ETH to fit ERC-20; bridged and wrapped tokens carry the bridge's and issuer's risk (see =11_layer-2-and-cross-chain.org=).
+- *Receipt and LP tokens*: represent positions in AMMs or lending markets; valuing them requires understanding the underlying pool (manipulation via flash loans is a classic oracle bug).
+
+** 5. Stablecoins
+| Design                                 | Backing and mechanism                              | Main risks                                                              |
+|----------------------------------------+----------------------------------------------------+-------------------------------------------------------------------------|
+| Fiat-backed                            | Reserves held by an issuer                         | Issuer and bank risk, freezes and blocklists, redemption limits, regulation |
+| Crypto-collateralized                  | Over-collateralized on-chain positions             | Liquidation cascades, collateral correlation, oracle risk, governance    |
+| Synthetic and delta-neutral            | Hedged positions in derivatives                    | Funding rates, venue and counterparty risk, basis moves                  |
+| Algorithmic (under-collateralized)     | Incentives and a second token absorb volatility    | Reflexive death spirals; the 2022 Terra collapse is the canonical example |
+Treat "stable" as a claim to test: what backs it, who can freeze or mint, how does redemption work under stress, what are the oracle and governance dependencies? Integrate stablecoins with depeg-aware logic (price deviation checks, caps, pause conditions).
+
+** 6. Token design
+- *Purpose first*: what function does the token serve (payment, access, governance, collateral, incentive), and does it need to exist? A token without a clear function creates liability.
+- *Supply*: fixed, inflationary, or elastic; who can mint or burn, under what limits, and with what delay. Document in the code and the public documentation.
+- *Distribution and vesting*: allocation among users, investors, team, treasury; cliffs and unlock schedules; on-chain vesting contracts with revocation rules; concentration and unlock-driven sell pressure.
+- *Value accrual and incentives*: fees, buybacks, staking, rewards; incentives attract mercenary capital and can be gamed; emissions are a cost.
+- *Governance rights*: who votes, how power is measured, delegation, timelocks, and attack resistance (see =14_protocol-design.org=).
+- *Permissions and controls*: pausing, blocklists, upgradeability, role holders; each is a power users must trust and that regulators may expect.
+- *Regulatory considerations*: depending on jurisdiction, tokens may fall under securities, commodities, payment, or crypto-asset frameworks (for example the EU's Markets in Crypto-Assets Regulation); disclosure, marketing, and distribution rules apply. This is not legal advice: involve counsel before designing or launching a token.
+- *Security of the token contract*: use audited libraries, minimize custom logic, restrict privileged functions, test with fuzzing, and plan emergency procedures.
+
+** 7. Related standards worth knowing
+| Standard                    | Purpose                                                              |
+|-----------------------------+----------------------------------------------------------------------|
+| ERC-1271                    | Contracts validate signatures (~isValidSignature~); used by smart wallets and multisigs |
+| ERC-6492                    | Signature validation for contracts not yet deployed (counterfactual accounts) |
+| ERC-4337                    | Account abstraction without protocol changes (user operations, bundlers, paymasters) |
+| EIP-7702                    | EOAs delegate execution to contract code (set-code transactions)       |
+| ERC-2771                    | Trusted forwarders for meta-transactions                              |
+| ERC-1967, ERC-1822          | Proxy storage slots and UUPS                                         |
+| ERC-7201                    | Namespaced storage for upgradeable contracts                          |
+| ERC-3643                    | Permissioned tokens with identity and compliance checks              |
+| ERC-5805                    | Voting power with delegation and checkpoints                         |
+| ERC-3668 (CCIP-Read)        | Off-chain data lookups with on-chain verification (used by ENS)       |
+Verify the current status and adoption of each before relying on it.
+
+** 8. Self-check
+1. List five ways a contract that holds ERC-20 tokens can be broken by a non-standard token, and the defense for each.
+2. Explain the ERC-4626 inflation attack and two mitigations.
+3. Why is ~approve~ with an unlimited amount risky, and how do permits and Permit2 change the risk?
+4. How would you decide whether to adopt a Draft-stage ERC in production?
+5. What trust assumptions does an NFT with off-chain metadata carry, and how do you reduce them?
+6. A stablecoin you integrate trades at 0.97. What should your protocol do automatically, and what should require governance?
+
+** 9. Exercises
+- Warm-up: deploy an ERC-20 with OpenZeppelin on a local node and write tests for transfer, allowance, and the approval race.
+- Core: build mock tokens (no return value, fee on transfer, rebasing, blocklist, reentrant hook) and make a simple vault safe against all of them.
+- Core: implement an ERC-4626 vault with virtual offsets; demonstrate the inflation attack on a naive version and show the fix.
+- Core: write a vesting contract with cliff, linear release, and revocation; fuzz-test its accounting.
+- Stretch: implement ERC-2612 permit end-to-end (contract and client signing), including replay tests across chains.
+- Stretch: write a token design document (purpose, supply, distribution, permissions, governance, risks, legal review items) for a hypothetical protocol.
+
+** 10. Resources
+- EIPs and ERCs: https://eips.ethereum.org (ERC-20, 721, 1155, 4626, 2612, 165, 2981, 1271, 4337, 5805, 7201)
+- OpenZeppelin Contracts documentation (ERC20, ERC721, ERC1155, ERC4626, access, governance, upgradeable): https://docs.openzeppelin.com/contracts
+- Uniswap documentation for Permit2; Aave and Maker documentation for collateral and stablecoin mechanics.
+- Weird ERC-20 catalogs (public repositories listing token quirks) and the audit reports of token and vault integrations as training material.
+- Regulatory sources for your jurisdictions (for example MiCA in the EU), via qualified counsel.
+
+** What to remember
+- Standards define interfaces; real tokens deviate. Integrate defensively and test with misbehaving tokens.
+- ERC-4626, permits, and approvals concentrate classic attack surfaces: inflation, signatures, and broad allowances.
+- Token design is security, economics, governance, and law together; document every power.
+- Stablecoins are claims to verify, not constants.
+- Adopt new standards behind abstractions, with an exit.

@@ -1,0 +1,101 @@
+#+title: Distributed Systems in Web3
+#+startup: overview
+
+* Distributed Systems in Web3
+** 0. Staff-level lens
+Web3 systems are distributed systems with unusual properties: open membership, adversarial participants, probabilistic or economic finality, public state, and strongly constrained global execution. Application backends that interact with chains inherit all the problems of distributed systems and add chain-specific ones (reorgs, inconsistent RPC views, nonce ordering, fee volatility). At Staff and Principal scope you are expected to:
+- map blockchain concepts onto distributed-systems theory (consensus, failure models, consistency) and use that theory to reason about real incidents;
+- design off-chain services that stay correct under reorgs, provider failures, duplicate and delayed events, and chain halts;
+- choose consistency and finality policies explicitly for each interaction;
+- apply standard reliability patterns (idempotency, outbox, quorum reads, circuit breakers) to chain interaction.
+Companion files: =01_blockchain-fundamentals.org=, =06_transactions-and-gas.org=, =13_indexing-and-data-access.org=, =17_reliability-and-monitoring.org=. The Foundations concurrency and distributed-systems file is the theoretical companion (consensus, consistency models, quorums, queueing).
+
+** 1. Blockchains through the distributed-systems lens
+- *State machine replication*: every validator applies the same ordered transactions to the same initial state; determinism is mandatory (hence no randomness, clocks, or I/O in the VM).
+- *Failure models*: crash faults (a node stops), omission faults (messages lost), and Byzantine faults (arbitrary or malicious behavior); permissionless chains must assume Byzantine participants and Sybil identities, and use economic stake or work to bound them.
+- *Timing models*: synchronous (bounded delay), asynchronous (no bound), and partially synchronous (bounded after an unknown time, the realistic model). Nakamoto consensus relies on network delay being small relative to block time; BFT protocols rely on partial synchrony for liveness.
+- *Impossibility and trade-offs*: FLP (no deterministic consensus is guaranteed in a fully asynchronous system with even one crash), CAP (under partition, choose consistency or availability), and the safety-liveness tension. Ethereum's design favors liveness (the chain continues, though finality can stall under heavy faults), with an inactivity mechanism that restores finality by penalizing non-participants; classic BFT chains favor safety (they halt without a quorum).
+- *Fault thresholds*: BFT protocols tolerate less than one third Byzantine stake; Nakamoto consensus tolerates less than half of the work or stake under synchrony assumptions; economic penalties (slashing) raise the cost of violating safety.
+- *Finality*: probabilistic (PoW, confirmations), economic (slashable checkpoints), or immediate (BFT). Application correctness must be defined against a finality level.
+- *Fork choice and reorgs*: reorganizations are normal behavior; their depth depends on the protocol and conditions; applications that assume no reorgs are incorrect.
+
+** 2. The anatomy of inconsistency that applications see
+- *Multiple views of the chain*: each node has its own head, mempool, and peers; two RPC calls to different providers may return different heads, or different results for ~eth_call~. Load balancers across providers can produce non-monotonic reads (a block appears, then disappears, then reappears).
+- *Block tags*: ~latest~ (possibly reorged), ~safe~ (justified, unlikely to reorg), ~finalized~ (economically final). Reads for decisions that cause irreversible actions should use ~safe~ or ~finalized~.
+- *Eventual consistency of indexers and caches*: derived stores lag the chain and may be inconsistent with each other.
+- *Event delivery*: logs may be delivered more than once, out of order across reconnects, or retroactively removed (a log with a ~removed~ flag after a reorg); subscriptions drop silently.
+- *Transaction outcomes*: a transaction can be dropped, replaced, reverted, or reorged; "sent" does not mean "will happen".
+- *Time*: block timestamps are set by producers within bounds; they are not wall-clock accurate and can be manipulated slightly; do not use them for fine-grained logic. Off-chain clocks drift; use block numbers for ordering and timestamps for coarse expiry.
+
+** 3. Patterns for reliable chain interaction
+- *Idempotent operations and idempotency keys*: design each off-chain action so that retries cannot double-execute. Where the contract is not naturally idempotent, record the intent and the nonce, and check on-chain state before retrying.
+- *Transactional outbox for transaction submission*: persist the intent (and the intended nonce) in a database transaction with the business state change; a worker submits and tracks; the outcome is recorded when finality is reached (see =06_transactions-and-gas.org=).
+- *Single-writer nonce management* per account (a queue or lease), or separate sender accounts, to avoid nonce races.
+- *Event cursors and exactly-once-effect processing*: process events with a stable key (chain id, block hash, log index), store a cursor, and make handlers idempotent; on restart, reprocess from the last committed block minus a safety margin.
+- *Reorg-aware ingestion*: store block hash and parent hash per processed block; when the parent hash of a new block does not match the stored head, find the common ancestor, roll back derived state above it, and replay; keep a buffer of unfinalized blocks (see =13_indexing-and-data-access.org=).
+- *Quorum and redundancy for reads*: query several providers for critical reads and compare (for example head block, balance, or price); alert on disagreement; prefer a self-hosted node as a tie-breaker.
+- *Provider failover and hedging*: health checks, timeouts, retries with backoff and jitter, hedged requests for latency-sensitive reads, and circuit breakers per provider; stale-provider detection by comparing head height.
+- *Backpressure and rate limits*: RPC providers enforce quotas; queue and prioritize requests; protect critical paths from batch jobs.
+- *Sagas for multi-step and multi-chain workflows*: represent each step as a local transaction with a compensating action or a defined recovery; persist workflow state; handle partial completion (funds moved on one chain but not the other).
+- *Confirmation and finality policies as configuration*: per action type and value; changes reviewed like code.
+- *Monotonic reads for clients*: remember the highest block seen and reject responses from nodes behind it.
+- *Graceful degradation modes*: read-only mode when submissions fail, queue-and-retry when providers are down, explicit "chain halted" state.
+
+** 4. Failure scenarios and responses
+| Scenario                                 | Symptoms                                              | Response                                                         |
+|------------------------------------------+-------------------------------------------------------+------------------------------------------------------------------|
+| Reorg of recent blocks                   | Transactions disappear; events removed; balances change | Roll back derived state; resubmit or re-evaluate; confirmation policy prevents crediting too early |
+| RPC provider outage or lag               | Timeouts, stale heads, inconsistent reads             | Failover; quorum reads; alert on head divergence                  |
+| Transaction stuck (low fee, nonce gap)   | Pending for long; later nonces blocked                | Replace with higher fee; fill the nonce gap; investigate fee policy |
+| Chain halt or finality stall             | No new blocks or no finality                          | Pause sensitive actions; communicate; resume after verification   |
+| Mempool congestion and fee spike         | Failed or delayed submissions; budget exhaustion      | Fee caps and escalation; defer non-urgent work; autoscale gas funds |
+| Client bug or consensus split            | Nodes on different forks                              | Compare against multiple providers and client types; follow incident channels; halt irreversible actions |
+| Event stream gap                         | Missing events after reconnect                        | Backfill from logs by block range; reconcile with on-chain state  |
+| Duplicate or reordered cross-chain message | Double execution or stale state                      | Nonces, idempotent handlers, expiry, ordering checks              |
+| Sequencer downtime on L2                 | Transactions stall; stale oracles                     | Use forced inclusion if available; pause risky functions; grace periods |
+
+** 5. Concurrency and ordering on-chain
+- *Transactions are totally ordered within a block*, but the order is chosen by builders (see =10_oracles-and-mev.org=); never assume the order in which concurrent users' transactions execute, and never assume state read earlier is unchanged at inclusion.
+- *Check-then-act races*: reads in simulation can be invalidated by earlier transactions in the same block; contracts must re-check conditions atomically and fail safely (slippage bounds, deadlines, expected-state checks).
+- *Atomicity as a tool*: a single transaction is atomic; multi-call batches can implement all-or-nothing flows, flash loans, and safe composition. Cross-transaction workflows are not atomic and need explicit state machines.
+- *Isolation*: other contracts can call yours in the middle of your execution (reentrancy); there is no isolation between contracts in one transaction.
+- *Global contention*: hot contracts and storage slots create contention (gas wars, failed transactions); design to reduce shared mutable state or shard it.
+- *Parallelism*: Ethereum executes sequentially today; upgrades (such as block-level access lists) aim to enable parallel execution later; other chains parallelize by declaring state access.
+
+** 6. Testing distributed behavior
+- *Reorg simulation*: use local nodes with snapshot and revert to simulate reorgs and verify that indexers and services roll back correctly.
+- *Fault injection*: simulate RPC failures, delays, and malformed responses; drop and duplicate events; skip blocks; stall finality.
+- *Deterministic simulation*: run services against a simulated chain and network with a seeded scheduler so that failures are reproducible.
+- *Property checks*: no lost or duplicate payments; derived balances equal on-chain balances at finality; a cursor never moves backward past unfinalized data.
+- *Chaos and game days* in staging, including provider outages and fee spikes (see =17_reliability-and-monitoring.org=).
+- *Model checking* of critical protocols (for example a custom bridge message protocol or a settlement workflow) with TLA+ or similar tools.
+
+** 7. Self-check
+1. A service credits a deposit after one confirmation and a reorg removes the transaction. What went wrong in design, and how do you fix it?
+2. Explain why two RPC providers can return different answers and how you design reads for decisions that cause irreversible actions.
+3. Describe the exactly-once-effect design for processing chain events into a database.
+4. Compare liveness and safety behavior of an Ethereum-style chain and a Tendermint-style chain during a large network partition.
+5. How do you prevent a nonce gap from blocking a payment service, and how do you recover when one occurs?
+6. What properties would you check with a model checker for a cross-chain withdrawal workflow?
+
+** 8. Exercises
+- Warm-up: write a script that polls two RPC endpoints and reports head height, hash, and latency; log divergence.
+- Core: build a reorg-aware event ingester with a cursor and an unfinalized buffer; test it by forcing a reorg on a local node and verifying rollback and replay.
+- Core: implement a transaction outbox with idempotency keys and a state machine; inject failures (crash after send, crash after confirm) and verify no duplicate effects.
+- Core: implement quorum reads across three providers with majority voting and disagreement alerts.
+- Stretch: write a TLA+ (or Python state-exploration) model of a deposit-credit workflow with reorgs and show the safety property "no credit without finalized deposit".
+- Stretch: run a game day: kill the primary RPC, inject a reorg, and spike gas; measure recovery and update the runbook.
+
+** 9. Resources
+- Foundations notes in this repository: concurrency and distributed systems (failure models, consensus, consistency, queueing, testing), logic and proofs (invariants, model checking).
+- ethereum.org documentation on consensus mechanisms, nodes, and the JSON-RPC API: https://ethereum.org/en/developers/docs/
+- Buterin and Griffith, /Casper the Friendly Finality Gadget/; Castro and Liskov, /Practical Byzantine Fault Tolerance/; Fischer, Lynch, Paterson (FLP); Lamport, /The Part-Time Parliament/ and /Paxos Made Simple/; Kleppmann, /Designing Data-Intensive Applications/.
+- Jepsen consistency models for vocabulary: https://jepsen.io/consistency/models
+- Client documentation and issue trackers for reorg, finality, and sync behavior (execution and consensus clients).
+
+** What to remember
+- Chains are distributed systems with adversaries; finality is a policy choice for every action.
+- Reads are inconsistent across nodes and time; use block tags, monotonic reads, and quorum for critical decisions.
+- Make every off-chain action idempotent, persist intents, and manage nonces with a single writer.
+- Ingest events with cursors and reorg rollback; reconcile with on-chain truth.
+- Test with injected reorgs, faults, and fee spikes; model critical workflows formally.

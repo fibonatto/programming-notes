@@ -1,0 +1,210 @@
+#+title: Homotopy Type Theory
+#+filetags: :type-theory:mathematics:
+
+* Foundations
+Notation used in these notes (HoTT book conventions): ~A : U~ means A is a type in a universe U; ~a : A~ means a is an element of A; ~a =_A b~ is the identity (path) type, written ~a = b~ when A is clear; ~a ≡ b~ is judgmental (definitional) equality; ~A ≃ B~ is the type of equivalences; Σ and Π are dependent pair and dependent function types. The symbol ∼ denotes pointwise equality (a homotopy) of functions.
+
+** Propositions as Types
+The Curry-Howard correspondence reads logic into type theory: a proposition is a type and a proof of it is an element (term) of that type.
+| Logic             | Type theory                       |
+|-------------------+-----------------------------------|
+| implication A ⇒ B | function type ~A → B~             |
+| conjunction A ∧ B | product ~A × B~                   |
+| disjunction A ∨ B | coproduct ~A + B~                 |
+| truth, falsity    | unit type 1, empty type 0         |
+| ∀ x:A. P(x)       | dependent function ~Π_{x:A} P(x)~ |
+| ∃ x:A. P(x)       | dependent pair ~Σ_{x:A} P(x)~     |
+In homotopy type theory the correspondence is refined. A type can carry more than one distinct element, so "proof" in the sense of a witness and "proof" in the sense of a mere truth value separate. Types with at most one element up to equality are called /mere propositions/ (see Homotopy Levels), and logic proper is done with those, while general types also record the data of how something is true.
+
+** Types as Spaces
+The central reading of the theory: a type is a space (more precisely an ∞-groupoid), an element ~a : A~ is a point, and a function ~f : A → B~ is a map that is automatically continuous, because it respects paths (see Action of Functions on Paths). The identity type ~a = b~ is the space of paths from a to b. This is not only an analogy: type theory has models in homotopy theory, notably Kan simplicial sets (Voevodsky) and the work of Awodey and Warren relating identity types to weak factorization systems. The payoff is that statements of homotopy theory can be expressed and proved directly, "synthetically", in type theory.
+
+** Identity Types as Paths
+The identity type has a formation rule (~a = b~ for ~a, b : A~), an introduction rule (~refl_a : a = a~), and an elimination rule, path induction (see Identity Types). In Martin-Löf's intensional type theory, one cannot prove that any two proofs of ~a = b~ are equal (uniqueness of identity proofs): the groupoid model of Hofmann and Streicher shows this principle is independent. HoTT embraces this: elements of ~a = b~ are paths, paths between paths are 2-paths, and so on, so every type has the structure of an ∞-groupoid, with composition, inverses, and coherence laws holding up to higher paths.
+
+** Dependent Types and Fibrations
+A dependent type, or type family, ~P : A → U~ assigns to each ~x : A~ a type ~P(x)~. Homotopically, P is a fibration over A and ~P(x)~ is the fiber over x. Two basic constructions:
+- the total space ~Σ_{x:A} P(x)~, with projection ~pr₁ : Σ_{x:A} P(x) → A~;
+- the type of sections ~Π_{x:A} P(x)~, a choice of a point in each fiber.
+Every function between types has a homotopy fiber ~fib_f(b) :≡ Σ_{a:A} (f(a) = b)~, and every type family arises (up to equivalence) from a function this way. Transport (see Identity Types) plays the role of path lifting: a path in the base moves a point of one fiber to a point of another.
+
+** The Univalent Foundations Program
+Univalent foundations is the program, started by Vladimir Voevodsky around 2009, of using type theory with the univalence axiom and higher inductive types as a foundation of mathematics that is well suited to computer formalization. A special year at the Institute for Advanced Study (2012-13) produced the book /Homotopy Type Theory: Univalent Foundations of Mathematics/ (2013), the main reference listed below. The goals: a language in which mathematical objects are structured as types up to equivalence, proofs are checked by a computer, and isomorphic structures are interchangeable by construction. Implementations and libraries include Coq/Rocq-based work (the HoTT library and UniMath), Agda, and cubical systems (see Formalization).
+
+* Identity Types
+** Path Induction
+Path induction is the elimination rule for identity types. For ~a : A~ and a family ~C : Π_{x:A} (a = x) → U~, given ~c : C(a, refl_a)~ there is a function ~f : Π_{x:A} Π_{p : a = x} C(x, p)~ with ~f(a, refl_a) ≡ c~. Informally: to prove something about every path, it suffices to prove it for the constant path at the starting point, with the other endpoint free. This is called /based/ path induction; the unbased form, with both endpoints free, is equivalent.
+Most basic facts are proved this way: composition, inversion, transport, ap, and their laws. The common failure is trying to apply it when an endpoint is fixed (for example a loop ~p : a = a~); one must first generalize the endpoint.
+
+** Path Composition and Inversion
+Given ~p : x = y~ and ~q : y = z~ there are a concatenation ~p · q : x = z~ and an inverse ~p⁻¹ : y = x~, both defined by path induction. They satisfy the groupoid laws, but only up to higher paths: ~refl · p = p~, ~p · refl = p~, ~p · p⁻¹ = refl~, ~(p⁻¹)⁻¹ = p~, and associativity ~(p · q) · r = p · (q · r)~, where each "=" is itself an identity type. For loops at a point (~Ω²~ and higher), composition is commutative (the Eckmann-Hilton argument), which is why higher homotopy groups are abelian.
+A sketch in Agda, with K disabled so that identity types are not collapsed:
+#+begin_src agda
+{-# OPTIONS --without-K #-}
+
+data _≡_ {A : Set} (x : A) : A → Set where
+  refl : x ≡ x
+
+_∙_ : {A : Set} {x y z : A} → x ≡ y → y ≡ z → x ≡ z
+refl ∙ q = q
+
+_⁻¹ : {A : Set} {x y : A} → x ≡ y → y ≡ x
+refl ⁻¹ = refl
+#+end_src
+
+** Transport
+Given a family ~P : A → U~ and a path ~p : x = y~, transport is a function ~transport^P(p, -) : P(x) → P(y)~, defined by path induction as the identity when ~p~ is ~refl~. It is a fibration's path lifting: for ~u : P(x)~ there is a path in the total space from ~(x, u)~ to ~(y, transport^P(p, u))~. Useful computations: in the constant family, transport is the identity (up to a path); in the family ~x ↦ (a = x)~ it is post-composition, ~transport(p, q) = q · p~; in ~x ↦ (x = a)~ it is ~p⁻¹ · q~. Transport is the way "equal things have the same properties" is expressed: if ~x = y~ and ~P(x)~ holds, then ~P(y)~ holds, and the proof is a transport.
+
+** Action of Functions on Paths
+Every function ~f : A → B~ acts on paths: ~ap_f : (x = y) → (f(x) = f(y))~, defined by path induction with ~ap_f(refl) ≡ refl~. It is functorial: ~ap_f(p · q) = ap_f(p) · ap_f(q)~, ~ap_f(p⁻¹) = ap_f(p)⁻¹~, ~ap_g(ap_f(p)) = ap_{g∘f}(p)~, and ~ap_{id}(p) = p~. This is the formal sense in which functions are continuous: nothing definable can distinguish equal inputs. For a dependent function ~f : Π_{x:A} P(x)~ there is a dependent version ~apd_f(p) : transport^P(p, f(x)) = f(y)~, which compares values in different fibers by transporting.
+
+** Function Extensionality
+There is a canonical map ~happly : (f = g) → Π_{x:A} (f(x) = g(x))~ from equality of functions to pointwise equality. /Function extensionality/ says ~happly~ is an equivalence, so two functions that agree pointwise are equal (and the converse direction is the easy one). It does not follow from the basic rules of Martin-Löf type theory, but it is a consequence of the univalence axiom (a result of Voevodsky), and in cubical type theory it holds by construction, since a path in a function type is literally a family of paths. Without it, reasoning about functions as values is painful: even proving that two definitions of the same function are equal needs it.
+
+* Equivalences and Univalence
+** Equivalences of Types
+A function ~f : A → B~ is an equivalence when it has an inverse in a suitable sense. The naive condition "there exists ~g~ with ~g∘f ∼ id~ and ~f∘g ∼ id~" (a quasi-inverse) is logically fine but is not a mere proposition: the type of such data can carry extra structure, which breaks the intuition that being an equivalence is a property. Standard well-behaved definitions are all logically equivalent to each other and are mere propositions:
+- bi-invertibility: ~f~ has a left inverse and a right inverse (separately);
+- half-adjoint equivalence: a quasi-inverse together with a coherence between the two homotopies;
+- contractible fibers: every homotopy fiber of ~f~ is contractible (see next section).
+Write ~isEquiv(f)~ for any of these and ~A ≃ B :≡ Σ_{f : A → B} isEquiv(f)~. Equivalences contain identities, compose, and can be inverted, so ≃ is an equivalence relation on types.
+
+** Contractible Types and Fibers
+A type is /contractible/ if it has a center to which every element is connected by a path: ~isContr(A) :≡ Σ_{a : A} Π_{x : A} (a = x)~. Contractible types are the types equivalent to 1: homotopically trivial spaces. An example proved by based path induction: for any ~a : A~, the type ~Σ_{x:A} (a = x)~ of paths starting at a is contractible.
+The homotopy fiber of ~f : A → B~ over ~b : B~ is ~fib_f(b) :≡ Σ_{a : A} (f(a) = b)~. A function is an equivalence exactly when all its homotopy fibers are contractible: ~isEquiv(f) ⇔ Π_{b : B} isContr(fib_f(b))~, the type-theoretic form of "bijection": each output has exactly one preimage, in the homotopical sense.
+
+** The Univalence Axiom
+For types ~A, B : U~ in a universe, transport along paths in the universe gives a map ~idtoeqv : (A = B) → (A ≃ B)~. The /univalence axiom/ states that this map is itself an equivalence: ~(A = B) ≃ (A ≃ B)~. Its inverse is written ~ua : (A ≃ B) → (A = B)~, and the computation behavior is ~transport^{X ↦ X}(ua(e), a) = e(a)~: transporting along the path induced by an equivalence applies the equivalence.
+Consequences: equivalent types are equal, so any construction on types is invariant under equivalence; the universe has non-trivial paths (for example, the swap equivalence of ~Bool~ gives a path ~Bool = Bool~ different from ~refl~, so ~U~ is not a set and uniqueness of identity proofs fails). Univalence is consistent relative to standard set theory with inaccessible cardinals (Voevodsky's simplicial-set model; Kapulkin, Lumsdaine, Voevodsky), and it is a theorem, not an axiom, in cubical type theory.
+
+** Invariance Under Equivalence
+Because identifications of types are equivalences, every property and every structure expressible in type theory is automatically invariant under equivalence: if ~A ≃ B~ and ~P(A)~ holds then ~P(B)~ holds, by transport along ~ua~. This formalizes the mathematical habit of treating isomorphic objects as "the same" without risk of an argument that quietly distinguishes them. In practice it also lets one transfer theorems and constructions along an equivalence instead of reproving them, for example moving results between two presentations of the natural numbers or between a data-structure encoding and its abstract specification.
+
+** The Structure Identity Principle
+The structure identity principle says that isomorphic mathematical structures of the same kind are identical: for a standard notion of structure (a magma, a group, a poset, a category, and so on, defined as a type with structure and axioms), an identification between two structures amounts to an isomorphism of structures: ~((A, s) = (B, t)) ≃ (structure isomorphisms between them)~. For structures on sets this recovers the usual notion of isomorphism; for structures on higher types it yields the correct higher notion. It follows from univalence (it is section 9.8 of the HoTT book, in the chapter on category theory, and related earlier work is due to Aczel and to Coquand and Danielsson), and it is the reason "isomorphic groups are equal" is not a slogan but a provable statement, at least for the structures defined in the standard way.
+
+* Homotopy Levels
+** Contractible Types
+The hierarchy of homotopy levels (h-levels) classifies how much higher structure a type has, counting from -2: contractible types are the (-2)-types, with a single point up to homotopy. The levels are defined by recursion: a type is an (n+1)-type if all its identity types are n-types. Every (-2)-type is a (-1)-type, and so on upward: being an n-type implies being an (n+1)-type. The levels are closed under Σ and Π (for families of n-types), and the identity types of an n-type are (n-1)-types. Each level condition is itself a mere proposition (this uses function extensionality).
+
+** Propositions and Sets
+- A /mere proposition/ is a (-1)-type: any two elements are equal. ~isProp(A) :≡ Π_{x, y : A} (x = y)~. It is a type with at most one element up to equality, so only its inhabitedness matters. Logic in HoTT is naturally carried out with these: conjunction, implication, and universal quantification of propositions are propositions, but ∨ and ∃ need truncation (see Inductive Types).
+- A /set/ is a 0-type: ~isSet(A) :≡ Π_{x, y : A} isProp(x = y)~. Equality of elements is a proposition, as in ordinary mathematics. The natural numbers and ~Bool~ are sets, and more generally any type with decidable equality is a set (Hedberg's theorem). The universe ~U~ is not a set, as noted above.
+Working with sets recovers classical-style mathematics inside the framework; propositions and sets are the part of the hierarchy that behaves like set-based foundations.
+
+** Groupoids and Higher Groupoids
+A 1-type, or /groupoid/, is a type whose identity types are sets: elements may be identified in more than one way, but the identifications themselves are unique. Examples include the type of sets in a universe ~Σ_{A : U} isSet(A)~, where automorphisms are non-trivial, and the classifying types of groups. Continuing, 2-types, 3-types, and so on are higher groupoids, and a general type with no truncation level is a full ∞-groupoid. The levels give a stratification of mathematics: sets and propositions at the bottom (ordinary mathematics), groupoids and categories above, and the general homotopy types above them.
+
+** Truncation and Connectedness
+For each n there is an /n-truncation/ ~‖A‖ₙ~, the universal way of turning a type into an n-type by identifying away all structure above level n. It is a higher inductive type with a universal property: maps from ~A~ into any n-type factor uniquely through ~‖A‖ₙ~. Two cases are used constantly: the propositional truncation ~‖A‖₋₁~ (see Inductive Types) and the set truncation ~‖A‖₀~, which gives the set of path components.
+A type is /n-connected/ if its n-truncation is contractible; (-1)-connected means inhabited, and 0-connected means any two points are merely connected by a path. A function is n-connected (respectively n-truncated) if all its homotopy fibers are, and these two classes form a factorization system on functions: every function factors as an n-connected map followed by an n-truncated one. Connectedness is the main tool for statements like the Freudenthal suspension theorem.
+
+* Inductive Types
+** Induction and Recursion
+An inductive type is specified by its constructors. It comes with a /recursion/ principle, which defines functions out of the type into any type by giving the result for each constructor (non-dependent elimination), and an /induction/ principle, its dependent version, for proving statements about every element. Standard examples: the natural numbers (zero and successor), coproducts, Σ-types, the empty type 0 (its recursion principle is ex falso) and unit type 1, and W-types for well-founded trees. For the natural numbers: ~rec_ℕ : C → (ℕ → C → C) → ℕ → C~, with computation rules ~rec_ℕ(c₀, cₛ, 0) ≡ c₀~ and ~rec_ℕ(c₀, cₛ, succ(n)) ≡ cₛ(n, rec_ℕ(c₀, cₛ, n))~.
+
+** Dependent Induction
+The dependent eliminator lets the target family vary over the inductive type. For the natural numbers: given ~P : ℕ → U~, a base case ~P(0)~, and a step ~Π_{n : ℕ} P(n) → P(succ(n))~, we obtain ~ind_ℕ : Π_{n : ℕ} P(n)~, with the corresponding computation rules. Path induction is the dependent eliminator of the identity type viewed as an inductive family indexed by its endpoint. Induction principles express that the type is generated by its constructors and nothing more; in a homotopical setting they also determine the type up to equivalence (an initial algebra), and, in the book's setup, the computation rules for point constructors hold judgmentally while those for path constructors hold only propositionally; in cubical type theory they hold judgmentally.
+
+** Higher Inductive Types
+Higher inductive types (HITs) generalize inductive types by allowing constructors that produce /paths/ (and higher paths) in the type itself, not only points. Examples:
+- the circle ~S¹~ with ~base : S¹~ and ~loop : base = base~;
+- the interval with endpoints ~0, 1~ and a path ~seg : 0 = 1~ (contractible);
+- suspensions and spheres, ~S^{n+1}~ as the suspension of ~Sⁿ~;
+- pushouts (see Synthetic Homotopy Theory), truncations, and quotients.
+The recursion principle for ~S¹~: to define a map ~S¹ → X~, give a point ~x : X~ and a loop ~l : x = x~. The induction principle for a family ~P : S¹ → U~ needs a point ~b : P(base)~ and a path ~transport^P(loop, b) = b~ lying over the loop. HITs make the point-set and homotopical constructions of topology available in type theory, and are how free constructions, quotients, and truncations are obtained.
+
+** Quotient Types
+For a type ~A~ and a relation ~R : A → A → U~, the quotient ~A/R~ is a higher inductive type: a constructor ~[_] : A → A/R~, a path constructor ~q : R(a, b) → [a] = [b]~ for all related elements, and a truncation constructor making ~A/R~ a set. Its recursion principle says a function out of ~A/R~ into a set is the same as a function out of ~A~ that respects ~R~. When ~R~ is a prop-valued equivalence relation the quotient is effective (~[a] = [b]~ exactly when ~R(a, b)~). Standard uses: the integers as a quotient of pairs of naturals, the rationals, and any construction by "identify elements by a relation". Set-quotients give back the familiar behavior of quotients in set theory.
+
+** Propositional Truncation
+The propositional truncation ~‖A‖~ is the higher inductive type with a constructor ~|_| : A → ‖A‖~ and a constructor forcing any two elements of ~‖A‖~ to be equal. Its elimination rule is restricted: a function out of ~‖A‖~ can be defined only into a mere proposition (given a map ~A → B~ with ~B~ a proposition, get ~‖A‖ → B~). This captures "merely inhabited": we know an element exists but cannot extract a specific one unless the goal is itself a proposition.
+It is used to define the logical connectives that need it: ~P ∨ Q :≡ ‖P + Q‖~ and ~∃ x : A. P(x) :≡ ‖Σ_{x : A} P(x)‖~, to distinguish "there merely exists" from the data-carrying Σ, and to state surjectivity and choice principles faithfully.
+
+* Synthetic Homotopy Theory
+** Loop Spaces and Fundamental Groups
+For a pointed type ~(A, a)~ the loop space is ~Ω(A, a) :≡ (a = a)~, pointed by ~refl_a~, and ~Ωⁿ~ is its n-fold iteration. The fundamental group is ~π₁(A, a) :≡ ‖Ω(A, a)‖₀~, the set of loops up to homotopy with group structure from path composition. This is the usual definition, stated type-theoretically. The first major synthetic computation was ~π₁(S¹) ≃ ℤ~ (Licata and Shulman), proved without any topological model, by the encode-decode method below.
+
+** Higher Homotopy Groups
+The higher homotopy groups are ~πₙ(A, a) :≡ ‖Ωⁿ(A, a)‖₀~ for ~n ≥ 1~; for ~n ≥ 2~ they are abelian (Eckmann-Hilton). Results proved synthetically in the HoTT setting include ~πₖ(Sⁿ)~ trivial for ~k < n~ and ~πₙ(Sⁿ) ≃ ℤ~, the Hopf fibration and ~π₃(S²) ≃ ℤ~, and the Freudenthal suspension theorem, which explains how homotopy groups of spheres stabilize. Computing further groups (for example ~π₄(S³)~) required substantial additional work and computer assistance. Classical results become theorems that are checkable in a proof assistant, and the proofs often look different from textbook ones because they avoid point-set machinery.
+
+** The Encode-Decode Method
+The main technique for computing path spaces of higher inductive types:
+1. Define a family ~code : X → U~ by the recursion principle of ~X~, intended to describe the identity types ~x₀ = x~ concretely.
+2. Define ~encode : Π_{x : X} (x₀ = x) → code(x)~ by transporting a base element along the path (using path induction).
+3. Define ~decode : Π_{x : X} code(x) → (x₀ = x)~ by induction on ~X~.
+4. Prove ~encode~ and ~decode~ are inverse equivalences: one composite by path induction, the other by induction on ~X~.
+For the circle, ~code(base) :≡ ℤ~ and the action of ~loop~ on ~code~ is defined through univalence as the path ~ua(succ)~ for the successor equivalence of ~ℤ~; the method then gives ~(base = base) ≃ ℤ~. The same pattern characterizes equality in coproducts, in the natural numbers, in pushouts (the van Kampen theorem), and in many other types.
+
+** Homotopy Fibers and Pushouts
+For a map ~f : A → B~ and ~b : B~, the homotopy fiber ~fib_f(b)~ (defined earlier) gives, for a pointed fibration ~F → E → B~, the long exact sequence of homotopy groups, which relates the groups of the fiber, the total space, and the base. A /pushout/ of a span ~A ← C → B~ (with maps ~f~ and ~g~) is the higher inductive type with constructors ~inl : A → P~, ~inr : B → P~, and ~glue : Π_{c : C} inl(f(c)) = inr(g(c))~. Special cases are the suspension (pushout of ~1 ← A → 1~), joins, wedge sums, mapping cones (cofibers), and spheres built by iterated suspension. Pushouts are the basic gluing construction of homotopy theory and the main source of examples for the techniques above.
+
+* Type-Theoretic Foundations
+** Universes
+To avoid paradoxes, types are organized in a hierarchy of universes ~U₀ : U₁ : U₂ : ...~, with each universe containing the types formed by Σ, Π, identity types, and the inductive types below it. A universe may be presented à la Russell (types are elements of the universe) or à la Tarski (an explicit decoding function). Univalent universes are not sets: the universe has non-trivial identifications between types. Typical ambiguity lets one omit level indices, and implementations offer universe polymorphism. /Propositional resizing/, the assumption that propositions in a larger universe have equivalents in the smallest, is an optional axiom related to impredicativity.
+
+** Judgmental and Propositional Equality
+Two different notions of equality are at work. /Judgmental/ (definitional) equality, written ~a ≡ b~, is a relation of the theory itself: the type checker decides it by computation (β-reduction, unfolding definitions) and it is not something one can state or hypothesize inside the theory. /Propositional/ equality, written ~a = b~, is the identity type, a type whose elements are proofs. Judgmentally equal terms are propositionally equal (by ~refl~) but not conversely. Example: if addition on ~ℕ~ is defined by recursion on the first argument, then ~0 + n ≡ n~ holds by computation, but ~n + 0 = n~ needs a proof by induction. Many practical difficulties in formalization are a matter of which equalities hold judgmentally, since those are free to use.
+
+** Constructive Logic
+Reasoning in HoTT is constructive by default: a proof of an existence statement carries a witness, and the law of excluded middle and the axiom of choice are not provable. They can be added for mere propositions (giving classical mathematics on sets) and remain consistent that way. The version quantified over all types is different: the law of excluded middle for arbitrary types, ~Π_{A : U} (A + ¬A)~, is inconsistent with univalence: it would yield a uniform choice of elements that had to be invariant under every equivalence, but the swap automorphism of ~Bool~ has no invariant choice. So classical principles must be stated for propositions, using truncation to express "merely".
+
+** Axioms and Consistency
+Candidate axioms and their status:
+- /Univalence/ (and function extensionality, which follows from it): the characteristic axiom; consistent relative to ZFC with inaccessible cardinals (Kan simplicial sets), and more generally holds in suitable model categories and ∞-toposes (Shulman).
+- /Uniqueness of identity proofs/ and Axiom K: inconsistent with univalence, so disabled in HoTT-style systems (for instance by the ~--without-K~ flag in Agda).
+- /Higher inductive types/: provided as primitives or as axioms; their consistency and computational behavior depend on the system.
+- /Propositional resizing/, /excluded middle for propositions/, and /choice for sets/: optional, with the usual meaning.
+Consistency is shown by constructing models. The relative consistency of intensional type theory with univalence rests on the simplicial model; constructive models in cubical sets give both consistency and computational content (next sections).
+
+** Cubical Type Theory
+Cubical type theory gives univalence computational meaning by changing the primitive notion of path. Paths are defined using an abstract interval ~I~ with endpoints ~i0~ and ~i1~: a path ~a = b~ in ~A~ is a function from the interval into ~A~ whose endpoints are ~a~ and ~b~. Types are equipped with Kan operations (composition and filling, ~hcomp~ and ~transp~ in Cubical Agda) that say how to complete partial cubes. Consequences: function extensionality is immediate (swap the interval variable with the function argument); path induction becomes a definable operation; univalence is provable via Glue types; higher inductive types get computation rules. Variants include the De Morgan cubical theory (Cohen, Coquand, Huber, Mörtberg) and cartesian cubical theories, and implementations include Cubical Agda, cubicaltt, redtt, and cooltt.
+
+** Computational Univalence
+In ordinary Martin-Löf type theory with the univalence axiom postulated, the axiom has no computational rule, so programs that use it can get stuck: ~transport(ua(e), a)~ does not reduce. Cubical type theory removes this: ~ua(e)~ is a path built from Glue types, transport along it reduces to applying ~e~, and canonicity-style results (closed terms of a natural-number type evaluate to numerals) have been proved for cubical systems. This makes univalence and higher inductive types usable in programs, for example to run a computation on a convenient representation and transport the result back across an equivalence. For the axiomatic presentation the corresponding canonicity question is subtle, and results exist for restricted forms; see the literature for the current status.
+
+* Formalization
+** Formalizing Equivalences and Paths
+Practical choices when formalizing:
+- Pick one definition of ~isEquiv~ (bi-invertible maps, half-adjoint equivalences, or contractible fibers) and prove that it is a mere proposition (this needs function extensionality).
+- Characterize paths in each type former once and reuse the characterizations: paths in Σ-types are pairs of a path in the base and a path between a transported element and the second component, ~((x, u) = (y, v)) ≃ Σ_{p : x = y} (transport(p, u) = v)~; paths in function types are pointwise paths (function extensionality); paths in products are pairs of paths; paths in a universe are equivalences (univalence).
+- Use transport and ~ap~ systematically and name the coherence lemmas (naturality, functoriality) that keep recurring.
+- Track which equalities hold judgmentally, and define functions so that useful equations hold by computation.
+- Prove statements about equivalences by /equivalence induction/ (see Common Proof Techniques) instead of manipulating inverses by hand.
+
+** Agda and Cubical Agda
+Agda supports HoTT-style development in two ways. With ~--without-K~ (as in the sketch above), pattern matching does not assume uniqueness of identity proofs; univalence must then be postulated and cannot compute. With ~--cubical~ (Cubical Agda), paths are functions from an interval type, ~hcomp~ and ~transp~ are primitives, univalence ~ua~ is a theorem that computes, and higher inductive types can be declared directly. A sketch of the circle in Cubical Agda:
+#+begin_src agda
+{-# OPTIONS --cubical #-}
+open import Cubical.Foundations.Prelude
+
+data S¹ : Type₀ where
+  base : S¹
+  loop : base ≡ base
+
+-- recursion principle: a point and a loop in the target
+S¹-rec : {A : Type₀} (a : A) (l : a ≡ a) → S¹ → A
+S¹-rec a l base     = a
+S¹-rec a l (loop i) = l i
+#+end_src
+(This is a sketch; check imports and names against the version of the cubical library you use.) A note for Lean users: Lean 4's built-in equality lives in ~Prop~ and is proof-irrelevant, which is incompatible with univalence, so HoTT-style work is not done directly on top of Lean 4's ~Eq~; Lean 2 had a separate HoTT mode that was not carried forward.
+
+** HoTT Libraries
+Maintained libraries for univalent mathematics include: the HoTT library for Coq/Rocq (the one associated with the book), UniMath (Coq, Voevodsky and collaborators), the agda-unimath library (Agda, without K, with univalence as an axiom), the Cubical Agda library, 1Lab (a Cubical Agda-based development), and Arend (a proof assistant with a HoTT-style foundation). They contain the basics (paths, equivalences, truncation levels, higher inductive types such as spheres and quotients), category theory, and homotopy-theoretic results. Reading the basic files of a library is a good way to learn the conventions for naming and organizing lemmas.
+
+** Common Proof Techniques
+- /Path induction/ (based and unbased): reduce a statement about all paths to the reflexivity case, generalizing endpoints first.
+- /Transport/ and /ap/: move proofs and values along paths, and compute how they act.
+- /Function extensionality/: reduce equalities of functions to pointwise equalities.
+- /Univalence and equivalence induction/: to prove ~P(B, e)~ for all types ~B~ and equivalences ~e : A ≃ B~, it suffices to prove ~P(A, id)~; it is path induction transported through ~ua~.
+- /Contractibility of singletons/ and /based path spaces/: replace a sum over paths by a single point.
+- /Structure of Σ-types/: characterize paths in Σ by pairs, as above; to show a total-space map is an equivalence, show it fiberwise (a fiberwise map is an equivalence exactly when the induced map on total spaces is).
+- /Proving mere propositions/: show ~isProp~ and use truncation elimination into propositions to use "mere existence" hypotheses.
+- /h-level reasoning/: prove that a type is an n-type by induction on n using identity types, and use closure of levels under type formers.
+- /Encode-decode/ for characterizing path spaces of higher inductive types.
+- /Hedberg's theorem/: decidable equality implies set, a common way to show a type is a set.
+- /The Yoneda lemma/ and /universal properties/: characterize objects by maps in or out.
+
+* References
+** Homotopy Type Theory: Univalent Foundations of Mathematics
+   https://homotopytypetheory.org/book/

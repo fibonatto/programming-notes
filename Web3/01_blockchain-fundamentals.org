@@ -1,0 +1,111 @@
+#+title: Blockchain Fundamentals
+#+startup: overview
+
+* Blockchain Fundamentals
+** 0. Staff-level lens
+A blockchain is a replicated state machine whose participants do not trust each other and whose membership is open. Everything else in Web3 (contracts, tokens, rollups, MEV) follows from that choice and its costs. At Staff and Principal scope you are expected to:
+- state precisely which trust assumptions a design relies on (honest majority, synchrony, economic security, client diversity), and which failures break which guarantees;
+- decide, with evidence, whether a problem needs a blockchain at all, and which one;
+- explain finality, reorgs, and fees to engineers and non-engineers without hand-waving, because product behavior depends on them;
+- separate durable principles from fast-moving protocol details, and keep a dated, verified view of the latter.
+Companion files: =12_distributed-systems.org= (failure and consistency models applied here), =06_transactions-and-gas.org=, =11_layer-2-and-cross-chain.org=. In the Foundations notes: the concurrency and distributed-systems file (consensus, quorums, impossibility results) and the data-representation file (hashes, encodings).
+
+** 1. What problem a blockchain solves
+- *The problem*: maintain a shared, append-only record and run shared computation among parties who may be adversarial, with no trusted operator, and let anyone join or leave. Traditional replicated databases assume a known set of nodes and, at most, crash faults; a permissionless chain must tolerate arbitrary (Byzantine) behavior and /Sybil/ identities (one actor pretending to be many).
+- *The core ingredients*: (1) a data structure that makes history tamper-evident (hash-linked blocks, Merkle commitments); (2) a rule for what a valid state transition is (the state transition function); (3) a consensus protocol that makes all honest nodes agree on one ordering of transactions; (4) an economic mechanism that makes attacking more expensive than honest participation (proof of work, proof of stake).
+- *What you get*: a shared source of truth with credible neutrality, censorship resistance (to a degree), global composability (contracts calling contracts atomically), and programmable assets with public rules.
+- *What you pay*: low throughput and high latency relative to centralized systems, public state (no privacy by default), irreversibility (bugs and key loss are permanent), fees, and an adversarial environment where value attracts attackers.
+- *When it is the wrong tool*: a known set of mutually trusting parties; high-throughput private data; anything where a legal operator can be trusted and rolled back. A database with an audit log is often better. A useful test: who are the parties that do not trust each other, and what do they gain from not having to trust a single operator?
+
+** 2. Data structures
+- *Hash functions* give each block a fingerprint; a *block* contains a header (parent hash, state root, transactions root, receipts root, timestamp, and chain-specific fields) and a list of transactions. Altering history changes every later hash.
+- *Merkle trees* commit to a list so that membership can be proven with a logarithmic-size path. Ethereum uses a *Merkle Patricia trie* (hexary, keyed by hashed addresses and storage keys) for state; there is an ongoing research and engineering path toward more compact tree structures (Verkle or binary trees) for stateless clients. See the Foundations data-structures and data-representation files for the underlying structures.
+- *Account model versus UTXO model*:
+| Aspect                 | UTXO (Bitcoin-style)                             | Account (Ethereum-style)                          |
+|------------------------+--------------------------------------------------+---------------------------------------------------|
+| State                  | Set of unspent outputs                           | Mapping from address to balance, nonce, code, storage |
+| Transaction            | Consumes outputs, creates new ones               | Calls an account and updates its state            |
+| Parallelism            | Natural: disjoint inputs do not conflict         | Harder: shared mutable state                      |
+| Programmability        | Limited scripts                                  | General-purpose contracts                         |
+| Replay protection      | Implicit (outputs are spent once)                | Explicit nonces and chain ids                     |
+| Privacy                | Easier to build coin-mixing styles               | Address reuse is the default                      |
+- *Nonces* order and de-duplicate an account's transactions. *Chain ids* (EIP-155) bind signatures to one network to stop cross-chain replay.
+- *State growth* is a long-term constraint: every full node must store and serve state, so protocols price storage and research ways to bound it (state expiry, stateless clients).
+
+** 3. Consensus
+Consensus lets nodes agree on the order of transactions despite faults and delays (see the Foundations distributed-systems notes for failure models, FLP, and quorums).
+- *Safety* (no two honest nodes finalize conflicting histories) and *liveness* (the chain keeps making progress) cannot both be guaranteed in all network conditions. Chains choose how to degrade.
+- *Proof of work (Nakamoto consensus)*: miners solve a hash puzzle; the valid chain with the most accumulated work wins. Finality is /probabilistic/: the chance of a reorg falls exponentially with confirmations. Security rests on honest majority of hash power and on the cost of acquiring it. Energy intensive.
+- *Proof of stake*: validators lock capital and are chosen to propose and attest. Misbehavior is punished by slashing. Ethereum's consensus layer (Gasper) combines a finality gadget (Casper FFG) with a fork-choice rule (LMD-GHOST): time is divided into 12-second slots and 32-slot epochs; a checkpoint becomes justified and then finalized by two-thirds of the stake, so finality takes on the order of two epochs (about 13 minutes). Finalized blocks cannot be reverted without destroying at least one third of the stake (the cost of an attack is measurable and burned).
+- *Classical BFT chains* (Tendermint/CometBFT-style): a known validator set votes in rounds; with at most one third Byzantine, blocks are final immediately (no reorgs), at the cost of halting if more than one third are offline or if the network partitions.
+- *Other designs*: DAG-based and parallel-leader protocols, Solana's proof-of-history clock with a BFT-style voting layer, and many variants. The questions that matter are the same: who may validate, what fraction of faults is tolerated, when is a block final, and what happens under partition.
+- *Fork choice and reorgs*: nodes may temporarily see different heads. A *reorg* replaces recent blocks with a competing branch; transactions in the dropped blocks return to the mempool or are lost. Applications must treat unfinalized state as provisional.
+- *Weak subjectivity and long-range attacks* (proof of stake): a node that has been offline for long needs a recent trusted checkpoint to avoid being fed a fabricated history.
+- *Decentralization metrics*: number of independent validators or pools, concentration (a Nakamoto coefficient: the smallest set of entities controlling enough stake to halt or censor), client diversity (a bug in a majority client can finalize an invalid chain or halt it), geographic and cloud-provider concentration, and the role of liquid-staking and restaking systems that concentrate stake.
+
+** 4. Ethereum architecture in brief
+- *Two layers*: the *execution layer* (EVM, transactions, state) and the *consensus layer* (validators, attestations, finality), connected by the Engine API. A node runs one client of each.
+- *Node types*: full nodes verify everything and keep recent state; *archive* nodes keep all historical state; *light clients* verify headers (Ethereum has sync committees for this) and rely on proofs for data. Operators care about disk, bandwidth, sync time, and client diversity.
+- *The transaction pipeline*: signed transactions propagate through a peer-to-peer *mempool* (gossip), block builders order them, a proposer includes a block, validators attest, and finality follows (see =06_transactions-and-gas.org=).
+- *Proposer-builder separation (PBS)*: today mostly through an external relay market (MEV-Boost); enshrining it in the protocol (ePBS) is part of the Glamsterdam upgrade (see =10_oracles-and-mev.org=).
+- *Fee market (EIP-1559)*: each block has a protocol-set *base fee* that rises and falls with demand and is burned, plus a *priority fee* (tip) to the proposer. This makes fees more predictable and burns part of the supply.
+- *Data availability*: since EIP-4844 (Dencun, March 2024) *blobs* give rollups cheap temporary data space, separate from execution gas. Fusaka (December 2025) introduced PeerDAS (nodes verify availability by sampling) and Blob-Parameter-Only forks to raise blob capacity without full hard forks.
+- *Upgrade cadence and recent history*: The Merge (September 2022, proof of stake), Shapella (April 2023, withdrawals), Dencun (March 2024, blobs and transient storage), Pectra (May 2025, among other changes EIP-7702 account delegation, higher validator maximum balance, higher calldata cost for data-heavy transactions, BLS12-381 precompiles), Fusaka (December 2025, PeerDAS, blob parameter forks, a per-transaction gas cap, and other changes). The next fork, Glamsterdam, targets enshrined proposer-builder separation, block-level access lists (for parallel execution), and gas repricing; its testnet activation was scheduled for October 2026. Always check the current state; this paragraph dates quickly.
+
+** 5. Other platforms in context
+| Family                         | Execution model                        | Distinguishing idea                                      | Trade-off                                        |
+|--------------------------------+----------------------------------------+----------------------------------------------------------+--------------------------------------------------|
+| Bitcoin                        | UTXO with limited script               | Simplicity, maximal conservatism, proof of work          | Limited programmability                          |
+| Ethereum and EVM chains        | Account model, EVM                     | General contracts, huge tooling and liquidity ecosystem  | Throughput constrained on L1; scales through L2s |
+| Solana                         | Accounts with explicit state access, parallel runtime | High throughput on one global state       | Hardware demands; different security and failure history |
+| Cosmos SDK / appchains         | Sovereign chains with IBC              | Each application has its own chain and validator set     | Security bootstrapped per chain                  |
+| Move-based chains              | Resource-oriented language and VM      | Asset safety by type system; parallelism                 | Smaller ecosystems                               |
+| Rollups and L2s                | Derive from an L1                      | Inherit L1 security with cheaper execution               | Sequencer, bridge, and upgrade trust (see file 11) |
+Choose by requirements (security model, liquidity and users, tooling and hiring, throughput and latency, regulatory posture, exit options), not by marketing.
+
+** 6. Security model and economics
+- *Economic security* is the cost to attack divided into: cost to acquire the resource (hash power, stake) and cost of being punished. A proof-of-stake chain with large, slashable, widely distributed stake is expensive to attack in the sense that matters for finality; a small chain is cheap.
+- *Rationality assumptions*: protocols assume some participants are honest and others rational; designs should be robust to coalitions and to profit from reordering (MEV).
+- *Censorship resistance*: a chain is censorship resistant only if inclusion cannot be blocked by a small group of builders or validators; research and protocol changes (inclusion lists) address it.
+- *Fees and incentives*: block rewards and fees fund security; fee markets allocate scarce block space.
+- *Immutability and social consensus*: code is deterministic, but chains have been forked or patched by social agreement after major incidents. Treat this as a rare, contentious backstop, not a feature to rely on.
+- *Key risks*: client bugs, consensus failures, 51 percent or one-third attacks, long reorgs, stake concentration, validator key compromise, governance capture, and dependency on infrastructure providers.
+
+** 7. Design implications for engineers
+- Treat every read as possibly stale and every write as possibly reordered or dropped; use block tags (latest, safe, finalized) deliberately.
+- Choose confirmation policies by value and risk: wait for finality for large settlements, accept fewer confirmations for low-value interactions, and show provisional states in the UI.
+- Make transactions idempotent and observable (see =06_transactions-and-gas.org=).
+- Price storage and computation as scarce resources; design data models for gas, not only for clarity.
+- Assume public visibility: nothing in state or calldata is secret.
+- Plan for chain-level incidents (halts, reorgs, congestion, client bugs) in architecture and runbooks (see =17_reliability-and-monitoring.org=).
+- Record chain-selection and trust-assumption decisions explicitly (see =18_architecture-decisions.org=).
+
+** 8. Self-check
+1. Explain the difference between a transaction being included, confirmed, and finalized on Ethereum, and what a reorg can do to each.
+2. Why does a permissionless chain need an economic mechanism (stake or work), and what does slashing add that proof of work does not have?
+3. Compare the failure behavior of a Tendermint-style chain and Nakamoto-style chain under a network partition.
+4. What does the account model make easy or hard compared with UTXO, and what does that mean for parallel execution?
+5. A product team wants "instant, irreversible payments on chain". Which questions do you ask about finality, reorgs, and value?
+6. List three trust assumptions you would document for a protocol that lives on Ethereum L1.
+
+** 9. Exercises
+- Warm-up: run or query an execution node; fetch the latest, safe, and finalized block tags and compare their heights over several minutes.
+- Core: write a small program that follows the chain head, detects a reorg by comparing parent hashes, and rolls back derived state (see =13_indexing-and-data-access.org=).
+- Core: build a toy hash-linked blockchain with proof-of-work mining and fork choice by most work; simulate two miners and a reorg.
+- Core: compute, with a simple model, the probability that a block with k confirmations is reorged when an attacker controls a fraction of hash power.
+- Stretch: implement a Merkle tree with inclusion proofs and use it for an allowlist verified on-chain (see =09_on-chain-and-off-chain.org=).
+- Stretch: read the Gasper (Casper FFG plus LMD-GHOST) design and write a one-page explanation of how finality is reached and what slashing conditions exist.
+
+** 10. Resources
+- ethereum.org developer documentation (nodes, consensus mechanisms, EVM, gas, data availability): https://ethereum.org/en/developers/docs/
+- Ethereum Improvement Proposals (EIPs and ERCs) and meta-EIPs listing each hard fork's contents, for example the Fusaka meta-EIP: https://github.com/ethereum/EIPs/blob/master/EIPS/eip-7607.md
+- Ethereum Foundation blog (upgrade announcements and protocol updates): https://blog.ethereum.org/ ; the Fusaka mainnet announcement: https://blog.ethereum.org/2025/11/06/fusaka-mainnet-announcement
+- Nakamoto, /Bitcoin: A Peer-to-Peer Electronic Cash System/ (2008); Buterin, /Ethereum white paper/ (2013); Buterin and Griffith, /Casper the Friendly Finality Gadget/ (2017); Antonopoulos, /Mastering Bitcoin/ and /Mastering Ethereum/ (Antonopoulos and Wood).
+- Foundations notes in this repository: concurrency and distributed systems (consensus, failure models), data structures (Merkle trees and tries), data representation (hashing, encodings).
+
+** What to remember
+- A blockchain trades throughput, latency, and privacy for open, adversarial, credibly neutral shared state; use it only when that trade is worth it.
+- Finality is a spectrum: inclusion, confirmation, then finality; design for provisional state.
+- Consensus mechanisms differ in who may validate, what they tolerate, and how they fail under partition.
+- Know the current protocol state (forks, blob capacity, upcoming changes) from primary sources and date your notes.
+- Write down the trust assumptions of every design.

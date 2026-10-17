@@ -1,0 +1,119 @@
+#+title: Wallets and Cryptography
+#+startup: overview
+
+* Wallets and Cryptography
+** 0. Staff-level lens
+In Web3 the private key is the account, the identity, and the vault. Most catastrophic losses are key, signing, and wallet-interaction failures rather than contract bugs. At Staff and Principal scope you are expected to:
+- understand the cryptographic primitives well enough to use them correctly and to spot misuse (signature replay, malleability, domain separation, randomness);
+- design key management for organizations and users: custody models, signing policies, recovery, and operational procedures;
+- design signing flows that users can understand (clear signing) and that resist phishing and supply-chain attacks;
+- evaluate account-abstraction and delegation designs for security and operational trade-offs.
+Companion files: =03_smart-contract-security.org=, =07_tokens-and-standards.org=, =19_technical-leadership.org= (operational security). In the Foundations notes: discrete mathematics (number theory behind public-key cryptography), data representation (hashing and encodings).
+
+** 1. Cryptographic primitives in use
+- *Hash functions*: Ethereum uses Keccak-256 (not NIST SHA3-256; the padding differs). Bitcoin uses SHA-256. Hashes give commitments, identifiers, and Merkle trees. Collision, preimage, and second-preimage resistance are the properties to rely on.
+- *Elliptic-curve signatures*: Ethereum and Bitcoin use ECDSA over secp256k1; a signature is (r, s, v) and the signer's public key can be recovered from it (the ~ecrecover~ precompile). The *address* is the last 20 bytes of Keccak-256 of the public key; EIP-55 adds a mixed-case checksum. Other ecosystems use Ed25519 (EdDSA) or P-256; Ethereum's consensus layer uses BLS signatures over BLS12-381 (aggregatable). Recent protocol work adds support for verifying P-256 signatures cheaply on-chain, which helps passkey-based accounts; check the current precompile status.
+- *Signature pitfalls*: ECDSA signatures are malleable ((r, s) and (r, n - s) both verify) unless the contract enforces the low-s rule (EIP-2 did for transactions; contracts must handle it, which OpenZeppelin's ECDSA library does); ~ecrecover~ returns the zero address for invalid input, so never treat zero as a valid signer; nonce reuse in ECDSA reveals the private key; a poor random number generator is fatal.
+- *Typed data signing*: EIP-191 (personal_sign prefix) and EIP-712 (structured data with a domain separator containing name, version, chain id, and verifying contract). Always include the chain id, the verifying contract, a nonce or unique id, and a deadline to prevent replay across chains, contracts, and time.
+- *Contract signatures*: ERC-1271 (~isValidSignature~) lets smart wallets and multisigs "sign"; ERC-6492 extends it to undeployed accounts. Code that verifies signatures should support both when contract wallets are expected.
+- *Commitments and Merkle proofs*: commit-reveal schemes; Merkle proofs for membership (allowlists, airdrops); KZG polynomial commitments for blobs (with a trusted setup ceremony).
+- *Zero-knowledge proofs*: prove a statement without revealing the witness. zk-SNARKs (small proofs, often a trusted setup, for example Groth16 per circuit or universal setups like PLONK) and zk-STARKs (transparent, hash-based, larger proofs). On Ethereum, verification of BN254-based proofs uses precompiles and costs on the order of a few hundred thousand gas. Uses: rollup validity proofs, privacy, identity attestations, light-client proofs. Circuits are code: under-constrained circuits are a major bug class; audit them like contracts.
+- *Threshold and multiparty computation*: split a key into shares so that no single party holds it; sign with t of n shares; used by custodians and wallet providers.
+- *Randomness*: block-derived values and the beacon chain's RANDAO are biasable to some extent; use verifiable random functions (VRFs) or commit-reveal designs for value-bearing randomness (see =03_smart-contract-security.org=).
+
+#+begin_src solidity
+// EIP-712 signature verification with nonces and deadlines (OpenZeppelin v5 style).
+import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+
+contract Exchange is EIP712 {
+    struct Order { address maker; uint256 amount; uint256 nonce; uint256 deadline; }
+    bytes32 private constant ORDER_TYPEHASH =
+        keccak256("Order(address maker,uint256 amount,uint256 nonce,uint256 deadline)");
+    mapping(address => mapping(uint256 => bool)) public used;
+
+    error Expired();
+    error BadSignature();
+    error NonceUsed();
+
+    constructor() EIP712("Exchange", "1") {}
+
+    function _verify(Order calldata o, bytes calldata sig) internal {
+        if (block.timestamp > o.deadline) revert Expired();
+        if (used[o.maker][o.nonce]) revert NonceUsed();
+        bytes32 digest = _hashTypedDataV4(
+            keccak256(abi.encode(ORDER_TYPEHASH, o.maker, o.amount, o.nonce, o.deadline))
+        );
+        if (ECDSA.recover(digest, sig) != o.maker) revert BadSignature();
+        used[o.maker][o.nonce] = true;
+    }
+}
+#+end_src
+(Illustrative; for contract signers use ERC-1271 through OpenZeppelin's SignatureChecker. Not compiled here.)
+
+** 2. Keys, mnemonics, and wallets
+- *Key generation and storage*: a private key is a 256-bit secret; security depends on entropy and storage. Use audited libraries and hardware; never generate keys with a weak RNG or paste them into websites.
+- *Hierarchical deterministic wallets*: BIP-39 turns 128 to 256 bits of entropy into a 12 to 24-word mnemonic (with an optional passphrase) and a seed through PBKDF2; BIP-32 derives a tree of keys; BIP-44 defines derivation paths (Ethereum accounts typically at ~m/44'/60'/0'/0/n~). The mnemonic is the master secret: anyone with it controls every derived account.
+- *Wallet types*:
+| Type                          | Key location                         | Strengths                                  | Weaknesses                                      |
+|-------------------------------+--------------------------------------+--------------------------------------------+-------------------------------------------------|
+| Software (browser, mobile)    | Device storage                       | Convenient                                 | Malware, phishing, device compromise            |
+| Hardware wallet               | Secure element, signing on device    | Strong key isolation                       | Display limits (blind signing), supply chain, loss |
+| Multisig (for example Safe)   | Several keys; threshold approval     | No single key can move funds; policies     | Operational complexity, signer compromise, UI risks |
+| Smart-contract account (ERC-4337) | Contract with flexible validation | Recovery, limits, session keys, batching   | Contract risk, bundler and paymaster dependency |
+| MPC wallet                    | Key shares with a provider           | No full key anywhere; policy engines       | Vendor trust and availability                   |
+| Custodial                     | Held by a provider                   | Familiar UX; recovery                      | Counterparty risk, regulation                   |
+- *Wallet interfaces*: the EIP-1193 provider (~request({method, params})~) is the injected browser API; EIP-6963 standardizes discovery of multiple wallets; WalletConnect (now under the Reown brand) connects mobile wallets to web apps; Sign-In with Ethereum (EIP-4361) standardizes authentication by signing a message; chain-switching and chain-adding requests have their own phishing and misconfiguration issues.
+- *Account delegation (EIP-7702)*: an EOA can sign an authorization that sets its code to a delegation pointing to a contract, allowing batching, sponsored fees, and other smart-account features for existing addresses. Security considerations: authorizations that are valid on all chains are dangerous if the delegate is unsafe; a malicious delegate can drain the account, so wallets must warn clearly; the account's storage context and the private key still control the account (the key can always replace the delegation); contracts that assume ~msg.sender == tx.origin means an EOA without code must be reviewed.
+
+** 3. Key management for organizations
+- *Principles*: no single person or device can move significant funds; separate hot (small balances, automated) from warm and cold (treasury) keys; every key has an owner, a purpose, and a rotation and recovery plan; signing is policy-driven.
+- *Options*: multisig with signers on hardware wallets and an m-of-n policy; MPC or threshold custody; cloud KMS or HSM-backed keys (for example key management services that support secp256k1 signing) for service accounts; smart accounts with spending limits and allowlists; hybrid designs with timelocks (delay on dangerous actions so that monitoring can intervene).
+- *Signing policies*: allowlisted destinations and contracts, per-transaction and per-day limits, mandatory simulation, multiple approvers for large amounts, role separation between initiator, reviewer, and signer, and emergency procedures.
+- *Transaction verification*: simulate and decode every transaction before signing; verify calldata independently, not only through the interface that created it; use independent verification tools for multisig transactions. The 2025 Bybit incident showed that signers can approve a malicious transaction when the signing interface is compromised and displays benign data; hardware wallets that cannot decode the data ("blind signing") leave no defense.
+- *Supply chain*: pin and verify dependencies; restrict who can change frontends and wallet-related infrastructure; monitor for unexpected changes to hosted scripts; use subresource integrity and reproducible builds; segment devices used for signing.
+- *Ceremonies and procedures*: documented key generation (with witnesses and verified hardware), backup and recovery tests, access reviews, offboarding procedures, and tabletop exercises for compromise scenarios.
+- *Operational security of people*: phishing-resistant authentication (hardware security keys), dedicated signing devices, careful handling of unsolicited code (state-sponsored actors have targeted crypto engineers with fake recruiters and trojaned coding tests), least privilege on repositories and cloud accounts.
+- *Recovery*: social recovery with guardians (smart accounts), multisig signer replacement, backup shares in separated locations with tested restoration, and clear legal documents for organizational custody.
+
+** 4. User-facing wallet UX and phishing resistance
+- *Clear signing*: show what a transaction or message does in human terms (assets, recipients, spenders, allowance amounts), not raw hex; decode typed data fully; warn on unlimited approvals, setApprovalForAll, permit signatures, and delegation authorizations.
+- *Phishing vectors*: fake sites and extensions, malicious approvals and permit signatures, address poisoning (lookalike addresses in history), fake support and airdrops, drainer kits, compromised social accounts, and malicious RPC or chain suggestions.
+- *Defenses in products*: transaction simulation with asset-change previews, allowlists and risk scoring, revoke-approval tools, domain binding for signatures (EIP-712 domain), and education at the moment of risk.
+- *Sessions and permissions*: session keys and scoped permissions (spending caps, time limits, allowed contracts) reduce the need for repeated signing without granting full control; implement them in smart accounts with careful review.
+- *Passkeys and device security*: WebAuthn/passkeys with P-256 signatures (verified by smart accounts) offer familiar UX and hardware-backed keys; recovery and multi-device flows are the hard part.
+
+** 5. Privacy
+- *Pseudonymity, not anonymity*: addresses are public and linkable by analysis; patterns, timing, exchanges, and ENS names deanonymize users. Privacy-sensitive designs require explicit privacy tools.
+- *Techniques*: stealth addresses (for example ERC-5564), zero-knowledge shielded pools, mixers (with regulatory and sanctions consequences), private mempools, selective disclosure with zero-knowledge credentials, and viewing keys for compliance.
+- *Product and legal implications*: balance user privacy with compliance requirements (sanctions screening, travel-rule obligations where applicable); take advice from counsel.
+
+** 6. Self-check
+1. Why can a naive signature-verification contract be replayed on another chain, and what changes fix it?
+2. What are signature malleability and the zero-address trap with ecrecover, and how do libraries address them?
+3. Compare a 3-of-5 multisig on hardware wallets with an MPC custody solution: failure modes and operational burdens.
+4. Describe the Bybit-style attack on signers and four controls that reduce its risk.
+5. What new risks does EIP-7702 delegation create for users and for contracts that assume an address is an EOA?
+6. A treasury needs to pay vendors weekly. Design the key and policy architecture.
+
+** 7. Exercises
+- Warm-up: derive an Ethereum address from a private key by hand (with a library) and verify the checksum encoding; recover the signer from a signature with ecrecover logic.
+- Core: implement EIP-712 order signing in TypeScript and verification in Solidity; test replay (wrong chain, wrong contract, reused nonce, expired deadline) and ERC-1271 contract signers.
+- Core: set up a test multisig and practice the full flow: propose, simulate, independently verify calldata, sign on different devices, and execute.
+- Core: write a signing policy for an organization (roles, limits, simulation, emergency procedures) and test it in a tabletop exercise.
+- Stretch: implement a minimal ERC-4337 smart account with passkey (P-256) validation using a verifier contract; document the recovery model.
+- Stretch: write a threat model for a wallet's connection flow (provider injection, WalletConnect, chain switching) and list mitigations.
+
+** 8. Resources
+- BIP-32, BIP-39, BIP-44 (HD wallets and mnemonics); EIP-55, EIP-191, EIP-712, EIP-1193, EIP-6963, EIP-4361, ERC-1271, ERC-6492, ERC-4337, EIP-7702: https://eips.ethereum.org
+- OpenZeppelin Contracts, cryptography utilities (ECDSA, EIP712, SignatureChecker): https://docs.openzeppelin.com/contracts
+- Boneh and Shoup, /A Graduate Course in Applied Cryptography/ (free); Katz and Lindell, /Introduction to Modern Cryptography/; the ZK learning resources of the proof systems you use.
+- Safe documentation on multisig security and transaction verification; hardware wallet vendors' guidance on clear signing.
+- Foundations notes in this repository: discrete mathematics (modular arithmetic, number theory), data representation (hashes, encodings).
+
+** What to remember
+- The key is the account; most large losses are key, signing, and wallet-interaction failures.
+- Use typed-data signatures with domain separation, nonces, and deadlines; handle malleability and contract signers.
+- Organizations need role-separated, policy-driven signing with independent verification and tested recovery.
+- Clear signing and simulation are the user's main defense against phishing and compromised interfaces.
+- Smart accounts and delegation add power and new failure modes; review them like contracts.

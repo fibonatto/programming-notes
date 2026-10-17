@@ -1,0 +1,116 @@
+#+title: Layer 2 and Cross-Chain
+#+startup: overview
+
+* Layer 2 and Cross-Chain
+** 0. Staff-level lens
+Most users and much liquidity now live on rollups and other chains, and most architectures span several. Scaling and interoperability introduce new trust assumptions (sequencers, provers, bridges, upgrade keys) that are easy to misjudge, and bridges have historically been the largest source of losses. At Staff and Principal scope you are expected to:
+- evaluate L2s and bridges from their actual security properties (proof system, data availability, upgrade control, exit mechanisms), not from marketing;
+- choose where to deploy and how to connect chains, with a clear risk and cost rationale;
+- design multi-chain applications that tolerate delays, reorderings, and failures of cross-chain messages;
+- keep up with a fast-moving landscape using primary sources.
+Companion files: =01_blockchain-fundamentals.org=, =06_transactions-and-gas.org=, =09_on-chain-and-off-chain.org=, =10_oracles-and-mev.org=, =12_distributed-systems.org=, =15_deployment-and-upgrades.org=.
+
+** 1. Scaling approaches
+- *Why*: L1 capacity is limited by what every node must verify; scaling moves execution elsewhere while inheriting L1 security as far as possible.
+- *Rollups* execute transactions off L1, post transaction data to L1 (calldata or blobs), and rely on L1 to settle. Two verification models:
+  - *Optimistic rollups* assume state updates are valid and allow a challenge period in which anyone can submit a *fraud proof*. Withdrawals to L1 take at least the challenge window (commonly about a week) unless fast bridges front liquidity. Security requires a working and permissionless dispute system and at least one honest watcher.
+  - *Validity (ZK) rollups* post a cryptographic proof that the state transition is correct; L1 verifies it. Withdrawals can finalize as soon as the proof is verified. Security depends on the soundness of the proof system, circuits, and prover, and on the upgrade controls around them.
+- *Validiums and optimistic validiums* keep data off Ethereum (a data availability committee or external DA layer) for lower cost and weaker guarantees: if data is withheld, users may be unable to exit.
+- *Sidechains* (own consensus) and *appchains* have their own validator sets and security; bridging inherits that security, not Ethereum's.
+- *State channels and plasma* are older designs with narrower use cases.
+- *L3 and application-specific rollups* build on L2s for customization.
+- *EVM equivalence versus compatibility*: zkEVMs span a spectrum from byte-for-byte equivalence to compatibility at the source level; differences affect opcodes, precompiles, gas costs, tooling, and proof costs.
+- *Data availability and blobs*: since EIP-4844, rollups post data to blobs, which are separately priced and temporary; Fusaka's PeerDAS and the blob-parameter-only forks increase blob capacity over time, which has pushed L2 data costs down. When blob capacity is not saturated, fees are dominated by L2 execution and operator margins.
+
+** 2. The security properties that matter
+For any L2, find and record the answers to these:
+- *Who can censor or reorder?* A single sequencer can delay or censor transactions; look for *forced inclusion* via L1 and the delay involved.
+- *Who can upgrade the system and how fast?* Upgrade keys (multisigs or a "security council") can often change contracts instantly. A long enough *exit window* before upgrades take effect lets users leave. This is the single most important question for many risk assessments.
+- *What proof system secures state?* Is it live, permissionless, audited, and tested in production? Do external parties actually run provers or challengers?
+- *Is data available?* On L1 (strongest), with a DA layer, or with a committee.
+- *Can users always exit?* Is there an escape hatch independent of the sequencer and operators? How long does it take and what does it cost?
+- *Bridge and messaging contracts*: how are deposits and withdrawals verified? What assets are canonical?
+- *Operational maturity*: incident history, monitoring, sequencer decentralization plans, client diversity.
+*Maturity frameworks*: L2BEAT's stages framework classifies rollups by decentralization of their security mechanisms: Stage 0 (training wheels fully on: the operator can override the proof system), Stage 1 (a functioning proof system with a constrained security council and exit windows for unwanted upgrades), and Stage 2 (permissionless proofs and a council limited to resolving provably on-chain-detectable bugs, with long exit windows). The framework measures decentralization rather than security as a whole. At the time of writing most rollups sat at Stage 0 or Stage 1 and few had reached Stage 2; the criteria and classifications change, so read the current framework and each project's risk summary on L2BEAT before choosing.
+
+** 3. Choosing where to deploy
+- *Criteria*: security stage and trust assumptions; liquidity and users; ecosystem, wallets, and infrastructure (indexers, oracles, bridges, explorers); fees and predictability; finality and withdrawal times; EVM compatibility and opcode differences; sequencer behavior and MEV policy; regulatory posture; vendor and team risk; interoperability with other chains; roadmap and governance; and exit options.
+- *Options*: deploy on L1 for the highest security and composability (and highest cost); on a major rollup for users and fees; on an appchain or your own rollup for customization and sovereignty (and the burden of operating security, sequencer, bridge, and community).
+- *Deploying multi-chain*: each chain is a separate deployment and risk domain; prefer a core on the chain with the strongest guarantees and thin deployments elsewhere; use deterministic deployment (CREATE2 or CREATE3 factories) to obtain the same addresses; keep per-chain configuration (oracle feeds, token addresses, fee parameters) explicit and tested.
+- *Decision records*: write an ADR comparing options, listing trust assumptions and review triggers such as a change in the chain's stage or an upgrade-council incident (see =18_architecture-decisions.org=).
+
+** 4. Building on L2s: practical differences
+- *Gas and fees*: two components (L2 execution and L1 data); estimate both; fee APIs and precompiles for L1 fee queries are chain-specific.
+- *Block and time semantics*: block numbers and timestamps may advance differently from L1; some L2s expose L1 block data through special contracts; do not assume 12-second blocks or L1 finality.
+- *Finality levels*: unsafe (sequencer-promised), safe (posted to L1), finalized (L1 finalized or proof verified). Choose confirmation policy accordingly (see =06_transactions-and-gas.org=).
+- *Opcode and precompile differences*: unsupported or different opcodes, gas costs for calldata and storage, and contract size limits; test on the target chain with the correct EVM version.
+- *Sequencer downtime*: transactions may stall; oracle feeds may be stale; protocols should check sequencer status and use grace periods (see =10_oracles-and-mev.org=).
+- *L1 to L2 and L2 to L1 messaging*: address aliasing for contracts calling across layers on some stacks, retry and replay semantics, and delays; handle failed messages explicitly.
+- *Account types and gas payment*: some L2s have native account abstraction or paymasters.
+- *Infrastructure*: RPC providers, indexers, explorers, and monitoring must support each chain; budget for operating more endpoints.
+
+** 5. Bridges and cross-chain messaging
+- *Asset bridges* by design:
+| Design                        | Mechanism                                                          | Trust assumption                                       |
+|-------------------------------+--------------------------------------------------------------------+--------------------------------------------------------|
+| Native (canonical) rollup bridge | Contracts on L1 and L2 verified by the rollup's proof system    | The rollup's security and upgrade controls             |
+| Lock-and-mint                 | Lock on source, mint a wrapped asset on destination                | The verification of the lock event; the minter's integrity |
+| Burn-and-mint                 | Burn on source, mint on destination (native multi-chain tokens)    | The messaging layer and token's issuer                 |
+| Liquidity-pool bridges        | Liquidity on both sides; relayers or LPs front funds               | Pool solvency; message verification; fast-path risk    |
+| Light-client bridges          | Destination verifies source consensus via an on-chain light client (for example IBC) | Light client correctness; finality assumptions |
+| Validator or multisig bridges | A committee attests to events                                      | The committee's honesty and key security               |
+| Optimistic bridges            | Claims valid unless challenged                                     | At least one honest watcher; delay                     |
+| ZK light-client bridges       | Proofs of source-chain consensus verified on destination           | Soundness and maturity of proofs                       |
+| Intent-based bridging         | Solvers deliver funds; are repaid after verification               | Solver competition; settlement verification            |
+- *General messaging protocols* (for example LayerZero, Wormhole, Chainlink CCIP, Hyperlane, Axelar) carry arbitrary messages. Their security differs: some rely on an oracle plus relayer pair, some on a guardian set, some on a decentralized oracle network, some on configurable security modules chosen per application. The application is responsible for choosing and monitoring the security configuration.
+- *Why bridges fail*: they hold concentrated value and rely on weak assumptions: compromised validator keys, flawed signature or proof verification, wrong initialization (a trusted root set to a default value), replayed or forged messages, upgrade key compromise, and bugs in the application contracts that handle messages. Many of the largest historical hacks were bridges (see =03_smart-contract-security.org=).
+- *Design principles for cross-chain applications*:
+  - minimize the value and trust placed on a bridge; cap flows with rate limits and per-message limits;
+  - verify the message origin (chain id, sender contract) and add domain separation; ignore unknown senders;
+  - handle replay, reordering, delay, and failure of messages (idempotent handlers, nonces, expiry);
+  - account for different finality on source and destination (wait for finality before acting on irreversible destination effects);
+  - use circuit breakers and pausing for the messaging path, governed by multiple parties;
+  - avoid dependence on a single messaging provider for critical functions, or design the application to tolerate provider failure and migration;
+  - monitor message latency, backlog, and invariant checks (supply across chains equals total supply);
+  - treat upgrades of messaging configuration as high-risk privileged actions.
+- *Wrapped and bridged assets*: a bridged version of a token is a different asset with the bridge's risk; list which versions you accept and prefer canonical or issuer-native variants (for example native stablecoin issuance with burn-and-mint across chains).
+- *Chain abstraction and unified liquidity*: wallets and solvers hide chain choice from users; this shifts complexity and trust to intent protocols and relayers.
+
+** 6. Multi-chain engineering concerns
+- *Consistent configuration*: contract addresses, chain ids, token lists, oracle feeds, and parameters per chain; a registry and a deployment manifest checked in CI.
+- *Deterministic addresses*: CREATE2 with a standard factory, or CREATE3 for addresses independent of init code; careful with chains where the factory is not deployed at the same address.
+- *Testing across chains*: fork tests per chain, message simulation, differential tests of per-chain behavior (see =04_smart-contract-testing.org=).
+- *Governance across chains*: how do parameters and upgrades propagate? Messaging-based governance executors on each chain widen the attack surface; use timelocks per chain and verify the origin.
+- *Monitoring*: per-chain health, finality, sequencer status, bridge flows, and cross-chain invariants (see =17_reliability-and-monitoring.org=).
+- *Incident response*: the ability to pause on each chain, revoke bridge permissions, and communicate; practice cross-chain incident drills.
+- *Liquidity and users*: fragmentation across chains harms depth and complicates risk; limit the number of chains to those you can monitor and secure.
+
+** 7. Self-check
+1. Compare the withdrawal path and security assumptions of an optimistic rollup and a ZK rollup; which questions do you ask about each before deploying?
+2. What does a rollup's "exit window" protect against, and why does the upgrade key matter more than the proof system for many risk assessments?
+3. A protocol needs to move tokens between L1 and three L2s. Compare using canonical bridges, a messaging protocol with burn-and-mint, and a liquidity bridge.
+4. List the checks a destination-chain contract should perform on an incoming cross-chain message.
+5. What breaks if an application assumes L1 block time and finality on an L2?
+6. Design the monitoring for a multi-chain token whose total supply must equal the sum across chains.
+
+** 8. Exercises
+- Warm-up: read the L2BEAT risk summary for two rollups and write a one-page comparison of their trust assumptions and exit mechanisms.
+- Core: deploy a contract on a local node and on a rollup testnet; compare gas, block semantics, and opcode behavior; note differences that would affect your code.
+- Core: implement a toy cross-chain messenger between two local chains with nonces, domain separation, rate limits, and a pause; fuzz message handling for replays and reordering.
+- Core: write a deployment manifest and CI check that verifies addresses, constructor arguments, and role setup across three chains.
+- Stretch: build an invariant monitor that compares total supply across chains and alerts on mismatch or message backlog.
+- Stretch: write an ADR choosing a chain for a new protocol, with weighted criteria, trust assumptions, and review triggers.
+
+** 9. Resources
+- L2BEAT (risk analysis, stages framework, bridge risks): https://l2beat.com ; the stages framework: https://l2beat.com/stages and its discussion: https://forum.l2beat.com/t/the-stages-framework/291
+- Ethereum Foundation posts on blob scaling and Fusaka: https://blog.ethereum.org/2025/08/22/protocol-update-002 and https://blog.ethereum.org/2025/11/06/fusaka-mainnet-announcement
+- Documentation of the rollup stacks and messaging protocols you use (OP Stack, Arbitrum, zk rollup SDKs, CCIP, LayerZero, Wormhole, Hyperlane, IBC).
+- Buterin, /Different types of layer 2s/ and posts on EVM-equivalence types for zkEVMs; Bridges and security reviews published by auditors.
+- ethereum.org scaling documentation: https://ethereum.org/en/developers/docs/scaling/
+
+** What to remember
+- Rollups inherit L1 security only to the extent that proofs, data availability, upgrade control, and exits are sound; read the upgrade and exit details.
+- Bridges concentrate value and trust; minimize, rate-limit, and verify messages; design for delay and failure.
+- Each chain is a separate risk and operations domain; fewer chains well run beat many chains.
+- L2 differences (fees, time, opcodes, finality) break L1 assumptions; test on the target chain.
+- Re-check maturity classifications and chain facts from primary sources regularly.

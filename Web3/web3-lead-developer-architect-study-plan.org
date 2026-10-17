@@ -1,0 +1,292 @@
+#+title: Web3 Lead Developer / Architect Interview Preparation
+#+subtitle: Study plan for the GoFasti role 1140
+#+startup: overview
+#+options: toc:2
+
+* Objective
+Prepare to discuss Web3 architecture, smart-contract engineering, security, production operations, technical leadership, and engineering decisions in fluent English.
+
+The recruiter message does not include the full job description. Treat this as a role-oriented baseline, then reprioritize after receiving the job description and confirmed tech stack.
+
+* 0. Clarify the Role
+** Request from the recruiter
+- [ ] Full job description and success criteria.
+- [ ] Required blockchain ecosystem and target networks.
+- [ ] Smart-contract languages and frameworks in use.
+- [ ] Whether the role is primarily protocol engineering, dApp development, infrastructure, or technical leadership.
+- [ ] Team structure, reporting line, and expected hands-on coding.
+- [ ] Interview stages and topics.
+- [ ] Whether production ownership, audits, or incident response are part of the role.
+
+** Establish the scope
+- [ ] Separate confirmed requirements from assumptions.
+- [ ] Prioritize the actual stack and responsibilities once confirmed.
+- [ ] Do not spend time learning unrelated tools merely because they are common in Web3.
+
+* 1. Smart Contracts and EVM
+** Transaction and execution model
+- [ ] Transaction lifecycle, receipts, logs, revert behavior, and transaction fees.
+- [ ] EVM execution model, opcodes at a conceptual level, and call stack.
+- [ ] Account model: externally owned accounts and contract accounts.
+- [ ] Gas accounting, out-of-gas behavior, and denial-of-service implications.
+- [ ] Block timestamps, block numbers, transaction ordering, and their limitations.
+- [ ] Events and logs: what they can and cannot be used for.
+
+** Solidity semantics
+- [ ] =storage=, =memory=, and =calldata=.
+- [ ] Value types, reference types, data locations, and copying behavior.
+- [ ] Storage layout, slot calculation, packing, and upgrade compatibility.
+- [ ] Visibility, mutability, inheritance, interfaces, and abstract contracts.
+- [ ] Custom errors, revert data, and error propagation.
+- [ ] Low-level calls and return-value handling.
+- [ ] =call=, =delegatecall=, and =staticcall=, including trust boundaries.
+- [ ] Fallback and receive functions.
+- [ ] External calls, callbacks, and control-flow risks.
+- [ ] Integer arithmetic, precision, rounding, and fixed-point representations.
+
+** Standards and common patterns
+- [ ] ERC-20, ERC-721, and ERC-165 at the level relevant to the role.
+- [ ] Permit-style approvals and EIP-712 typed-data signatures.
+- [ ] Checks-Effects-Interactions and pull-payment patterns.
+- [ ] Access-control patterns, roles, ownership, and least privilege.
+- [ ] Pausing, emergency controls, and recovery procedures.
+- [ ] Proxy patterns and upgradeability, if relevant to the target system.
+- [ ] Initializers, implementation locking, storage collisions, and upgrade authority.
+- [ ] Timelocks, multisigs, and governance assumptions.
+
+* 2. Smart-Contract Security
+** Threat modeling
+- [ ] Identify assets, actors, privileges, trust boundaries, and external dependencies.
+- [ ] Define invariants and security properties before reviewing implementation.
+- [ ] Distinguish threats prevented by code from risks delegated to operators or governance.
+- [ ] Consider compromised keys, malicious tokens, malicious integrations, and unavailable dependencies.
+
+** Common vulnerabilities
+- [ ] Reentrancy, including cross-function and cross-contract reentrancy.
+- [ ] Broken access control and privilege escalation.
+- [ ] Replay attacks, nonce management, and domain separation.
+- [ ] Signature validation errors and incorrect EIP-712 domain construction.
+- [ ] Front-running, transaction ordering, sandwich attacks, and MEV.
+- [ ] Oracle manipulation and stale or invalid price data.
+- [ ] Flash-loan-assisted attacks.
+- [ ] Precision loss, rounding errors, and accounting inconsistencies.
+- [ ] Denial of service, gas griefing, and unbounded loops.
+- [ ] Unsafe assumptions about external contract behavior.
+- [ ] Proxy initialization bugs and storage-layout incompatibility.
+- [ ] Bridge and cross-chain message verification failures, if applicable.
+
+** Testing and verification
+- [ ] Unit tests for expected behavior and failure paths.
+- [ ] Integration tests across contract boundaries.
+- [ ] Property-based testing and fuzzing.
+- [ ] Invariant testing for accounting and authorization properties.
+- [ ] Fork testing against realistic chain state, where appropriate.
+- [ ] Static analysis and its limitations.
+- [ ] Understand the role and limits of formal verification.
+- [ ] Build a regression test from a hypothetical or historical exploit.
+- [ ] Explain what a test suite does not prove.
+
+** Audit and incident readiness
+- [ ] Review threat models, privileged functions, and upgrade paths.
+- [ ] Understand audit scope, findings, severity, remediation, and retesting.
+- [ ] Prepare an incident response sequence: contain, assess, communicate, recover, learn.
+- [ ] Understand the trade-offs and limits of pause mechanisms.
+- [ ] Distinguish an audited codebase from a system that is guaranteed secure.
+
+* 3. Web3 System Architecture
+** On-chain and off-chain boundaries
+- [ ] Decide which invariants must be enforced on-chain.
+- [ ] Identify responsibilities suitable for off-chain services.
+- [ ] Define trust assumptions for relayers, indexers, oracles, and administrators.
+- [ ] Understand the cost, latency, privacy, and availability trade-offs of on-chain execution.
+- [ ] Design interfaces and failure behavior between contracts and services.
+
+** Nodes and RPC
+- [ ] Nodes, clients, JSON-RPC, and provider dependencies.
+- [ ] Reads versus writes, signing, transaction submission, and receipt polling.
+- [ ] Rate limits, retries, timeouts, and provider failover.
+- [ ] Nonce management for transaction-sending services.
+- [ ] Confirmation policies and chain-specific finality assumptions.
+- [ ] Handling dropped, replaced, reverted, or delayed transactions.
+
+** Events and indexing
+- [ ] Event-driven indexing and database projections.
+- [ ] Idempotent event processing and duplicate delivery.
+- [ ] Reorganizations, removed logs, and rollback/reconciliation.
+- [ ] Backfills, checkpoints, replay, and recovery from indexer outages.
+- [ ] Distinguish chain state from an eventually consistent index.
+- [ ] Design consistency expectations for APIs and user interfaces.
+
+** Wallets and signatures
+- [ ] EOA versus contract accounts and smart-account concepts.
+- [ ] Transaction signing versus message signing.
+- [ ] Nonces, chain IDs, domain separation, and replay protection.
+- [ ] Key custody, rotation, recovery, and operational controls.
+- [ ] Wallet connection and transaction-confirmation UX, where relevant.
+
+** Scaling and cross-chain systems
+- [ ] L1 versus L2 trade-offs.
+- [ ] Optimistic and zero-knowledge rollups at a conceptual level.
+- [ ] Sequencers, data availability, withdrawal/finality assumptions.
+- [ ] Cross-chain messaging and bridge trust models.
+- [ ] Replay protection and message authentication across chains.
+- [ ] Understand why cross-chain systems add significant security assumptions.
+
+* 4. Distributed Systems
+** Failure models
+- [ ] Partial failure, process crashes, network partitions, and unavailable dependencies.
+- [ ] Timeouts do not prove that an operation failed.
+- [ ] At-most-once, at-least-once, and effectively-once processing.
+- [ ] Idempotency keys, deduplication, and safe retries.
+- [ ] Ordering guarantees and their costs.
+- [ ] Backpressure, queues, and overload behavior.
+
+** Consistency and coordination
+- [ ] Strong consistency versus eventual consistency.
+- [ ] Replication lag and stale reads.
+- [ ] Database transactions and concurrent updates.
+- [ ] Distributed locks, leases, and fencing tokens when relevant.
+- [ ] Sagas, compensating actions, and transactional outbox patterns.
+- [ ] Reconciliation when on-chain and off-chain state diverge.
+
+** Resilience patterns
+- [ ] Deadlines, exponential backoff, jitter, and retry budgets.
+- [ ] Circuit breakers and bulkheads.
+- [ ] Rate limiting and load shedding.
+- [ ] Graceful degradation and recovery procedures.
+- [ ] Avoid retry storms and duplicate side effects.
+
+* 5. Architecture and Design Decisions
+** Architecture fundamentals
+- [ ] Modularity, cohesion, coupling, and dependency direction.
+- [ ] Component boundaries and stable interfaces.
+- [ ] Monolith, modular monolith, and microservices trade-offs.
+- [ ] Architectural styles and patterns relevant to the actual system.
+- [ ] Quality attributes: security, reliability, latency, throughput, cost, maintainability.
+- [ ] Data ownership and boundaries between services.
+- [ ] Avoid abstraction without a clear purpose.
+
+** Design process
+- [ ] Convert requirements into explicit constraints and quality attributes.
+- [ ] Identify alternatives and compare their costs and risks.
+- [ ] Document assumptions, non-goals, failure modes, and migration strategy.
+- [ ] Write Architecture Decision Records (ADRs).
+- [ ] Plan backward-compatible changes and incremental migrations.
+- [ ] Evaluate technical debt by risk, cost, and future constraints.
+- [ ] Review designs for operability, observability, security, and recoverability.
+
+** System-design practice
+- [ ] Design a transaction-submission service.
+- [ ] Design a blockchain event indexer that handles reorganizations.
+- [ ] Design an API that reads contract state through an indexer and RPC fallback.
+- [ ] Design a secure upgrade process for a protocol, if upgradeability is in scope.
+- [ ] Design a resilient service that reconciles on-chain and off-chain state.
+- [ ] For each design, state requirements, interfaces, data flow, failure modes, security boundaries, observability, and trade-offs.
+
+* 6. Reliability and Production Operations
+- [ ] Define SLIs and SLOs for relevant APIs and background workers.
+- [ ] Understand error budgets and how they affect release decisions.
+- [ ] Monitor transaction submission, confirmation latency, revert rates, RPC errors, and indexing lag.
+- [ ] Track service latency distributions, throughput, saturation, and queue depth.
+- [ ] Alert on user-visible symptoms and actionable failure conditions.
+- [ ] Design runbooks and safe operational procedures.
+- [ ] Plan capacity, rate limits, provider failover, and degraded modes.
+- [ ] Conduct incident reviews focused on causes and corrective actions.
+- [ ] Understand release safety, rollback limits, and contract deployment constraints.
+
+* 7. Technical Leadership
+- [ ] Explain how to lead an architecture review.
+- [ ] Explain how to evaluate and resolve technical disagreements.
+- [ ] Give examples of mentoring and raising engineering quality.
+- [ ] Explain how to prioritize reliability, security, features, and technical debt.
+- [ ] Show how to align technical decisions with product and business constraints.
+- [ ] Describe how to split work while maintaining architectural coherence.
+- [ ] Explain how to communicate risks and uncertainty to non-specialists.
+- [ ] Distinguish a decision that needs consensus from one that needs a clear owner.
+- [ ] Prepare examples of a decision you changed after receiving evidence.
+- [ ] Prepare examples of a failure, what you learned, and what changed afterward.
+
+* 8. English Interview Preparation
+** Technical explanations
+- [ ] Explain a system architecture without relying on diagrams alone.
+- [ ] Explain a security threat, exploit path, and mitigation.
+- [ ] Explain a difficult trade-off and why the chosen option was appropriate.
+- [ ] Explain a production failure and the recovery process.
+- [ ] Ask clarifying questions before designing a system.
+- [ ] State assumptions explicitly and identify unknown requirements.
+- [ ] Discuss disagreement respectfully and defend a technical position with evidence.
+
+** Practice questions
+- [ ] How would you design a secure and upgradeable smart-contract protocol?
+- [ ] How do you prevent replay attacks and reentrancy?
+- [ ] What happens when an RPC provider returns stale data or becomes unavailable?
+- [ ] How would you make a blockchain indexer resilient to chain reorganizations?
+- [ ] How do you ensure retries do not create duplicate side effects?
+- [ ] How do you choose between on-chain and off-chain execution?
+- [ ] How would you assess whether a system is ready for production?
+- [ ] Tell me about an architectural decision with significant trade-offs.
+- [ ] Tell me about a security issue or failure you investigated.
+- [ ] How do you improve the work of a team without becoming a bottleneck?
+
+* 9. Project Deep Dive
+Choose one project that best demonstrates relevant experience. Use only claims you can substantiate.
+
+** Prepare the narrative
+- [ ] Problem, users, and constraints.
+- [ ] Your actual responsibilities and contributions.
+- [ ] Architecture and important interfaces.
+- [ ] Alternatives considered and why they were rejected.
+- [ ] Security model, trust assumptions, and threat mitigations.
+- [ ] Tests performed and what they established.
+- [ ] Deployment and production status, stated accurately.
+- [ ] Hardest technical decision and its trade-offs.
+- [ ] Known limitations and what you would change next.
+- [ ] A concise two-minute explanation in English.
+- [ ] A deeper ten-minute explanation with technical details.
+
+** Keep evidence precise
+- [ ] Distinguish implemented, tested, audited, deployed, and production-validated.
+- [ ] Do not imply that tests or an audit guarantee security.
+- [ ] Do not claim production impact, scale, or outcomes without evidence.
+- [ ] Be ready to explain the code and reasoning behind every claim.
+
+* 10. Suggested Study Order
+** First pass: highest expected value
+- [ ] Obtain the full job description and confirm the stack.
+- [ ] Prepare the project deep dive.
+- [ ] Review smart-contract security and threat modeling.
+- [ ] Review EVM execution, Solidity semantics, and upgradeability if relevant.
+- [ ] Review on-chain/off-chain architecture, events, indexing, and reorg handling.
+- [ ] Practice system-design questions aloud in English.
+- [ ] Prepare leadership examples based on real experience.
+
+** Second pass: based on the role
+- [ ] Deepen distributed-systems concepts used by the target architecture.
+- [ ] Review the required framework, tooling, and testing stack.
+- [ ] Review L2, cross-chain, DeFi, wallets, or other domain-specific topics only if relevant.
+- [ ] Review production operations and reliability expectations.
+- [ ] Run a mock interview covering architecture, security, and leadership.
+
+* 11. Exit Criteria
+You are prepared to interview when you can:
+- [ ] Explain the architecture of a relevant project clearly in English.
+- [ ] Defend major design decisions and articulate alternatives.
+- [ ] Identify key threats, trust assumptions, and failure modes.
+- [ ] Explain how you test security properties and the limits of those tests.
+- [ ] Design a resilient on-chain/off-chain integration.
+- [ ] Discuss production monitoring, incident handling, and recovery.
+- [ ] Lead a technical discussion without hiding uncertainty or overstating evidence.
+- [ ] Answer questions with concrete examples rather than only naming concepts.
+
+* References
+Start with primary documentation for the confirmed stack:
+- Solidity documentation: https://docs.soliditylang.org/
+- Ethereum developer documentation: https://ethereum.org/developers/docs/
+- Ethereum Execution APIs: https://github.com/ethereum/execution-apis
+- OpenZeppelin Contracts documentation: https://docs.openzeppelin.com/contracts/
+- Foundry book: https://book.getfoundry.sh/
+- OWASP Smart Contract Security: https://scs.owasp.org/
+- Ethernaut security wargame: https://ethernaut.openzeppelin.com/
+- Solidity security considerations: https://docs.soliditylang.org/en/latest/security-considerations.html
+
+Use these references selectively. Confirm tool versions and framework requirements against the job description rather than studying every tool in advance.

@@ -1,0 +1,126 @@
+#+title: Security Auditing
+#+startup: overview
+
+* Security Auditing
+** 0. Staff-level lens
+Auditing is both a craft (finding vulnerabilities in code and systems) and a process (scoping, managing, and acting on reviews). Staff and Principal engineers are on both sides: reviewing others' code and preparing their own systems for external review, and judging what an audit result really means. You are expected to:
+- run or commission audits that cover the right scope with the right depth, and turn findings into fixes and lasting process improvements;
+- review code and designs systematically, not by intuition alone;
+- calibrate severity and communicate risk to non-technical decision makers;
+- combine audits with contests, bounties, formal methods, monitoring, and incident response into a coherent security program.
+Companion files: =03_smart-contract-security.org=, =04_smart-contract-testing.org=, =15_deployment-and-upgrades.org=, =17_reliability-and-monitoring.org=, =19_technical-leadership.org=. Software Architecture notes: architecture review.
+
+** 1. What an audit is and is not
+- *Is*: a time-boxed, expert review of defined code (and sometimes design, deployment, and integrations) to find vulnerabilities, risks, and quality issues, with a report and a remediation review.
+- *Is not*: a guarantee of safety, a certification, a substitute for testing, or coverage of out-of-scope code, dependencies, economic design, off-chain components, keys, or operations (unless explicitly included). "Audited" is a statement about a specific commit and scope; later changes void it.
+- *Value*: independent eyes, specialized knowledge of past exploits, and pressure to produce specifications and tests; the audit process often improves the system as much as the report does.
+- *Limits*: reviewers sample risk under time constraints; bugs are missed in every audit; complex interactions and economic attacks are hard to find; multiple independent reviews and other assurance methods raise confidence.
+
+** 2. Types of security assurance
+| Approach                  | What it provides                                                    | Strengths                                     | Limits                                         |
+|---------------------------+---------------------------------------------------------------------+-----------------------------------------------+------------------------------------------------|
+| Internal review           | Reviews by the team and security engineers                          | Context; continuous; cheap                    | Blind spots; conflicts of interest             |
+| Private audit             | A firm or independent reviewers for a fixed period                  | Depth, structured report                      | Cost; small number of reviewers; time-boxed    |
+| Competitive audit (contest) | Many reviewers compete for rewards over days or weeks             | Many eyes; diverse skills                     | Quality varies; coordination; judging process  |
+| Bug bounty                | Ongoing rewards for responsibly disclosed vulnerabilities           | Continuous incentive; deployed-code testing   | Reactive; depends on reward size and process   |
+| Formal verification       | Proofs or exhaustive checks of specified properties                 | Strong guarantees for the specification       | Requires precise specs; expensive; model limits |
+| Fuzzing and invariant testing | Automated search for property violations                         | Scales; finds deep sequences                  | Only as good as properties and handlers        |
+| Monitoring and incident response | Detection and reaction in production                          | Catches what review missed                    | Cannot undo irreversible loss without prevention |
+Combine them in layers according to value at risk and code novelty.
+
+** 3. Preparing for an audit (the client side)
+Audit quality depends heavily on preparation:
+- *Freeze the code*: a specific commit, with a tag; changes during an audit require a delta review.
+- *Provide documentation*: architecture overview, specification, threat model, trust assumptions, roles and permissions, parameters, invariants, known risks, integrations, upgrade and deployment plans, and a glossary.
+- *Tests and tooling*: passing unit, fuzz, and invariant tests, coverage reports, static analysis results triaged, and instructions to build and run everything in one command.
+- *NatSpec and comments*: explain intent, especially for math and non-obvious choices.
+- *Scope definition*: list the in-scope contracts (with line counts), out-of-scope dependencies, and off-chain components; include deployment scripts and configuration; include the economic model if it matters.
+- *Known issues*: list accepted risks and prior findings, so reviewers do not waste time and to calibrate severity.
+- *Access to the team*: a channel with fast answers from the authors; scheduled walkthroughs.
+- *Selecting auditors*: relevant track record (similar protocols), the named individuals who will actually review, availability and timeline, report quality, references, methodology (manual review, tools, fuzzing, formal methods), pricing, and independence. Avoid choosing solely on brand.
+- *Timing*: audit when the design is stable and tests are mature; leave time to fix and to re-review; never audit a moving target; plan a second audit or contest for high-value launches.
+- *Budgeting for fixes*: reserve engineering time for findings, and for a final remediation review.
+
+** 4. How to audit: a method
+1. *Understand the system*: read the documentation; run the tests; deploy locally; draw the architecture; list assets, actors, roles, and trust assumptions; identify entry points.
+2. *Model the threats*: who can do what; what are the worst outcomes; where does value move; what external inputs exist (oracles, tokens, callbacks, cross-chain messages, governance).
+3. *Review the specification and invariants*: write them if absent; check that the code and docs agree; note ambiguities.
+4. *Run automated tools*: static analyzers (Slither, Aderyn), linters, compilers with strict warnings; triage results; use fuzzers and invariant tests to explore; symbolic tools on small critical functions.
+5. *Manual review, entry point by entry point*: for each external function, check authorization, input validation, state changes, external calls and their ordering, arithmetic and rounding, events, and failure behavior; track state across functions (state machines); look at what an attacker contract can do at each call.
+6. *Cross-cutting concerns*: upgradeability and initialization, storage layout, DELEGATECALL, signatures, oracles, token handling (all standard and nonstandard behaviors), reentrancy including read-only, access control matrix, pausing, emergency flows, gas and DoS, front-running and MEV, L2 and chain differences, compiler and library versions.
+7. *Economic and game-theoretic review*: adversarial capital (flash loans), manipulation costs, incentive alignment, parameter edge cases, bad-debt scenarios, governance attacks.
+8. *Integration review*: how the code interacts with the other protocols it depends on; assumptions about their behavior and upgrades.
+9. *Write proofs of concept* for suspected issues: a failing Foundry test that demonstrates impact; it removes doubt and helps the client reproduce.
+10. *Triage and communicate early*: report critical findings immediately, not at the end; keep a shared issue tracker.
+11. *Verify fixes*: review each fix for correctness, regression, and new issues; check that tests were added.
+12. *Final report*: scope, methodology, findings, severity, status, and observations on code quality and process.
+*Reading techniques*: start from the money flow; compare similar code to known-good implementations (diff against reference libraries); follow every external call and each callback; ask "what if this value is zero, maximal, or hostile?"; look for implicit assumptions (decimals, ordering, who calls what); read tests to find what the authors worried about, and what they did not test.
+
+** 5. Findings: severity, writing, and handling
+- *Severity* combines impact and likelihood (and often exploitability and preconditions):
+| Severity       | Typical meaning                                                                     |
+|----------------+-------------------------------------------------------------------------------------|
+| Critical       | Direct, realistic loss or lock of significant funds, or protocol takeover, without unusual conditions |
+| High           | Significant loss or disruption under plausible conditions, or requires modest preconditions |
+| Medium         | Limited loss, griefing, or issues that need specific conditions or privileged actions        |
+| Low            | Minor impact or defense-in-depth gaps                                                |
+| Informational  | Best practices, readability, documentation                                           |
+| Gas            | Optimizations without security impact                                                |
+Calibrate consistently: define the matrix (impact by likelihood) and apply it; account for admin trust assumptions explicitly ("assuming the owner is honest, but...").
+- *Finding structure*: title, severity, affected code (file and lines), description, impact, a proof of concept or scenario, and a recommendation; mark status (fixed, acknowledged, mitigated, disputed).
+- *Handling findings as the client*: reproduce, understand root causes (not only the symptom), fix with tests, consider similar patterns elsewhere in the code, record decisions on accepted risks with owners, and request re-review for non-trivial fixes. Disputing a finding is legitimate when you can show why it does not apply; justify in writing.
+- *Publishing reports*: public reports build trust and help the ecosystem; include the commit, scope, and unresolved items honestly. Avoid selective excerpts that overstate assurance.
+
+** 6. Tools of the trade (overview)
+- *Static analysis*: Slither, Aderyn; fast checks for known patterns; tune and triage.
+- *Fuzzing and invariants*: Foundry (fuzz and invariant tests), Echidna, Medusa; write properties from the specification.
+- *Symbolic and formal tools*: Halmos, hevm (symbolic execution of tests), Certora Prover (specification language), the SMTChecker; K-based semantics for the EVM.
+- *Dynamic analysis and debugging*: Foundry traces and debugger, local forks, transaction simulators, trace explorers.
+- *Bytecode and decompilation tools* for unverified or unknown contracts.
+- *Specification aids*: Scribble-style annotations, property lists, and invariants as code.
+- *Reference material*: vulnerability databases and previous audit reports; checklists (SWC Registry, the Smart Contract Security Verification Standard, community checklists); exploit post-mortems.
+Use tools to extend attention, not to replace it: automated tools find known patterns; humans find logic and economic flaws.
+
+** 7. Bug bounties, contests, and responsible disclosure
+- *Bug bounty programs*: define scope (contracts, chains, front ends, infrastructure), severity tiers, reward ranges tied to funds at risk (the reward must compete with the value of an exploit), rules of engagement (no testing on mainnet funds beyond what is allowed), response SLAs, and payment process. Platforms host programs and mediate. Publish a safe harbor policy where possible.
+- *Competitive audits*: provide a clear scope and documentation; reviewers submit findings judged by severity; duplicates share rewards; run after a private audit, not instead of one, for high-risk launches.
+- *Responsible disclosure*: reporters notify privately, allow time to fix, and avoid exploitation; projects respond promptly, credit researchers, and publish post-mortems.
+- *Whitehat rescue*: in an active exploit, security groups may front-run attackers to secure funds; define your policy and contacts in advance, and coordinate with emergency responder channels.
+- *Legal and ethical boundaries*: exploiting a live contract without authorization may be illegal regardless of intent; follow program rules.
+
+** 8. Building a security culture and program
+- *Security in the lifecycle*: threat models at design, secure coding standards, mandatory tests and static analysis in CI, internal security review for every change touching value flows, external audits before launch and for major upgrades, bounty and monitoring after launch.
+- *Ownership*: name a security owner for the protocol, with authority to block launches; separate roles for developers and reviewers.
+- *Learning loop*: tag incidents and findings by root cause category; feed them into checklists, linters, and training; run internal workshops and capture-the-flag exercises.
+- *Metrics* (use carefully): findings by severity found at each stage (earlier is cheaper), time to fix, escape rate (issues found after audit), test and invariant coverage of critical modules, and mean time to detect incidents.
+- *Staff-level leverage*: build reusable secure components and templates, review designs early, mentor others in reviewing, and keep the security program proportional to the value at risk.
+
+** 9. Self-check
+1. What can and cannot be concluded from a clean audit report of a specific commit?
+2. Design the audit preparation package for a lending protocol (documents, tests, scope, known issues).
+3. Walk through how you would review a vault's withdraw function line by line, and list the questions at each line.
+4. Classify these findings: a rounding error that lets users withdraw one wei extra per call; an owner-only function that can change a fee to 100 percent; a reentrancy that requires an ERC-777 token the protocol supports.
+5. How would you structure a bug bounty for a protocol with 50 million USD at risk, including rewards and rules?
+6. How do you decide between a second audit, a contest, and formal verification for a pre-launch protocol?
+
+** 10. Exercises
+- Warm-up: audit a small open-source contract (such as a minimal vault) using the method above; write findings in the standard structure with proofs of concept.
+- Core: take a public audit report and a vulnerable contract from a post-mortem; reproduce the bug on a fork and write the remediation test.
+- Core: write an audit-readiness package for a protocol you work on and have a colleague critique it.
+- Core: build a reusable internal review checklist from three incident post-mortems and run it on a pull request.
+- Stretch: participate in a competitive audit (even as a learner) and compare your findings with the final report.
+- Stretch: write a formal specification (Certora-style or Halmos tests) for the core invariants of a small AMM or vault and verify them.
+
+** 11. Resources
+- SWC Registry (classic weakness catalog): https://swcregistry.io ; OWASP smart contract security guidance and the Smart Contract Security Verification Standard; Secureum and other community curricula.
+- Audit reports from reputable firms and competitive platforms (public archives) as training material; post-mortem collections of exploits.
+- Trail of Bits, /Building Secure Contracts/; ConsenSys Diligence best practices; OpenZeppelin security documentation: https://docs.openzeppelin.com/contracts
+- Tool documentation: Slither, Echidna, Medusa, Halmos, Certora, Foundry: https://book.getfoundry.sh
+- Software Architecture notes in this repository: architecture review (methods and checklists).
+
+** What to remember
+- An audit is scoped, time-boxed evidence about a commit, not a guarantee.
+- Preparation (freeze, docs, tests, scope, known issues) determines audit quality; so does choosing reviewers who will actually review.
+- Review systematically: assets, entry points, state, external calls, invariants, economics, integrations; prove findings with tests.
+- Calibrate severity with a stated matrix and state trust assumptions; fix root causes and add regression tests.
+- Layer audits, contests, bounties, formal methods, fuzzing, and monitoring according to value at risk.

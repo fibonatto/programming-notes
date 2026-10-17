@@ -1,0 +1,120 @@
+#+title: Protocol Design
+#+startup: overview
+
+* Protocol Design
+** 0. Staff-level lens
+A protocol is a set of rules, code, incentives, and governance that other people build on and put money into. Protocol design combines software engineering, mechanism design, security, and economics, in an environment where participants are adversarial and capital is mobile. At Staff and Principal scope you are expected to:
+- specify a protocol precisely (actors, assets, state, transitions, invariants, trust assumptions, parameters, governance powers);
+- reason about incentives and adversarial behavior, including coalitions, manipulation, and composability with other protocols;
+- design economic parameters and governance with bounds, safeguards, and a plan for stress;
+- recognize recurring designs (AMMs, lending, vaults, staking, stablecoins, DAOs) and their known failure modes.
+Companion files: =03_smart-contract-security.org=, =07_tokens-and-standards.org=, =10_oracles-and-mev.org=, =15_deployment-and-upgrades.org=, =18_architecture-decisions.org=. Foundations: discrete mathematics (probability), complexity (cost models), logic and proofs (invariants).
+
+** 1. Principles
+- *Credible neutrality and permissionlessness*: rules apply equally to all participants and do not name specific actors; fewer privileged roles make the protocol easier to trust and to compose with.
+- *Simplicity and minimal trust*: every feature adds attack surface; every privileged role is a trust assumption; prefer fewer, orthogonal mechanisms.
+- *Incentive compatibility*: honest behavior should be the best response for rational participants; where it is not, penalties, bonds, or redesign are needed.
+- *Robustness to adversaries*: assume participants optimize for profit and some are malicious; assume they can borrow capital for a block, reorder transactions, and coordinate.
+- *Composability awareness*: other contracts will integrate yours; interfaces, token behavior, and oracle outputs become dependencies; systemic risk emerges from stacks of protocols.
+- *Parameterization with bounds*: parameters (fees, collateral factors, interest rates) will be changed; define ranges, change delays, and stress limits.
+- *Graceful degradation and recoverability*: emergency stops, caps, and orderly wind-down paths; design for the bad day.
+- *Transparency*: public specs, invariants, parameter values, admin powers, and risk disclosures.
+
+** 2. Specifying a protocol
+Write a specification before code and keep it current:
+1. *Purpose and scope*: what problem the protocol solves and what it does not.
+2. *Actors and roles*: users, liquidity providers, liquidators, keepers, governors, operators; their capabilities and incentives.
+3. *Assets and state*: tokens, balances, positions, parameters; state variables and their meaning.
+4. *Transitions*: each user operation, its preconditions, effects, and failure behavior; fees and accounting.
+5. *Invariants*: conservation, solvency, monotonicity, access constraints; each expressed as a checkable property.
+6. *Trust assumptions and threat model*: oracles, admins, upgrade paths, dependencies, adversary capabilities.
+7. *Parameters and bounds*: initial values, allowed ranges, who may change them, with what delay.
+8. *Governance and upgrades*: decision process, powers, timelocks, emergency actions, decentralization roadmap.
+9. *Failure and emergency procedures*: pausing, shutdown, recovery, communication.
+10. *Economic model*: sources of revenue and costs, incentive analysis, stress scenarios.
+The specification feeds tests, audits, and monitoring (see files 04, 16, 17).
+
+** 3. Canonical mechanisms
+*** 3.1 Automated market makers
+- *Constant product* (Uniswap v2 style): reserves x and y satisfy x times y = k (fees increase k). The spot price is y / x. A swap of dx in with fee fraction f yields dy = y * (1-f) * dx / (x + (1-f) * dx).
+- *Worked example*: a pool holds 100 ETH and 200,000 USDC (spot 2,000 USDC per ETH, k = 20,000,000). Selling 10 ETH with a 0.3 percent fee gives dy = 200,000 * 0.997 * 10 / (100 + 9.97), about 18,132 USDC, an average price near 1,813, roughly 9 percent below spot: price impact grows with trade size relative to reserves.
+- *Impermanent loss*: liquidity providers hold a rebalancing position; if the price ratio between the assets changes by a factor r, the LP value relative to holding is 2 * sqrt(r) / (1 + r) - 1. For r = 2 (one asset doubles against the other) that is about -5.7 percent. Fees must compensate.
+- *Variants*: concentrated liquidity (providers choose price ranges, increasing capital efficiency and active management needs), stable-swap curves (low slippage near the peg), weighted pools, hooks and programmable pools, and batch or intent-based execution (see =10_oracles-and-mev.org=).
+*** 3.2 Lending markets
+- *Mechanics*: users deposit collateral and borrow assets; interest rates adjust with utilization (borrowed over supplied), often through a kinked curve (gentle slope up to an optimal utilization, steep beyond it).
+- *Health and liquidation*: health factor = (collateral value times liquidation threshold) divided by debt. Example: 10 ETH at 2,000 USD with an 80 percent threshold supports 16,000 USD of debt; with 12,000 USD borrowed the factor is 1.33; it reaches 1 when ETH falls to 1,500. Below 1, liquidators repay part of the debt and receive collateral at a bonus.
+- *Risks*: oracle manipulation and staleness; liquidation cascades in fast markets (collateral price drops, liquidations sell more collateral, prices drop further), bad debt when collateral value falls below debt faster than liquidation can act, correlated collateral, illiquid collateral, interest rate model mis-tuning, governance changing parameters unsafely, and cross-market contagion.
+- *Mitigations*: conservative loan-to-value and thresholds by asset liquidity, supply and borrow caps, isolated markets, liquidation auction design, safety modules or reserves, and circuit breakers.
+*** 3.3 Stablecoins and synthetic assets
+Designs and risks are summarized in =07_tokens-and-standards.org=. Engineering requirements: reserve or collateral transparency, redemption mechanics under stress, peg defense mechanisms with bounded power, oracle robustness, and clear emergency shutdown.
+*** 3.4 Staking, liquid staking, and restaking
+- *Staking* secures a chain or service; rewards compensate for opportunity cost and slashing risk. *Liquid staking* tokens represent staked positions and tradeable claims; *restaking* reuses staked collateral to secure additional services, increasing capital efficiency and correlated slashing and systemic risk.
+- *Design questions*: operator selection and performance, slashing conditions and who bears them, withdrawal queues and liquidity, concentration limits, governance over operators, and the cap on shared risk.
+*** 3.5 Vaults, yield aggregators, and strategies
+Automate deposits into external protocols; hazards are strategy risk (external protocol failures), harvest and rebalance MEV, accounting precision, share price manipulation, and admin powers over strategies (a malicious strategy swap drains the vault). Constrain strategies by allowlists, caps, and timelocks.
+*** 3.6 Derivatives, options, and perpetuals
+Require reliable pricing, funding rates, margin and liquidation engines, and counterparty risk; on-chain order books and oracle design dominate security; many designs use off-chain matching with on-chain settlement (see =09_on-chain-and-off-chain.org=).
+
+** 4. Mechanism design and cryptoeconomic security
+- *Cost of corruption versus profit from corruption*: a system is economically secure when attacking it costs more than the attacker can gain (including future value and reputation). Quantify: how much capital must an attacker control, how long, and what do they lose if detected?
+- *Collusion and bribery*: voting and oracle systems are vulnerable to vote buying and cartels; design with commitment, randomization, and penalties where possible.
+- *Sybil resistance*: identity-free systems need cost per identity (stake, work, fee) or reputation; airdrops and incentive programs attract farmers; measure who actually uses the product.
+- *Griefing and denial of service*: attackers may spend a little to impose large costs (spam, dust, locking a shared resource); consider minimums, bonds, and permissionless recovery.
+- *Reflexivity and feedback loops*: collateral values depend on protocol success, which depends on collateral values; stable assets backed by volatile native tokens can spiral; test with stress scenarios.
+- *Incentive programs*: emissions bring capital that leaves when they end; design to attract durable users; measure retention and net revenue, not only total value locked.
+- *Fee design*: fees fund security and development and affect behavior; protocol-owned liquidity, buybacks, and fee switches change token value accrual and regulatory exposure.
+- *Simulation and analysis*: agent-based models of users, arbitrageurs, liquidators, and attackers; stress tests with historical price paths (for example the March 2020 crash for lending) and synthetic worst cases; formal analysis of invariants; economic audits alongside code audits.
+
+** 5. Governance
+- *What governance controls*: parameters, upgrades, treasury, listing of assets, risk limits, emergency powers. Each power should have a bound, a delay, and an owner.
+- *Mechanisms*: token-weighted voting (simple, plutocratic, vulnerable to concentration and vote buying), delegation, quorum and thresholds, time-weighted or locked voting (vote-escrow), quadratic or conviction voting (Sybil-prone without identity), optimistic governance (proposals pass unless vetoed), off-chain signaling (for example Snapshot) with on-chain execution through a governor contract and timelock.
+- *Attack surface*: flash-loan voting power (mitigated by snapshots at past blocks), low-turnout capture, proposals that hide malicious calls (simulate and review actions, use proposal-diff tooling), treasury drains, delegate corruption, governance token market concentration, and cross-chain governance message attacks.
+- *Safeguards*: timelocks long enough for users to exit and for monitoring to react, guardian or security council vetoes with narrow powers (and their own risk), emergency actions limited to pausing and risk reduction, parameter change bounds, and separate roles for operations versus upgrades.
+- *Operational reality*: low participation, delegate fatigue, and the need for professional risk management (risk stewards or service providers acting within caps); define accountability and compensation for contributors.
+- *Progressive decentralization*: publish the roadmap with measurable milestones for removing admin powers; keep the promises or explain the change.
+- *Legal and social layer*: DAOs face legal entity questions and real-world accountability; involve counsel, and be explicit about who can be held responsible.
+
+** 6. Composability and systemic risk
+- *Dependency graph*: map every protocol you depend on (oracles, tokens, AMMs, lending markets, bridges); each can fail or be governed against you; limit exposure with caps and allowlists.
+- *Rehypothecation and leverage loops*: assets reused as collateral in several layers amplify shocks.
+- *Shared oracles and liquidity*: correlated failures (a feed error affects every protocol using it).
+- *Permissionless integration*: others can call your functions in unintended ways; design for hostile integrators.
+- *Contagion planning*: stress scenarios where a major dependency depegs or halts; define automated responses (freeze, reduce caps, move to safe assets) and governance escalation.
+
+** 7. From design to code
+- Keep the on-chain core small; push heavy computation off-chain with verification.
+- Encode invariants as assertions in tests (fuzz and invariant tests) and in monitoring (see =04_smart-contract-testing.org=, =17_reliability-and-monitoring.org=).
+- Use fixed-point math with explicit rounding rules; test extreme parameters.
+- Make parameters changeable only through bounded, delayed, observable processes.
+- Plan upgrade and migration paths from the start (see =15_deployment-and-upgrades.org=).
+- Launch in stages: caps, allowlists, bug bounty, monitoring, then expansion.
+
+** 8. Self-check
+1. Derive the price impact of a trade in a constant-product pool as a function of trade size over reserves, and explain why liquidity depth matters for oracle manipulation.
+2. Compute the price at which a loan becomes liquidatable for a given collateral, threshold, and debt; explain why liquidation cascades occur.
+3. What is the cost of corruption of a protocol whose governance token can be borrowed for a block? How do snapshots and timelocks change it?
+4. Identify the privileged roles in a protocol you know and what each can do in the worst case.
+5. Design an interest rate model for a lending pool and explain the effects of the kink and the steep slope.
+6. A protocol's incentives double total value locked in a month. What would you measure to know whether the growth is durable?
+
+** 9. Exercises
+- Warm-up: implement a constant-product pool with fees in a test and verify the invariant and the price-impact formula; compute impermanent loss for several price paths.
+- Core: implement a simple lending market with a kinked interest model and liquidations; write invariants (solvency, accounting) and fuzz them.
+- Core: write a protocol specification document (the ten sections above) for a small protocol; derive tests from its invariants.
+- Core: build an agent-based simulation of a lending market with a price shock and liquidators with limited capital; measure bad debt as parameters vary.
+- Stretch: implement a governor with timelock; simulate a proposal attack with flash-loaned voting power and show your mitigations.
+- Stretch: analyze a real protocol's failure (from a post-mortem) as a mechanism design problem: what incentive or assumption failed and what would have prevented it?
+
+** 10. Resources
+- Documentation and whitepapers of foundational protocols: Uniswap (v2, v3, v4), Aave, Compound, Maker, Curve, Lido; their audits and risk frameworks.
+- Adams, Zinsmeister, Robinson, /Uniswap v2 Core/; Angeris and Chitra, /Improved Price Oracles: Constant Function Market Makers/; Gauntlet and Chaos Labs risk research on lending parameters.
+- Buterin, essays on governance, credible neutrality, and mechanism design; Roughgarden, lectures on algorithmic game theory and blockchain economics.
+- Governor and timelock contracts (OpenZeppelin Governor): https://docs.openzeppelin.com/contracts/5.x/governance
+- Foundations notes: discrete mathematics (probability and counting), complexity, and logic and proofs (invariants).
+
+** What to remember
+- Specify actors, state, transitions, invariants, parameters, trust assumptions, and governance before coding.
+- Incentives and adversaries decide security; quantify cost of corruption and stress the economics.
+- Parameter changes, governance, and composability are attack surfaces; bound and delay them.
+- Learn the canonical mechanisms and their failure modes (impact and slippage, liquidation cascades, depegs, reflexivity).
+- Stage launches, cap exposure, and plan for the bad day.
