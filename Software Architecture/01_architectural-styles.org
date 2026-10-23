@@ -1,5 +1,5 @@
 #+title: Architectural Styles
-#+startup: overview
+#+startup: showall
 
 * Architectural Styles
 ** 0. Staff-level lens

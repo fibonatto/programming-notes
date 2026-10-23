@@ -1,5 +1,5 @@
 #+title: Architecture Review
-#+startup: overview
+#+startup: showall
 
 * Architecture Review
 ** 0. Staff-level lens

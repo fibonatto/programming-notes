@@ -1,5 +1,5 @@
 #+title: Learn Rust
-#+startup: overview
+#+startup: showall
 
 * Learn Rust
 ** 1. Cargo and a first program

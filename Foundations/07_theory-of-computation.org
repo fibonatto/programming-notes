@@ -1,5 +1,6 @@
 #+title: Theory of Computation
-#+startup: overview
+#+STARTUP: showall
+
 
 * Theory of Computation
 ** 0. Staff-level lens

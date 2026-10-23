@@ -1,5 +1,5 @@
 #+title: Smart Contract Testing
-#+startup: overview
+#+startup: showall
 
 * Smart Contract Testing
 ** 0. Staff-level lens

@@ -1,5 +1,5 @@
 #+title: Rust Ownership, Borrowing, and Lifetimes
-#+startup: overview
+#+startup: showall
 
 * Rust Ownership, Borrowing, and Lifetimes
 ** 1. The model in one page

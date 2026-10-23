@@ -1,5 +1,5 @@
 #+title: Wallets and Cryptography
-#+startup: overview
+#+startup: showall
 
 * Wallets and Cryptography
 ** 0. Staff-level lens

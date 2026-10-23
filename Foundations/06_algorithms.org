@@ -1,5 +1,5 @@
 #+title: Algorithms
-#+startup: overview
+#+STARTUP: showall
 
 * Algorithms
 ** 0. Staff-level lens

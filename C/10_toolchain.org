@@ -1,5 +1,5 @@
 #+title: C Toolchain
-#+startup: overview
+#+startup: showall
 
 * C Toolchain
 ** 1. The pipeline

@@ -1,5 +1,5 @@
 #+title: C++ Data Structures
-#+startup: overview
+#+startup: showall
 
 * C++ Data Structures
 The standard library supplies containers with value semantics: copying a container copies its elements, and destroying it destroys them.

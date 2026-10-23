@@ -1,5 +1,5 @@
 #+title: Foundations of Computer Science for Staff-Level Engineering
-#+startup: overview
+#+STARTUP: showall
 
 * Foundations of Computer Science for Staff-Level Engineering
 Twelve files that cover the theory and systems fundamentals behind senior engineering decisions, plus this guide. Follow links with =C-c C-o= (cursor on the link) and return with =C-c &=.

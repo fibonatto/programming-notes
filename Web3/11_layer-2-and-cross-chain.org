@@ -1,5 +1,5 @@
 #+title: Layer 2 and Cross-Chain
-#+startup: overview
+#+startup: showall
 
 * Layer 2 and Cross-Chain
 ** 0. Staff-level lens

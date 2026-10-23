@@ -1,5 +1,5 @@
 #+title: Discrete Mathematics for Engineers
-#+startup: overview
+#+STARTUP: showall
 
 * Discrete Mathematics for Engineers
 ** 0. Staff-level lens

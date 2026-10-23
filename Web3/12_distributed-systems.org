@@ -1,5 +1,5 @@
 #+title: Distributed Systems in Web3
-#+startup: overview
+#+startup: showall
 
 * Distributed Systems in Web3
 ** 0. Staff-level lens

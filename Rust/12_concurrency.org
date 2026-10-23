@@ -1,5 +1,5 @@
 #+title: Rust Concurrency
-#+startup: overview
+#+startup: showall
 
 * Rust Concurrency
 Rust prevents data races at compile time: the ownership and borrowing rules, together with the =Send= and =Sync= traits, make unsynchronized shared mutation a type error. Deadlocks, logic races, and starvation are still possible. The memory model matches C11/C++11 (the C concurrency notes explain the underlying ideas).

@@ -1,5 +1,6 @@
 #+title: Memory Management
-#+startup: overview
+#+STARTUP: showall
+
 
 * Memory Management
 ** 0. Staff-level lens

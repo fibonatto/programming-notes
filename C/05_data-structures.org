@@ -1,5 +1,5 @@
 #+title: C Data Structures
-#+startup: overview
+#+startup: showall
 
 * C Data Structures
 C provides arrays, structs, unions, and pointers. Everything else is built from them. The standard library has no vector, list, or hash table.

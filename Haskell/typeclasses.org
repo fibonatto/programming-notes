@@ -1,5 +1,5 @@
 #+title: Haskell Type Classes
-#+startup: overview
+#+startup: showall
 
 * Haskell Type Classes
 Haskell has no macros in the Lisp, C, or Rust sense. Its main mechanism for abstraction over types, and for code that adapts to the types it receives, is the /type class/. This file plays the role that =macros.org= plays elsewhere: it covers the language's central abstraction facility. Template Haskell, the actual compile-time metaprogramming system, is sketched in section 11.

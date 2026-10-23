@@ -1,5 +1,5 @@
 #+title: Learn Haskell
-#+startup: overview
+#+startup: showall
 
 * Learn Haskell
 ** 1. GHC, GHCi, and projects

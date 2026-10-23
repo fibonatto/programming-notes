@@ -1,5 +1,5 @@
 #+title: Oracles and MEV
-#+startup: overview
+#+startup: showall
 
 * Oracles and MEV
 ** 0. Staff-level lens

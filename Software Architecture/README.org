@@ -1,5 +1,5 @@
 #+title: Software Architecture
-#+startup: overview
+#+startup: showall
 
 * Software Architecture
 Ten files on architectural decision-making for Staff and Principal engineers: styles, boundaries, coupling, interfaces, patterns, quality attributes, decision records, evolution, technical debt, and architecture review. This page gives the reading order, what to do with each file, and links to the sections that matter most. Follow links with =C-c C-o= (cursor on the link) and return with =C-c &=.

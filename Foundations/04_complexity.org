@@ -1,5 +1,5 @@
 #+title: Complexity and Analysis of Algorithms
-#+startup: overview
+#+STARTUP: showall
 
 * Complexity and Analysis of Algorithms
 ** 0. Staff-level lens

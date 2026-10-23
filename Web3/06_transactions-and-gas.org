@@ -1,5 +1,5 @@
 #+title: Transactions and Gas
-#+startup: overview
+#+startup: showall
 
 * Transactions and Gas
 ** 0. Staff-level lens

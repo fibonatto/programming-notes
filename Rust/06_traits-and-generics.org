@@ -1,5 +1,5 @@
 #+title: Rust Traits and Generics
-#+startup: overview
+#+startup: showall
 
 * Rust Traits and Generics
 Traits are Rust's mechanism for shared behavior; generics let one piece of code work over many types. Together they replace inheritance, templates, and interfaces.

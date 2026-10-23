@@ -1,5 +1,5 @@
 #+title: Rust Toolchain
-#+startup: overview
+#+startup: showall
 
 * Rust Toolchain
 ** 1. Installing and managing toolchains with rustup

@@ -1,5 +1,5 @@
 #+title: On-Chain and Off-Chain
-#+startup: overview
+#+startup: showall
 
 * On-Chain and Off-Chain
 ** 0. Staff-level lens

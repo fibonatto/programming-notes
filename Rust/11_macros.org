@@ -1,5 +1,5 @@
 #+title: Rust Macros
-#+startup: overview
+#+startup: showall
 
 * Rust Macros
 ** 1. What a macro does

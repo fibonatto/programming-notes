@@ -1,5 +1,6 @@
 #+title: Functional Programming
-#+startup: overview
+#+STARTUP: showall
+
 
 * Functional Programming
 ** 0. Staff-level lens

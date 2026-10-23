@@ -1,5 +1,6 @@
 #+title: Programming Paradigms
-#+startup: overview
+#+STARTUP: showall
+
 
 * Programming Paradigms
 ** 0. Staff-level lens

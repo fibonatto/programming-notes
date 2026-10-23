@@ -1,5 +1,6 @@
 #+title: Type Systems
-#+startup: overview
+#+STARTUP: showall
+
 
 * Type Systems
 ** 0. Staff-level lens

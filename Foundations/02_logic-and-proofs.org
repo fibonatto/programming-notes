@@ -1,5 +1,5 @@
 #+title: Logic and Proofs
-#+startup: overview
+#+STARTUP: showall
 
 * Logic and Proofs
 ** 0. Staff-level lens

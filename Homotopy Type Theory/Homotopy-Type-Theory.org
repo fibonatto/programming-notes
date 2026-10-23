@@ -1,19 +1,27 @@
 #+title: Homotopy Type Theory
+#+subtitle: Foundations, Univalence, and Synthetic Homotopy Theory
+#+author: Sergio Bonatto
+#+date: <2026-10-23>
+#+description: Study notes on homotopy type theory covering identity types, types as homotopy spaces, equivalences and univalence, homotopy levels, higher inductive types, synthetic homotopy theory, constructive foundations, cubical type theory, and formalization in Agda.
+#+keywords: homotopy type theory, univalent foundations, identity types, equivalences, higher inductive types, synthetic homotopy theory, cubical type theory, Agda
 #+filetags: :type-theory:mathematics:
 
+#+startup: showall
 * Foundations
 Notation used in these notes (HoTT book conventions): ~A : U~ means A is a type in a universe U; ~a : A~ means a is an element of A; ~a =_A b~ is the identity (path) type, written ~a = b~ when A is clear; ~a ≡ b~ is judgmental (definitional) equality; ~A ≃ B~ is the type of equivalences; Σ and Π are dependent pair and dependent function types. The symbol ∼ denotes pointwise equality (a homotopy) of functions.
 
 ** Propositions as Types
 The Curry-Howard correspondence reads logic into type theory: a proposition is a type and a proof of it is an element (term) of that type.
-| Logic             | Type theory                       |
-|-------------------+-----------------------------------|
+
+| Logic             | Type theory                     |
+|-------------------+---------------------------------|
 | implication A ⇒ B | function type ~A → B~             |
 | conjunction A ∧ B | product ~A × B~                   |
 | disjunction A ∨ B | coproduct ~A + B~                 |
-| truth, falsity    | unit type 1, empty type 0         |
+| truth, falsity    | unit type 1, empty type 0       |
 | ∀ x:A. P(x)       | dependent function ~Π_{x:A} P(x)~ |
 | ∃ x:A. P(x)       | dependent pair ~Σ_{x:A} P(x)~     |
+
 In homotopy type theory the correspondence is refined. A type can carry more than one distinct element, so "proof" in the sense of a witness and "proof" in the sense of a mere truth value separate. Types with at most one element up to equality are called /mere propositions/ (see Homotopy Levels), and logic proper is done with those, while general types also record the data of how something is true.
 
 ** Types as Spaces
@@ -39,6 +47,7 @@ Most basic facts are proved this way: composition, inversion, transport, ap, and
 ** Path Composition and Inversion
 Given ~p : x = y~ and ~q : y = z~ there are a concatenation ~p · q : x = z~ and an inverse ~p⁻¹ : y = x~, both defined by path induction. They satisfy the groupoid laws, but only up to higher paths: ~refl · p = p~, ~p · refl = p~, ~p · p⁻¹ = refl~, ~(p⁻¹)⁻¹ = p~, and associativity ~(p · q) · r = p · (q · r)~, where each "=" is itself an identity type. For loops at a point (~Ω²~ and higher), composition is commutative (the Eckmann-Hilton argument), which is why higher homotopy groups are abelian.
 A sketch in Agda, with K disabled so that identity types are not collapsed:
+
 #+begin_src agda
 {-# OPTIONS --without-K #-}
 
@@ -46,7 +55,7 @@ data _≡_ {A : Set} (x : A) : A → Set where
   refl : x ≡ x
 
 _∙_ : {A : Set} {x y z : A} → x ≡ y → y ≡ z → x ≡ z
-refl ∙ q = q
+Refl ∙ Q = q
 
 _⁻¹ : {A : Set} {x y : A} → x ≡ y → y ≡ x
 refl ⁻¹ = refl
@@ -174,6 +183,7 @@ Practical choices when formalizing:
 
 ** Agda and Cubical Agda
 Agda supports HoTT-style development in two ways. With ~--without-K~ (as in the sketch above), pattern matching does not assume uniqueness of identity proofs; univalence must then be postulated and cannot compute. With ~--cubical~ (Cubical Agda), paths are functions from an interval type, ~hcomp~ and ~transp~ are primitives, univalence ~ua~ is a theorem that computes, and higher inductive types can be declared directly. A sketch of the circle in Cubical Agda:
+
 #+begin_src agda
 {-# OPTIONS --cubical #-}
 open import Cubical.Foundations.Prelude
@@ -187,6 +197,7 @@ S¹-rec : {A : Type₀} (a : A) (l : a ≡ a) → S¹ → A
 S¹-rec a l base     = a
 S¹-rec a l (loop i) = l i
 #+end_src
+
 (This is a sketch; check imports and names against the version of the cubical library you use.) A note for Lean users: Lean 4's built-in equality lives in ~Prop~ and is proof-irrelevant, which is incompatible with univalence, so HoTT-style work is not done directly on top of Lean 4's ~Eq~; Lean 2 had a separate HoTT mode that was not carried forward.
 
 ** HoTT Libraries

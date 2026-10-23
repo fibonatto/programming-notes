@@ -1,5 +1,5 @@
 #+title: Data Structures
-#+startup: overview
+#+STARTUP: showall
 
 * Data Structures
 ** 0. Staff-level lens
@@ -12,14 +12,14 @@ Companion files: =04_complexity.org= (cost models), =06_algorithms.org= (algorit
 
 ** 1. Interfaces first
 Think in terms of /interfaces/ (what operations exist) and then implementations (how they are paid for). The Open Data Structures text organizes the field this way:
-| Interface        | Operations                                         | Typical implementations                         |
-|------------------+----------------------------------------------------+-------------------------------------------------|
-| Stack / Queue / Deque | push, pop, enqueue, dequeue at the ends         | dynamic array, ring buffer, linked list         |
-| List (sequence)  | get, set, insert, remove by index                  | array list, linked list, rope, skip list        |
-| USet (unordered set / map) | add, remove, find by key                 | hash table (chaining, open addressing)          |
-| SSet (sorted set / map) | add, remove, find, predecessor, successor, range | balanced BST, B-tree, skip list, sorted array |
-| Priority queue   | insert, find-min, delete-min (decrease-key)        | binary heap, d-ary heap, pairing heap           |
-| Graph            | adjacency queries, neighbors                       | adjacency list, matrix, compressed sparse row   |
+| Interface                  | Operations                                       | Typical implementations                       |
+|----------------------------+--------------------------------------------------+-----------------------------------------------|
+| Stack / Queue / Deque      | push, pop, enqueue, dequeue at the ends          | dynamic array, ring buffer, linked list       |
+| List (sequence)            | get, set, insert, remove by index                | array list, linked list, rope, skip list      |
+| USet (unordered set / map) | add, remove, find by key                         | hash table (chaining, open addressing)        |
+| SSet (sorted set / map)    | add, remove, find, predecessor, successor, range | balanced BST, B-tree, skip list, sorted array |
+| Priority queue             | insert, find-min, delete-min (decrease-key)      | binary heap, d-ary heap, pairing heap         |
+| Graph                      | adjacency queries, neighbors                     | adjacency list, matrix, compressed sparse row |
 
 ** 2. Arrays, dynamic arrays, and ring buffers
 - An *array* is contiguous: O(1) index, cache-friendly sequential scans, hardware prefetching works. Insertion in the middle is O(n).

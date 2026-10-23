@@ -1,5 +1,5 @@
 #+title: The C Preprocessor
-#+startup: overview
+#+startup: showall
 
 * The C Preprocessor
 This file covers how the preprocessor works and the facilities around it (headers, conditional compilation, predefined macros). Techniques for writing macros (=do { } while (0)=, =#= and =##=, X-macros, hygiene) are in =08_macros.org=.

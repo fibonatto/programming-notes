@@ -1,5 +1,5 @@
 #+title: Architecture Decisions in Web3
-#+startup: overview
+#+startup: showall
 
 * Architecture Decisions in Web3
 ** 0. Staff-level lens
@@ -11,16 +11,16 @@ Web3 decisions have two unusual properties: many are effectively irreversible on
 Companion files: =05_web3-architecture.org=, =11_layer-2-and-cross-chain.org=, =14_protocol-design.org=, =15_deployment-and-upgrades.org=, =19_technical-leadership.org=. Software Architecture notes (in this repository): architecture decision records, evolutionary architecture, technical debt, and architecture review; they supply the general method that this file specializes.
 
 ** 1. Which decisions are architecturally significant here
-| Domain                    | Typical decisions                                                                                  | Reversibility |
-|---------------------------+----------------------------------------------------------------------------------------------------+---------------|
-| Chain and deployment      | L1 versus L2 versus appchain; which L2; multi-chain strategy; data availability                    | Low to medium (migration is costly) |
-| Contract architecture     | Immutable versus upgradeable; proxy pattern; modularity; role and permission model                 | Low (code on-chain)                   |
-| Asset and token           | Token standards, supply policy, native versus bridged assets, stablecoin choices                    | Low                                   |
-| Trust and dependencies    | Oracle provider and design; bridge and messaging provider; integrated protocols; custody model     | Medium                                |
-| Security model            | Audit program, bug bounty, formal verification scope, pause and guardian design                      | Medium                                |
-| Data and infrastructure   | RPC strategy, indexing approach, off-chain storage, relaying                                         | High                                  |
-| Governance                | Governance mechanism, powers, delays, decentralization roadmap                                      | Low to medium (social and legal)      |
-| Product and compliance    | Permissioning, allowlists, geographic restrictions, KYC integration                                  | Medium                                |
+| Domain                  | Typical decisions                                                                              | Reversibility                       |
+|-------------------------+------------------------------------------------------------------------------------------------+-------------------------------------|
+| Chain and deployment    | L1 versus L2 versus appchain; which L2; multi-chain strategy; data availability                | Low to medium (migration is costly) |
+| Contract architecture   | Immutable versus upgradeable; proxy pattern; modularity; role and permission model             | Low (code on-chain)                 |
+| Asset and token         | Token standards, supply policy, native versus bridged assets, stablecoin choices               | Low                                 |
+| Trust and dependencies  | Oracle provider and design; bridge and messaging provider; integrated protocols; custody model | Medium                              |
+| Security model          | Audit program, bug bounty, formal verification scope, pause and guardian design                | Medium                              |
+| Data and infrastructure | RPC strategy, indexing approach, off-chain storage, relaying                                   | High                                |
+| Governance              | Governance mechanism, powers, delays, decentralization roadmap                                 | Low to medium (social and legal)    |
+| Product and compliance  | Permissioning, allowlists, geographic restrictions, KYC integration                            | Medium                              |
 Record decisions in the first four rows with the most care; they bind users' funds and trust.
 
 ** 2. A decision framework tailored to Web3
@@ -117,17 +117,17 @@ Because mistakes are irreversible, reduce exposure before certainty:
 
 ** 7. Dependency register
 Maintain a living register for every external dependency (contracts, protocols, vendors, chains):
-| Field                          | Content                                                                    |
-|--------------------------------+----------------------------------------------------------------------------|
-| Dependency and version/address | What it is and exactly where                                               |
-| Purpose                        | What we use it for                                                         |
-| Trust assumption               | What can go wrong if it fails or turns hostile                             |
-| Admin and upgrade powers       | Who can change it, with what delay                                         |
-| Audit and incident history     | Reports, known issues, past incidents                                      |
-| Monitoring                     | Alerts on upgrades, pauses, parameter changes, health                      |
-| Exposure limits                | Caps and circuit breakers on our side                                      |
-| Exit plan                      | How to replace or unwind                                                   |
-| Owner and review date          | Responsible person and next review                                         |
+| Field                          | Content                                               |
+|--------------------------------+-------------------------------------------------------|
+| Dependency and version/address | What it is and exactly where                          |
+| Purpose                        | What we use it for                                    |
+| Trust assumption               | What can go wrong if it fails or turns hostile        |
+| Admin and upgrade powers       | Who can change it, with what delay                    |
+| Audit and incident history     | Reports, known issues, past incidents                 |
+| Monitoring                     | Alerts on upgrades, pauses, parameter changes, health |
+| Exposure limits                | Caps and circuit breakers on our side                 |
+| Exit plan                      | How to replace or unwind                              |
+| Owner and review date          | Responsible person and next review                    |
 Review it quarterly and after any incident in the ecosystem.
 
 ** 8. Anti-patterns

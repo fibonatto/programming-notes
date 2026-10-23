@@ -1,5 +1,5 @@
 #+title: Rust I/O and Error Handling
-#+startup: overview
+#+startup: showall
 
 * Rust I/O and Error Handling
 ** 1. Panics versus Results

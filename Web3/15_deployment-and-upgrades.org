@@ -1,5 +1,5 @@
 #+title: Deployment and Upgrades
-#+startup: overview
+#+startup: showall
 
 * Deployment and Upgrades
 ** 0. Staff-level lens

@@ -1,5 +1,5 @@
 #+title: Haskell Functions
-#+startup: overview
+#+startup: showall
 
 * Haskell Functions
 ** 1. Define a function

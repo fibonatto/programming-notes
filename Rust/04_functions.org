@@ -1,5 +1,5 @@
 #+title: Rust Functions
-#+startup: overview
+#+startup: showall
 
 * Rust Functions
 ** 1. Define a function

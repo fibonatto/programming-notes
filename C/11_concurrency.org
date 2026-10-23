@@ -1,5 +1,5 @@
 #+title: C Concurrency
-#+startup: overview
+#+startup: showall
 
 * C Concurrency
 ** 1. Concepts

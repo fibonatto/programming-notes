@@ -1,5 +1,5 @@
 #+title: Rust Iterators
-#+startup: overview
+#+startup: showall
 
 * Rust Iterators
 Iterators are Rust's idiom for loops over data. They are lazy, composable, and compile to the same machine code as hand-written loops.

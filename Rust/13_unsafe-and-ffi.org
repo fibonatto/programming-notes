@@ -1,5 +1,5 @@
 #+title: Rust Unsafe and FFI
-#+startup: overview
+#+startup: showall
 
 * Rust Unsafe and FFI
 Safe Rust guarantees memory safety and the absence of data races. =unsafe= is a marked escape hatch for things the compiler cannot verify: talking to C, implementing low-level data structures, and squeezing out performance. Inside it the guarantees become *your* obligation.

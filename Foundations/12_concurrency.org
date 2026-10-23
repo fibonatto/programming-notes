@@ -1,5 +1,6 @@
 #+title: Concurrency and Distributed Systems Foundations
-#+startup: overview
+#+STARTUP: showall
+
 
 * Concurrency and Distributed Systems Foundations
 ** 0. Staff-level lens

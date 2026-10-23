@@ -1,5 +1,5 @@
 #+title: Tooling and Development Workflow
-#+startup: overview
+#+startup: showall
 
 * Tooling and Development Workflow
 ** 0. Staff-level lens

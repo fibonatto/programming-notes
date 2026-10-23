@@ -1,5 +1,5 @@
 #+title: Rust Modules, Crates, and Conditional Compilation
-#+startup: overview
+#+startup: showall
 
 * Rust Modules, Crates, and Conditional Compilation
 Where C has header files and the preprocessor, Rust has a module tree, visibility rules, and attribute-based conditional compilation.

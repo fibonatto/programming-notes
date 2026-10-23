@@ -1,5 +1,5 @@
 #+title: Rust Types
-#+startup: overview
+#+startup: showall
 
 * Rust Types
 ** 1. Scalar types

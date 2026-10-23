@@ -1,5 +1,5 @@
 #+title: C I/O and Error Handling
-#+startup: overview
+#+startup: showall
 
 * C I/O and Error Handling
 ** 1. Streams

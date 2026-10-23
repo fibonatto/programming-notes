@@ -1,5 +1,5 @@
 #+title: Rust Data Structures
-#+startup: overview
+#+startup: showall
 
 * Rust Data Structures
 ** 1. Arrays, slices, and Vec

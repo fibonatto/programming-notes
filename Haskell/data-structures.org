@@ -1,5 +1,5 @@
 #+title: Haskell Data Structures
-#+startup: overview
+#+startup: showall
 
 * Haskell Data Structures
 Haskell's data structures are immutable and /persistent/: "modifying" one returns a new value that shares most of its structure with the old one. Mutation exists, but it is explicit and confined (section 10).

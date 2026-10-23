@@ -1,5 +1,5 @@
 #+title: Rust Language Reference
-#+startup: overview
+#+startup: showall
 
 * Rust Language Reference
 ** 1. Editions and release channels

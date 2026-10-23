@@ -1,5 +1,5 @@
 #+title: Data Representation
-#+startup: overview
+#+STARTUP: showall
 
 * Data Representation
 ** 0. Staff-level lens

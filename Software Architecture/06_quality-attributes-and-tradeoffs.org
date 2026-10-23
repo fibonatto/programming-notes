@@ -1,5 +1,5 @@
 #+title: Quality Attributes and Trade-offs
-#+startup: overview
+#+startup: showall
 
 * Quality Attributes and Trade-offs
 ** 0. Staff-level lens

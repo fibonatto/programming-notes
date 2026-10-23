@@ -1,5 +1,5 @@
 #+title: Web3 Engineering for Staff and Principal Engineers
-#+startup: overview
+#+startup: showall
 
 * Web3 Engineering for Staff and Principal Engineers
 Twenty files on building, securing, operating, and leading Web3 systems, from chain fundamentals and the EVM to protocol design, incident response, and technical leadership, plus this guide. Follow links with =C-c C-o= (cursor on the link) and return with =C-c &=.

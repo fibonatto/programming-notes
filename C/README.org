@@ -1,5 +1,5 @@
 #+title: C Study Guide
-#+startup: overview
+#+startup: showall
 
 * C Study Guide
 Twelve files on C. This page gives the reading order, what to do with each file, and links to the sections that matter most. Follow links with =C-c C-o= (cursor on the link) and return with =C-c &=.

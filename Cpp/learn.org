@@ -1,5 +1,5 @@
 #+title: Learn C++
-#+startup: overview
+#+startup: showall
 
 * Learn C++
 Target: C++20. Where a feature needs a newer standard, it is marked.

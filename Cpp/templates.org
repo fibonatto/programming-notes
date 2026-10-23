@@ -1,5 +1,5 @@
 #+title: C++ Templates
-#+startup: overview
+#+startup: showall
 
 * C++ Templates
 Templates are C++'s compile-time code generation. The compiler produces a separate specialized function or class for each set of template arguments (/instantiation/). Unlike C macros, templates are parsed and type-checked, but they are not the same thing as macros: they cannot define new syntax or capture source text.

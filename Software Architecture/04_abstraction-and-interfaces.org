@@ -1,5 +1,5 @@
 #+title: Abstraction and Interfaces
-#+startup: overview
+#+startup: showall
 
 * Abstraction and Interfaces
 ** 0. Staff-level lens

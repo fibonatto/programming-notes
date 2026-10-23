@@ -1,13 +1,14 @@
 #+title: C Memory
-#+startup: overview
+#+startup: showall
 
 * C Memory
 ** 1. Where objects live
-| Region | Holds                                           | Lifetime                          |
-|--------+-------------------------------------------------+-----------------------------------|
-| Stack  | Automatic variables, call frames                | Until the block or function exits |
+
+| Region | Holds                                         | Lifetime                          |
+|--------+-----------------------------------------------+-----------------------------------|
+| Stack  | Automatic variables, call frames              | Until the block or function exits |
 | Static | Globals and =static= variables, string literals | Whole program                     |
-| Heap   | Memory from =malloc= and friends                | Until =free=                      |
+| Heap   | Memory from =malloc= and friends                | Until =free=                        |
 
 The stack is small (commonly 1 to 8 MB per thread) and fast; a large local array or deep recursion can overflow it. Heap memory is limited by the system but must be managed explicitly.
 
@@ -48,13 +49,13 @@ a = tmp;
 Memory from =malloc= is not zeroed. All-bits-zero is a valid null pointer and 0.0 on mainstream platforms, but the standard does not promise it, so for pointers and floats set values explicitly when portability matters.
 
 ** 3. Typical memory bugs
-| Bug                | Example                                                       | Effect                        |
-|--------------------+---------------------------------------------------------------+-------------------------------|
+| Bug                | Example                                                     | Effect                        |
+|--------------------+-------------------------------------------------------------+-------------------------------|
 | Leak               | return without =free=                                         | memory grows                  |
-| Use after free     | read =p= after =free(p)=                                      | undefined; often exploitable  |
+| Use after free     | read =p= after =free(p)=                                        | undefined; often exploitable  |
 | Double free        | =free(p); free(p);=                                           | heap corruption               |
-| Buffer overflow    | write =a[n]= on an =n=-element array                          | undefined; corrupts neighbors |
-| Off-by-one         | =strcpy= into a buffer without room for ='\0'=                | overflow                      |
+| Buffer overflow    | write =a[n]= on an =n=-element array                            | undefined; corrupts neighbors |
+| Off-by-one         | =strcpy= into a buffer without room for ='\0'=                  | overflow                      |
 | Uninitialized read | read =malloc= memory or an uninitialized local                | undefined, nondeterministic   |
 | Invalid free       | =free= of stack memory or an interior pointer                 | crash or corruption           |
 | Dangling pointer   | pointer to a local that returned, or into a =realloc='d block | undefined                     |

@@ -1,5 +1,5 @@
 #+title: Architectural Patterns
-#+startup: overview
+#+startup: showall
 
 * Architectural Patterns
 ** 0. Staff-level lens

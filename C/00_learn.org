@@ -1,5 +1,5 @@
 #+title: Learn C
-#+startup: overview
+#+startup: showall
 
 * Learn C
 ** 1. Program structure
@@ -185,15 +185,15 @@ a = tmp;
 ** 10. Undefined behavior
 The compiler assumes it never happens, and the result can be anything. Common sources:
 
-| Cause                                        | Example                    |
-|----------------------------------------------+----------------------------|
+| Cause                                        | Example                  |
+|----------------------------------------------+--------------------------|
 | Signed integer overflow                      | =INT_MAX + 1=              |
-| Out-of-bounds access                         | =a[n]= on =int a[n]=       |
+| Out-of-bounds access                         | =a[n]= on =int a[n]=         |
 | Null or dangling pointer dereference         | use after =free=           |
 | Reading an uninitialized automatic variable  | =int x; return x;=         |
-| Shift by negative or >= width                | =1 << 32= on 32-bit =int=  |
+| Shift by negative or >= width                | =1 << 32= on 32-bit =int=    |
 | Modifying an object twice without sequencing | =i = i++ + 1=              |
-| Violating strict aliasing                    | reading a =float= as =int= |
+| Violating strict aliasing                    | reading a =float= as =int=   |
 | Modifying a string literal                   | ~char *s = "a"; s[0]='b';~ |
 
 Tests that "work" do not rule out UB. Use the sanitizers (section 15).

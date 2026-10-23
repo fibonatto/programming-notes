@@ -1,5 +1,5 @@
 #+title: Coupling and Cohesion
-#+startup: overview
+#+startup: showall
 
 * Coupling and Cohesion
 ** 0. Staff-level lens

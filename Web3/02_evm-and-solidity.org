@@ -1,5 +1,5 @@
 #+title: The EVM and Solidity
-#+startup: overview
+#+startup: showall
 
 * The EVM and Solidity
 ** 0. Staff-level lens

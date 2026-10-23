@@ -1,5 +1,5 @@
 #+title: Technical Leadership in Web3
-#+startup: overview
+#+startup: showall
 
 * Technical Leadership in Web3
 ** 0. Staff-level lens

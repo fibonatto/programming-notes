@@ -1,5 +1,5 @@
 #+title: Security Auditing
-#+startup: overview
+#+startup: showall
 
 * Security Auditing
 ** 0. Staff-level lens

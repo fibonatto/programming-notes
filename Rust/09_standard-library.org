@@ -1,5 +1,5 @@
 #+title: Rust Standard Library: Traits and Utilities
-#+startup: overview
+#+startup: showall
 
 * Rust Standard Library: Traits and Utilities
 Collections are covered in =05_data-structures.org=, iterators in =07_iterators.org=, and I/O in =08_io-and-errors.org=. This file covers the traits and utility modules you meet in every program.

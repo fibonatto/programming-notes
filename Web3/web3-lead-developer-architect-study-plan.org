@@ -1,6 +1,6 @@
 #+title: Web3 Lead Developer / Architect Interview Preparation
 #+subtitle: Study plan for the GoFasti role 1140
-#+startup: overview
+#+startup: showall
 #+options: toc:2
 
 * Objective

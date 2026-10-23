@@ -1,5 +1,5 @@
 #+title: The C Standard Library
-#+startup: overview
+#+startup: showall
 
 * The C Standard Library
 ** 1. Headers at a glance

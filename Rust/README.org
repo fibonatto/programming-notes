@@ -1,5 +1,5 @@
 #+title: Rust Study Guide
-#+startup: overview
+#+startup: showall
 
 * Rust Study Guide
 Fifteen files on Rust. This page gives the reading order, what to do with each file, and links to the sections that matter most. Follow links with =C-c C-o= (cursor on the link) and return with =C-c &=.

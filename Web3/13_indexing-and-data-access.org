@@ -1,5 +1,5 @@
 #+title: Indexing and Data Access
-#+startup: overview
+#+startup: showall
 
 * Indexing and Data Access
 ** 0. Staff-level lens

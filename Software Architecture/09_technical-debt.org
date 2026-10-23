@@ -1,5 +1,5 @@
 #+title: Technical Debt
-#+startup: overview
+#+startup: showall
 
 * Technical Debt
 ** 0. Staff-level lens

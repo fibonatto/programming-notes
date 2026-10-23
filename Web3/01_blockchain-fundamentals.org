@@ -1,6 +1,12 @@
 #+title: Blockchain Fundamentals
-#+startup: overview
+#+subtitle: Consensus, Security, and Distributed State
+#+author: Sergio Bonatto
+#+date: <2026-10-23>
+#+description: Staff-level notes on blockchain architecture, distributed consensus, data structures, finality, economic security, Ethereum, Layer 1 platforms, and the engineering trade-offs of permissionless systems.
+#+keywords: blockchain, distributed systems, consensus, Byzantine fault tolerance, proof of work, proof of stake, Ethereum, finality, MEV, economic security
+#+filetags: :blockchain:distributed-systems:architecture:
 
+#+startup: showall
 * Blockchain Fundamentals
 ** 0. Staff-level lens
 A blockchain is a replicated state machine whose participants do not trust each other and whose membership is open. Everything else in Web3 (contracts, tokens, rollups, MEV) follows from that choice and its costs. At Staff and Principal scope you are expected to:
@@ -21,14 +27,15 @@ Companion files: =12_distributed-systems.org= (failure and consistency models ap
 - *Hash functions* give each block a fingerprint; a *block* contains a header (parent hash, state root, transactions root, receipts root, timestamp, and chain-specific fields) and a list of transactions. Altering history changes every later hash.
 - *Merkle trees* commit to a list so that membership can be proven with a logarithmic-size path. Ethereum uses a *Merkle Patricia trie* (hexary, keyed by hashed addresses and storage keys) for state; there is an ongoing research and engineering path toward more compact tree structures (Verkle or binary trees) for stateless clients. See the Foundations data-structures and data-representation files for the underlying structures.
 - *Account model versus UTXO model*:
-| Aspect                 | UTXO (Bitcoin-style)                             | Account (Ethereum-style)                          |
-|------------------------+--------------------------------------------------+---------------------------------------------------|
-| State                  | Set of unspent outputs                           | Mapping from address to balance, nonce, code, storage |
-| Transaction            | Consumes outputs, creates new ones               | Calls an account and updates its state            |
-| Parallelism            | Natural: disjoint inputs do not conflict         | Harder: shared mutable state                      |
-| Programmability        | Limited scripts                                  | General-purpose contracts                         |
-| Replay protection      | Implicit (outputs are spent once)                | Explicit nonces and chain ids                     |
-| Privacy                | Easier to build coin-mixing styles               | Address reuse is the default                      |
+
+| Aspect            | UTXO (Bitcoin-style)                     | Account (Ethereum-style)                              |
+|-------------------+------------------------------------------+-------------------------------------------------------|
+| State             | Set of unspent outputs                   | Mapping from address to balance, nonce, code, storage |
+| Transaction       | Consumes outputs, creates new ones       | Calls an account and updates its state                |
+| Parallelism       | Natural: Disjoint inputs do not conflict | Harder: shared mutable state                          |
+| Programmability   | Limited scripts                          | General-purpose contracts                             |
+| Replay Protection | Implicit (outputs are spent once)        | Explicit nonces and chain ids                         |
+| Privacy           | Easier to build coin-mixing styles       | Address reuse is the default                          |
 - *Nonces* order and de-duplicate an account's transactions. *Chain ids* (EIP-155) bind signatures to one network to stop cross-chain replay.
 - *State growth* is a long-term constraint: every full node must store and serve state, so protocols price storage and research ways to bound it (state expiry, stateless clients).
 
@@ -53,14 +60,14 @@ Consensus lets nodes agree on the order of transactions despite faults and delay
 - *Upgrade cadence and recent history*: The Merge (September 2022, proof of stake), Shapella (April 2023, withdrawals), Dencun (March 2024, blobs and transient storage), Pectra (May 2025, among other changes EIP-7702 account delegation, higher validator maximum balance, higher calldata cost for data-heavy transactions, BLS12-381 precompiles), Fusaka (December 2025, PeerDAS, blob parameter forks, a per-transaction gas cap, and other changes). The next fork, Glamsterdam, targets enshrined proposer-builder separation, block-level access lists (for parallel execution), and gas repricing; its testnet activation was scheduled for October 2026. Always check the current state; this paragraph dates quickly.
 
 ** 5. Other platforms in context
-| Family                         | Execution model                        | Distinguishing idea                                      | Trade-off                                        |
-|--------------------------------+----------------------------------------+----------------------------------------------------------+--------------------------------------------------|
-| Bitcoin                        | UTXO with limited script               | Simplicity, maximal conservatism, proof of work          | Limited programmability                          |
-| Ethereum and EVM chains        | Account model, EVM                     | General contracts, huge tooling and liquidity ecosystem  | Throughput constrained on L1; scales through L2s |
-| Solana                         | Accounts with explicit state access, parallel runtime | High throughput on one global state       | Hardware demands; different security and failure history |
-| Cosmos SDK / appchains         | Sovereign chains with IBC              | Each application has its own chain and validator set     | Security bootstrapped per chain                  |
-| Move-based chains              | Resource-oriented language and VM      | Asset safety by type system; parallelism                 | Smaller ecosystems                               |
-| Rollups and L2s                | Derive from an L1                      | Inherit L1 security with cheaper execution               | Sequencer, bridge, and upgrade trust (see file 11) |
+| Family                  | Execution model                                       | Distinguishing idea                                     | Trade-off                                                |
+|-------------------------+-------------------------------------------------------+---------------------------------------------------------+----------------------------------------------------------|
+| Bitcoin                 | UTXO with limited script                              | Simplicity, maximal conservatism, proof of work         | Limited programmability                                  |
+| Ethereum and EVM chains | Account model, EVM                                    | General contracts, huge tooling and liquidity ecosystem | Throughput constrained on L1; scales through L2s         |
+| Solana                  | Accounts with explicit state access, parallel runtime | High throughput on one global state                     | Hardware demands; different security and failure history |
+| Cosmos SDK / appchains  | Sovereign chains with IBC                             | Each application has its own chain and validator set    | Security bootstrapped per chain                          |
+| Move-based chains       | Resource-oriented language and VM                     | Asset safety by type system; parallelism                | Smaller ecosystems                                       |
+| Rollups and L2s         | Derive from an L1                                     | Inherit L1 security with cheaper execution              | Sequencer, bridge, and upgrade trust (see file 11)       |
 Choose by requirements (security model, liquidity and users, tooling and hiring, throughput and latency, regulatory posture, exit options), not by marketing.
 
 ** 6. Security model and economics

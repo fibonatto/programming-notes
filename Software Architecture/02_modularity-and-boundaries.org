@@ -1,5 +1,5 @@
 #+title: Modularity and Boundaries
-#+startup: overview
+#+startup: showall
 
 * Modularity and Boundaries
 ** 0. Staff-level lens
