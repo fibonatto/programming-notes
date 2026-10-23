@@ -1,6 +1,12 @@
 #+title: Learn C
-#+startup: showall
+#+subtitle: Core Language Features, Memory Management, and Undefined Behavior
+#+author: Sergio Bonatto
+#+date: <2026-10-23>
+#+description: Study notes on C covering program structure, types, expressions, control flow, functions, pointers, arrays, strings, structs, dynamic memory allocation, undefined behavior, linkage, the preprocessor, function pointers, I/O, error handling, compilation, debugging, and sanitizers.
+#+keywords: C, C17, systems programming, pointers, memory management, undefined behavior, dynamic memory allocation, compiler, debugging, sanitizers
+#+filetags: :programming:systems:c:
 
+#+startup: showall
 * Learn C
 ** 1. Program structure
 A C program is a set of functions. Execution starts at =main=.

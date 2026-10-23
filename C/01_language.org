@@ -1,14 +1,21 @@
 #+title: C Language Reference
+#+subtitle: Standards, Expressions, Declarations, and Language Semantics
+#+author: Sergio Bonatto
+#+date: <2026-10-23>
+#+description: Reference notes on the C programming language covering language standards from C89 to C23, categories of behavior, operator precedence, evaluation order, sequence points, declaration syntax, qualifiers, scope, storage duration, linkage, initialization, control flow, program termination, attributes, and common programming errors.
+#+keywords: C, C23, C17, C language reference, language standards, operator precedence, evaluation order, undefined behavior, declarations, scope, storage duration, linkage, initialization, compiler
+#+filetags: :programming:systems:c:reference:
+
 #+startup: showall
 
 * C Language Reference
 ** 1. Standards
-| Standard | Notable additions                                                                                                                                                                                                                                                                                             |
-|----------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| C89/C90  | Prototypes, =void=, =const=, =volatile=, the standard library                                                                                                                                                                                                                                                 |
-| C99      | =//= comments, =inline=, =long long=, =<stdint.h>=, =<stdbool.h>=, declarations after statements, designated initializers, compound literals, VLAs, =restrict=, flexible array members, =snprintf=                                                                                                            |
-| C11      | =_Static_assert=, =_Generic=, =_Alignas=/=_Alignof=, =_Noreturn=, anonymous structs/unions, =_Thread_local=, =<threads.h>=, =<stdatomic.h>= (VLAs, threads, and atomics became optional)                                                                                                                      |
-| C17      | Defect fixes only; no new features                                                                                                                                                                                                                                                                            |
+| Standard | Notable additions                                                                                                                                                                                                                                                               |
+|----------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| C89/C90  | Prototypes, =void=, =const=, =volatile=, the standard library                                                                                                                                                                                                                         |
+| C99      | =//= comments, =inline=, =long long=, =<stdint.h>=, =<stdbool.h>=, declarations after statements, designated initializers, compound literals, VLAs, =restrict=, flexible array members, =snprintf=                                                                                            |
+| C11      | =_Static_assert=, =_Generic=, =_Alignas=/=_Alignof=, =_Noreturn=, anonymous structs/unions, =_Thread_local=, =<threads.h>=, =<stdatomic.h>= (VLAs, threads, and atomics became optional)                                                                                                      |
+| C17      | Defect fixes only; no new features                                                                                                                                                                                                                                              |
 | C23      | =bool=/=true=/=false= keywords, =nullptr=, =typeof=, =constexpr= objects, =auto= type inference, =[[attributes]]=, =#embed=, =#elifdef=, binary literals (=0b101=), digit separators (=1'000=), empty initializer ={}=, =<stdckdint.h>=, =unreachable()=, two's complement required, =int f()= means =(void)= |
 
 #+begin_src sh
@@ -104,12 +111,12 @@ const int *const p = &x;  /* neither */
 ** 6. Scope, storage duration, and linkage
 Four independent properties:
 
-| Property         | Values                                                                                              |
-|------------------+-----------------------------------------------------------------------------------------------------|
-| Scope            | file, block, function (labels only), function prototype                                             |
+| Property         | Values                                                                                        |
+|------------------+-----------------------------------------------------------------------------------------------|
+| Scope            | file, block, function (labels only), function prototype                                       |
 | Storage duration | automatic (block), static (whole program), thread (=_Thread_local=), allocated (=malloc= to =free=) |
-| Linkage          | external (shared across files), internal (=static= at file scope), none (locals)                    |
-| Lifetime         | When the object exists; using it outside that is undefined behavior                                 |
+| Linkage          | external (shared across files), internal (=static= at file scope), none (locals)                |
+| Lifetime         | When the object exists; using it outside that is undefined behavior                           |
 
 #+begin_src c
 int counter;                    /* file scope, static duration, external linkage */

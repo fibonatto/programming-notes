@@ -1,18 +1,24 @@
 #+title: C Types
-#+startup: showall
+#+subtitle: Integer Conversions, Floating Point, Representation, and Type Semantics
+#+author: Sergio Bonatto
+#+date: <2026-10-23>
+#+description: Technical reference on C type semantics covering integer types and widths, signed overflow, unsigned arithmetic, integer promotions, usual arithmetic conversions, casts, floating-point behavior, characters, strings, booleans, enumerations, bit-fields, type qualifiers, strict aliasing, type punning, endianness, alignment, structure layout, and formatted I/O.
+#+keywords: C, C23, C17, type system, integer types, integer promotions, arithmetic conversions, signed overflow, floating point, IEEE 754, type qualifiers, strict aliasing, type punning, endianness, alignment, printf, scanf
+#+filetags: :programming:systems:c:types:
 
+#+startup: showall
 * C Types
 ** 1. Integer types and sizes
 The standard guarantees only minimum ranges:
 
-| Type        | Minimum width | Typical (LP64: Linux/macOS 64-bit) | Typical (LLP64: Windows 64-bit) |
-|-------------+---------------+------------------------------------+---------------------------------|
+| Type      | Minimum width | Typical (LP64: Linux/macOS 64-bit) | Typical (LLP64: Windows 64-bit) |
+|-----------+---------------+------------------------------------+---------------------------------|
 | =char=      |        8 bits |                                  8 |                               8 |
 | =short=     |            16 |                                 16 |                              16 |
 | =int=       |            16 |                                 32 |                              32 |
 | =long=      |            32 |                                 64 |                              32 |
 | =long long= |            64 |                                 64 |                              64 |
-| pointer     | not specified |                                 64 |                              64 |
+| pointer   | not specified |                                 64 |                              64 |
 
 =CHAR_BIT= (=<limits.h>=) is the number of bits in a byte (8 on every mainstream platform). =sizeof= yields the size in bytes, as a =size_t=; =sizeof(char)= is 1 by definition.
 
@@ -168,12 +174,12 @@ struct flags {
 The order of fields in storage, the allocation unit, and the signedness of plain =int= bit-fields are implementation-defined, and you cannot take their address. Do not use bit-fields for file formats, network protocols, or hardware registers that must be portable; use shifts and masks on fixed-width unsigned types.
 
 ** 10. Type qualifiers
-| Qualifier  | Meaning                                                                                                                                                          |
-|------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| =const=    | The object is not to be modified through this lvalue                                                                                                             |
-| =volatile= | Every access is a visible side effect; the compiler may not elide or reorder it relative to other volatile accesses (memory-mapped I/O, =sig_atomic_t= handlers) |
-| =restrict= | Pointer is the only way to access the object (promise to the compiler)                                                                                           |
-| =_Atomic=  | Atomic access (see =11_concurrency.org=)                                                                                                                         |
+| Qualifier | Meaning                                                                                                                                                        |
+|-----------+----------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| =const=     | The object is not to be modified through this lvalue                                                                                                           |
+| =volatile=  | Every access is a visible side effect; the compiler may not elide or reorder it relative to other volatile accesses (memory-mapped I/O, =sig_atomic_t= handlers) |
+| =restrict=  | Pointer is the only way to access the object (promise to the compiler)                                                                                         |
+| =_Atomic=   | Atomic access (see =11_concurrency.org=)                                                                                                                         |
 
 =volatile= does not make code thread-safe and gives no atomicity or ordering between threads. Modifying a =const= object (not just a const-qualified pointer to a non-const object) is undefined behavior.
 
@@ -214,20 +220,20 @@ This works on any host byte order and avoids alignment and padding problems.
 Each type has an alignment requirement; the compiler pads structs to satisfy it. =_Alignof(T)= (C23: =alignof=) gives it, and =offsetof(T, member)= gives a member's offset. Accessing a misaligned object through a pointer is undefined behavior (it may fault on some CPUs). Do not cast an arbitrary =char *= into an =int *= or =struct *=; copy with =memcpy= instead.
 
 ** 13. printf and scanf format specifiers
-| Type                  | printf                              | scanf                      |
-|-----------------------+-------------------------------------+----------------------------|
-| =int=                 | =%d=                                | =%d=                       |
-| =unsigned=            | =%u=, =%x=, =%o=                    | =%u=                       |
-| =long=, =long long=   | =%ld=, =%lld=                       | =%ld=, =%lld=              |
-| =size_t=              | =%zu=                               | =%zu=                      |
-| =ptrdiff_t=           | =%td=                               | =%td=                      |
-| =intmax_t=            | =%jd=                               | =%jd=                      |
-| =double=              | =%f=, =%e=, =%g=                    | =%lf=                      |
-| =long double=         | =%Lf=                               | =%Lf=                      |
-| =char=                | =%c=                                | =%c=                       |
-| string                | =%s=                                | =%s= (always give a width) |
-| pointer               | =%p= (cast to =void *=)             | =%p=                       |
-| =int32_t=, =uint64_t= | =PRId32=, =PRIu64= (=<inttypes.h>=) | =SCNd32=, =SCNu64=         |
+| Type              | printf                        | scanf                    |
+|-------------------+-------------------------------+--------------------------|
+| =int=               | =%d=                            | =%d=                       |
+| =unsigned=          | =%u=, =%x=, =%o=                    | =%u=                       |
+| =long=, =long long=   | =%ld=, =%lld=                     | =%ld=, =%lld=                |
+| =size_t=            | =%zu=                           | =%zu=                      |
+| =ptrdiff_t=         | =%td=                           | =%td=                      |
+| =intmax_t=          | =%jd=                           | =%jd=                      |
+| =double=            | =%f=, =%e=, =%g=                    | =%lf=                      |
+| =long double=       | =%Lf=                           | =%Lf=                      |
+| =char=              | =%c=                            | =%c=                       |
+| string            | =%s=                            | =%s= (always give a width) |
+| pointer           | =%p= (cast to =void *=)           | =%p=                       |
+| =int32_t=, =uint64_t= | =PRId32=, =PRIu64= (=<inttypes.h>=) | =SCNd32=, =SCNu64=           |
 
 #+begin_src c
 #include <inttypes.h>
