@@ -1,6 +1,12 @@
 #+title: C I/O and Error Handling
-#+startup: showall
+#+subtitle: Streams, File Operations, Buffering, Error Reporting, and Resource Cleanup
+#+author: Sergio Bonatto
+#+date: <2026-10-23>
+#+description: Practical input/output and error-handling patterns in C. Covers standard streams, buffering, formatted output, safe string formatting, file operations, text and binary I/O, line and character reading, scanf pitfalls, errno, return codes, cleanup paths, assertions, process termination, non-local jumps, and POSIX file descriptors. Distinguishes ISO C facilities from POSIX extensions and addresses partial transfers, resource management, and reliable error reporting.
+#+keywords: C, C17, C23, stdio.h, file I/O, streams, buffering, printf, snprintf, fopen, fread, fwrite, fgets, getline, errno, error handling, goto cleanup, assertions, resource management, file descriptors, read, write, EINTR, POSIX
+#+filetags: :programming:systems:c:io:error-handling:
 
+#+startup: showall
 * C I/O and Error Handling
 ** 1. Streams
 =<stdio.h>= works on =FILE *= streams. Three are open at program start: =stdin=, =stdout=, =stderr=.
@@ -53,15 +59,15 @@ if (f == NULL) {
 if (fclose(f) != 0) { /* a write error may only show up here */ }
 #+end_src
 
-| Mode | Meaning                                                                                  |
-|------+------------------------------------------------------------------------------------------|
-| "r"  | Read; the file must exist                                                                |
-| "w"  | Write; truncate or create                                                                |
-| "a"  | Append; create if missing                                                                |
-| "r+" | Read and write; the file must exist                                                      |
-| "w+" | Read and write; truncate or create                                                       |
+| Mode | Meaning                                                                                |
+|------+----------------------------------------------------------------------------------------|
+| "r"  | Read; the file must exist                                                              |
+| "w"  | Write; truncate or create                                                              |
+| "a"  | Append; create if missing                                                              |
+| "r+" | Read and write; the file must exist                                                    |
+| "w+" | Read and write; truncate or create                                                     |
 | "b"  | Add to any mode (e.g. ="rb"=) for binary on systems that distinguish; harmless elsewhere |
-| "x"  | C11: with "w", fail if the file exists                                                   |
+| "x"  | C11: with "w", fail if the file exists                                                 |
 
 Check the result of =fclose= on files you wrote: buffered data is written at close and may fail then.
 
@@ -215,12 +221,12 @@ Never put side effects inside =assert=: they vanish in release builds. Validate 
 
 *Termination:*
 
-| Call                                | Effect                                             |
-|-------------------------------------+----------------------------------------------------|
+| Call                          | Effect                                           |
+|-------------------------------+--------------------------------------------------|
 | =return= from =main= / =exit(code)= | Runs =atexit= handlers, flushes and closes streams |
-| =_Exit(code)=                       | Exits immediately; no cleanup                      |
-| =abort()=                           | Raises =SIGABRT=; typically a core dump            |
-| =atexit(fn)=                        | Registers a handler to run at =exit=               |
+| =_Exit(code)=                   | Exits immediately; no cleanup                    |
+| =abort()=                       | Raises =SIGABRT=; typically a core dump            |
+| =atexit(fn)=                    | Registers a handler to run at =exit=               |
 
 ** 8. setjmp and longjmp
 =setjmp= saves the execution context; =longjmp= jumps back to it, unwinding the stack without running any cleanup.

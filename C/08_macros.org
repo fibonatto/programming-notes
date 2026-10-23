@@ -1,6 +1,12 @@
 #+title: C Macros and the Preprocessor
-#+startup: showall
+#+subtitle: Macro Expansion, Conditional Compilation, Code Generation, and Type-Generic Programming
+#+author: Sergio Bonatto
+#+date: <2026-10-23>
+#+description: A practical guide to the C preprocessor and macro programming. Covers object-like and function-like macros, token substitution, operator precedence, multiple evaluation, inline functions, statement-safe macros, stringification, token pasting, variadic macros, include guards, conditional compilation, X-macros, name capture, and C11 _Generic selection. Distinguishes standard C features from compiler extensions and explains when macros are preferable to functions.
+#+keywords: C, C17, C23, preprocessor, macros, macro expansion, function-like macros, conditional compilation, include guards, stringification, token pasting, variadic macros, X-macros, _Generic, type-generic programming, static inline, code generation, GNU extensions
+#+filetags: :programming:systems:c:preprocessor:macros:
 
+#+startup: showall
 * C Macros and the Preprocessor
 ** 1. What the preprocessor does
 Before compilation, the preprocessor rewrites the source text: it includes headers, expands macros, and drops code excluded by conditionals. It works on tokens, with no knowledge of types or scopes.

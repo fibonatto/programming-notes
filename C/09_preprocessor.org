@@ -1,6 +1,12 @@
 #+title: The C Preprocessor
-#+startup: showall
+#+subtitle: Translation Phases, Directives, Header Management, and Feature Detection
+#+author: Sergio Bonatto
+#+date: <2026-10-23>
+#+description: A technical reference to the C preprocessor and its role in translation. Covers preprocessing directives, header inclusion, include guards, conditional compilation, predefined macros, compiler and platform detection, feature-test macros, macro expansion rules, variadic macros, pragmas, C23 #embed, and build-system integration. Distinguishes ISO C features from compiler extensions and POSIX interfaces, with guidance on portable headers, reproducible builds, and isolating platform-specific code.
+#+keywords: C, C17, C23, preprocessor, translation phases, preprocessing directives, include guards, conditional compilation, predefined macros, feature detection, feature-test macros, macro expansion, variadic macros, pragma, _Pragma, #embed, POSIX, compiler extensions, reproducible builds, header dependencies
+#+filetags: :programming:systems:c:preprocessor:
 
+#+startup: showall
 * The C Preprocessor
 This file covers how the preprocessor works and the facilities around it (headers, conditional compilation, predefined macros). Techniques for writing macros (=do { } while (0)=, =#= and =##=, X-macros, hygiene) are in =08_macros.org=.
 
@@ -17,17 +23,17 @@ cc -C -E file.c           # keep comments
 A directive is a line whose first non-blank token is =#=. The preprocessor knows nothing about types, scopes, or C syntax.
 
 ** 2. Directives
-| Directive                         | Purpose                                                     |
-|-----------------------------------+-------------------------------------------------------------|
-| =#include=                        | Insert another file                                         |
-| =#define=, =#undef=               | Define or remove a macro                                    |
-| =#if=, =#elif=, =#else=, =#endif= | Conditional inclusion on an expression                      |
-| =#ifdef=, =#ifndef=               | Conditional on a macro being defined                        |
-| =#elifdef=, =#elifndef=           | C23: =#elif= forms of the above                             |
-| =#error=, =#warning=              | Stop or warn (=#warning= standard in C23, extension before) |
-| =#line=                           | Change the reported line and file                           |
-| =#pragma=, =_Pragma("...")=       | Implementation-specific directives                          |
-| =#embed=                          | C23: include a file's bytes as an initializer list          |
+| Directive                 | Purpose                                                   |
+|---------------------------+-----------------------------------------------------------|
+| =#include=                  | Insert another file                                       |
+| =#define=, =#undef=           | Define or remove a macro                                  |
+| =#if=, =#elif=, =#else=, =#endif= | Conditional inclusion on an expression                    |
+| =#ifdef=, =#ifndef=           | Conditional on a macro being defined                      |
+| =#elifdef=, =#elifndef=       | C23: =#elif= forms of the above                             |
+| =#error=, =#warning=          | Stop or warn (=#warning= standard in C23, extension before) |
+| =#line=                     | Change the reported line and file                         |
+| =#pragma=, =_Pragma("...")=   | Implementation-specific directives                        |
+| =#embed=                    | C23: include a file's bytes as an initializer list        |
 
 ** 3. #include
 #+begin_src c
@@ -94,25 +100,25 @@ Detection helpers (C23 standardizes the first two; GCC and Clang support them ea
 #+end_src
 
 ** 5. Predefined macros
-| Macro                                                           | Meaning                                                         |
-|-----------------------------------------------------------------+-----------------------------------------------------------------|
-| =__FILE__=, =__LINE__=                                          | Current file name and line number                               |
-| =__DATE__=, =__TIME__=                                          | Compilation date and time (make builds non-reproducible)        |
-| =__STDC__=                                                      | 1 for a conforming implementation                               |
-| =__STDC_VERSION__=                                              | =199901L=, =201112L=, =201710L=, =202311L=                      |
-| =__STDC_HOSTED__=                                               | 1 if a full hosted standard library is present                  |
-| =__STDC_NO_THREADS__=, =__STDC_NO_ATOMICS__=, =__STDC_NO_VLA__= | 1 if that optional feature is missing                           |
-| =__COUNTER__=                                                   | Non-standard; increases on each use                             |
-| =__func__=                                                      | Not a macro: an implicit =static const char[]= in each function |
+| Macro                                                     | Meaning                                                       |
+|-----------------------------------------------------------+---------------------------------------------------------------|
+| =__FILE__=, =__LINE__=                                        | Current file name and line number                             |
+| =__DATE__=, =__TIME__=                                        | Compilation date and time (make builds non-reproducible)      |
+| =__STDC__=                                                  | 1 for a conforming implementation                             |
+| =__STDC_VERSION__=                                          | =199901L=, =201112L=, =201710L=, =202311L=                            |
+| =__STDC_HOSTED__=                                           | 1 if a full hosted standard library is present                |
+| =__STDC_NO_THREADS__=, =__STDC_NO_ATOMICS__=, =__STDC_NO_VLA__= | 1 if that optional feature is missing                         |
+| =__COUNTER__=                                               | Non-standard; increases on each use                           |
+| =__func__=                                                  | Not a macro: an implicit =static const char[]= in each function |
 
 Compiler, OS, and architecture identification (non-standard but universal):
 
-| Macro                                     | Meaning                                        |
-|-------------------------------------------+------------------------------------------------|
+| Macro                               | Meaning                                      |
+|-------------------------------------+----------------------------------------------|
 | =__GNUC__=, =__clang__=, =_MSC_VER=       | Compiler (note: Clang also defines =__GNUC__=) |
-| =__linux__=, =__APPLE__=, =_WIN32=        | Operating system                               |
-| =__x86_64__=, =__aarch64__=, =__wasm32__= | Architecture                                   |
-| =__BYTE_ORDER__=                          | Byte order (GCC/Clang)                         |
+| =__linux__=, =__APPLE__=, =_WIN32=        | Operating system                             |
+| =__x86_64__=, =__aarch64__=, =__wasm32__= | Architecture                                 |
+| =__BYTE_ORDER__=                      | Byte order (GCC/Clang)                       |
 
 ** 6. Feature-test macros
 Strict standard modes hide non-ISO declarations. Define a feature-test macro /before the first include/ to request them (on glibc and similar):

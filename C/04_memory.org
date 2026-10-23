@@ -1,6 +1,12 @@
 #+title: C Memory
-#+startup: showall
+#+subtitle: Object Lifetimes, Allocation, Ownership, and Memory Safety
+#+author: Sergio Bonatto
+#+date: <2026-10-23>
+#+description: Technical notes on C memory management covering object storage duration, stack and heap allocation, malloc, calloc, realloc, ownership conventions, pointer arithmetic, memory copying, common memory errors, strict aliasing, effective types, alignment, padding, flexible array members, variable-length arrays, arena allocation, and runtime memory diagnostics.
+#+keywords: C, C17, C23, memory management, dynamic allocation, malloc, realloc, free, pointers, ownership, object lifetime, memory safety, strict aliasing, alignment, arena allocator, AddressSanitizer, UndefinedBehaviorSanitizer, Valgrind
+#+filetags: :programming:systems:c:memory:
 
+#+startup: showall
 * C Memory
 ** 1. Where objects live
 

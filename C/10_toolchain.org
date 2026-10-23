@@ -1,6 +1,12 @@
 #+title: C Toolchain
-#+startup: showall
+#+subtitle: Compilation, Linking, Build Systems, Debugging, and Optimization
+#+author: Sergio Bonatto
+#+date: <2026-10-23>
+#+description: A practical guide to the C development toolchain, from preprocessing and compilation to assembly, linking, and executable generation. Covers compiler warnings, optimization levels, debug symbols, sanitizers, hardening flags, static and shared libraries, symbol inspection, Make, CMake, compile_commands.json, GDB and LLDB, static analysis, formatting, profiling, cross-compilation, and WebAssembly. Explains dependency tracking, linker behavior, platform-specific tooling, and reproducible build practices.
+#+keywords: C, C17, C23, compiler, GCC, Clang, MSVC, compilation, assembler, linker, optimization, compiler warnings, sanitizers, AddressSanitizer, UndefinedBehaviorSanitizer, debugging, GDB, LLDB, Make, CMake, compile_commands.json, static analysis, profiling, cross-compilation, WebAssembly, build systems
+#+filetags: :programming:systems:c:toolchain:build-systems:
 
+#+startup: showall
 * C Toolchain
 ** 1. The pipeline
 #+begin_src sh
@@ -25,30 +31,30 @@ cc -std=c17 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wstrict-prototypes \
    -O2 -g main.c -o app
 #+end_src
 
-| Flag                  | Catches                                                              |
-|-----------------------+----------------------------------------------------------------------|
+| Flag                | Catches                                                              |
+|---------------------+----------------------------------------------------------------------|
 | =-Wall=               | Common mistakes (despite the name, not everything)                   |
 | =-Wextra=             | More: unused parameters, signed/unsigned comparison                  |
-| =-Wpedantic=          | Non-standard constructs under =-std=                                 |
+| =-Wpedantic=          | Non-standard constructs under =-std=                                   |
 | =-Wshadow=            | A local hiding another variable                                      |
 | =-Wconversion=        | Implicit conversions that may change a value (noisy)                 |
-| =-Wformat=2=          | =printf= format problems                                             |
-| =-Wundef=             | Undefined macro used in =#if=                                        |
-| =-Wstrict-prototypes= | =int f()= declarations                                               |
+| =-Wformat=2=          | =printf= format problems                                               |
+| =-Wundef=             | Undefined macro used in =#if=                                          |
+| =-Wstrict-prototypes= | =int f()= declarations                                                 |
 | =-Werror=             | Turn warnings into errors (good in CI, risky for distributed source) |
 
 Read warnings; do not silence them with casts unless you understand them.
 
 ** 3. Optimization and debug information
-| Flag            | Meaning                                                             |
-|-----------------+---------------------------------------------------------------------|
+| Flag          | Meaning                                                             |
+|---------------+---------------------------------------------------------------------|
 | =-O0=           | No optimization (default); best for stepping in a debugger          |
 | =-Og=           | Optimize while keeping debugging reasonable                         |
 | =-O2=           | Standard release level                                              |
 | =-O3=           | More aggressive; larger code                                        |
 | =-Os=           | Optimize for size                                                   |
 | =-g=            | Emit debug information (independent of optimization)                |
-| =-DNDEBUG=      | Compile out =assert=                                                |
+| =-DNDEBUG=      | Compile out =assert=                                                  |
 | =-flto=         | Link-time optimization across files                                 |
 | =-march=native= | Use the build machine's CPU features (binary may not run elsewhere) |
 
@@ -161,19 +167,19 @@ gdb --args ./app arg1 arg2
 gdb ./app core                     # post-mortem, after: ulimit -c unlimited
 #+end_src
 
-| Command                           | Action                                 |
-|-----------------------------------+----------------------------------------|
-| =break main=, =b file.c:42=       | Set a breakpoint                       |
-| =run=, =r=                        | Start the program                      |
-| =next=, =n= / =step=, =s=         | Step over / into                       |
-| =continue=, =c=                   | Resume                                 |
-| =bt=, =bt full=                   | Backtrace (with locals)                |
-| =print x=, =p *ptr=, =p arr[0]@5= | Evaluate; =@5= prints 5 elements       |
-| =x/8xb ptr=                       | Examine 8 bytes in hex                 |
-| =watch var=                       | Break when a value changes             |
-| =info locals=, =info threads=     | Locals; list threads                   |
+| Command                     | Action                                 |
+|-----------------------------+----------------------------------------|
+| =break main=, =b file.c:42=     | Set a breakpoint                       |
+| =run=, =r=                      | Start the program                      |
+| =next=, =n= / =step=, =s=           | Step over / into                       |
+| =continue=, =c=                 | Resume                                 |
+| =bt=, =bt full=                 | Backtrace (with locals)                |
+| =print x=, =p *ptr=, =p arr[0]@5= | Evaluate; =@5= prints 5 elements         |
+| =x/8xb ptr=                   | Examine 8 bytes in hex                 |
+| =watch var=                   | Break when a value changes             |
+| =info locals=, =info threads=   | Locals; list threads                   |
 | =frame 2=, =up=, =down=           | Move in the call stack                 |
-| =finish=                          | Run until the current function returns |
+| =finish=                      | Run until the current function returns |
 
 LLDB offers the same with different spelling (=breakpoint set=, =thread backtrace=, =frame variable=). A crash with =Segmentation fault= under AddressSanitizer usually points to the exact access faster than gdb; use both.
 

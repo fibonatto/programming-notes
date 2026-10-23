@@ -1,6 +1,12 @@
 #+title: C Concurrency
-#+startup: showall
+#+subtitle: Threads, Synchronization, Atomics, and Memory Ordering
+#+author: Sergio Bonatto
+#+date: <2026-10-23>
+#+description: A practical reference to concurrency in C, covering POSIX threads and C11 threads, thread creation and lifecycle, mutexes, condition variables, atomic operations, compare-and-swap, memory ordering, thread-local storage, one-time initialization, and synchronization hazards. Explains data races, deadlocks, lost wakeups, false sharing, signal safety, and safe ownership patterns, with examples of concurrent queues, debugging tools, ThreadSanitizer, and Helgrind. Distinguishes ISO C concurrency facilities from POSIX interfaces and emphasizes correctness, minimizing shared mutable state, and diagnosing concurrency bugs.
+#+keywords: C, C11, C17, C23, concurrency, parallelism, multithreading, POSIX threads, pthreads, threads.h, mutexes, condition variables, atomics, stdatomic.h, memory model, memory ordering, acquire release, sequential consistency, data races, deadlocks, thread safety, thread-local storage, lock-free programming, ThreadSanitizer, Helgrind, synchronization
+#+filetags: :programming:systems:c:concurrency:threads:synchronization:
 
+#+startup: showall
 * C Concurrency
 ** 1. Concepts
 - A /process/ has its own address space. /Threads/ in one process share memory, which makes communication cheap and mistakes easy.
@@ -166,8 +172,8 @@ void update_max(int x) {
 ** 6. Memory ordering
 Compilers and CPUs reorder memory operations. Atomics take a /memory order/ argument controlling what other threads may observe.
 
-| Order                  | Guarantee                                                           |
-|------------------------+---------------------------------------------------------------------|
+| Order                | Guarantee                                                           |
+|----------------------+---------------------------------------------------------------------|
 | =memory_order_seq_cst= | Default: all threads agree on one total order of such operations    |
 | =memory_order_acquire= | A load; later reads/writes in this thread are not moved before it   |
 | =memory_order_release= | A store; earlier reads/writes in this thread are not moved after it |
@@ -205,16 +211,16 @@ pthread_once(&once, init);                   /* C11: call_once(&flag, init) */
 #+end_src
 
 ** 9. Common hazards
-| Hazard                     | Description                                                                                                                        |
-|----------------------------+------------------------------------------------------------------------------------------------------------------------------------|
-| Data race                  | Unsynchronized shared access; undefined behavior                                                                                   |
-| Deadlock                   | Threads waiting for each other's locks; fix with a lock order                                                                      |
-| Lost wakeup                | Signaling before the waiter waits; fix by checking a predicate under the lock                                                      |
-| Dangling argument          | Passing a pointer to a stack variable that goes away                                                                               |
+| Hazard                     | Description                                                                                                                      |
+|----------------------------+----------------------------------------------------------------------------------------------------------------------------------|
+| Data race                  | Unsynchronized shared access; undefined behavior                                                                                 |
+| Deadlock                   | Threads waiting for each other's locks; fix with a lock order                                                                    |
+| Lost wakeup                | Signaling before the waiter waits; fix by checking a predicate under the lock                                                    |
+| Dangling argument          | Passing a pointer to a stack variable that goes away                                                                             |
 | False sharing              | Unrelated variables on one cache line slow each other down; pad with =_Alignas(64)=                                                |
-| Non-reentrant libc         | =strtok=, =localtime=, =rand=, =strerror= keep static state; use =_r= variants                                                     |
+| Non-reentrant libc         | =strtok=, =localtime=, =rand=, =strerror= keep static state; use =_r= variants                                                             |
 | Fork in a threaded program | Only the calling thread exists in the child; locks held by others stay locked; call only async-signal-safe functions before =exec= |
-| Signals                    | Handlers run asynchronously; use a flag or a dedicated signal thread                                                               |
+| Signals                    | Handlers run asynchronously; use a flag or a dedicated signal thread                                                             |
 
 ** 10. Designing for less sharing
 - Prefer *ownership transfer* (hand a message or work item to one thread) over shared mutable state.

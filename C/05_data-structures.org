@@ -1,6 +1,12 @@
 #+title: C Data Structures
-#+startup: showall
+#+subtitle: Arrays, Structs, Unions, Dynamic Collections, and Ownership
+#+author: Sergio Bonatto
+#+date: <2026-10-23>
+#+description: Practical data structures in C, from built-in arrays, structs, unions, enums, and bit flags to dynamic arrays, linked lists, and hash tables. Covers memory layout, alignment, padding, tagged unions, allocation and resizing, opaque types, pointer ownership, API design, and choosing structures based on performance and requirements.
+#+keywords: C, C17, C23, data structures, arrays, dynamic arrays, structs, unions, tagged unions, enums, bit flags, linked lists, hash tables, memory layout, alignment, padding, opaque types, ownership, amortized complexity, cache locality
+#+filetags: :programming:systems:c:data-structures:
 
+#+startup: showall
 * C Data Structures
 C provides arrays, structs, unions, and pointers. Everything else is built from them. The standard library has no vector, list, or hash table.
 
@@ -181,9 +187,9 @@ C does not track ownership; you do, by convention and documentation. Decide for 
 |----------------------------------+-----------------------------------|
 | Fixed-size sequence              | Array                             |
 | Growable sequence                | Dynamic array (pointer, len, cap) |
-| Fixed named fields               | =struct=                          |
+| Fixed named fields               | =struct=                            |
 | One of several shapes            | Tagged union                      |
-| Set of options                   | =enum= or bit flags               |
+| Set of options                   | =enum= or bit flags                 |
 | Frequent insert/delete in middle | Linked list                       |
 | Key-value lookup                 | Hash table (library or your own)  |
 | Hide representation              | Opaque struct pointer             |

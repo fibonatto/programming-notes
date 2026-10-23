@@ -1,33 +1,39 @@
 #+title: The C Standard Library
-#+startup: showall
+#+subtitle: Headers, Strings, Conversion, Algorithms, Math, Time, and POSIX Interfaces
+#+author: Sergio Bonatto
+#+date: <2026-10-23>
+#+description: A practical reference to the C standard library and its most important headers. Covers string and memory operations, safe copying, numeric parsing and error handling, sorting and searching, random numbers, environment access, character classification, mathematics, time measurement, variadic functions, signals, C23 checked arithmetic, and the distinction between ISO C, POSIX, and platform-specific extensions.
+#+keywords: C, C17, C23, standard library, libc, headers, string.h, stdlib.h, stdio.h, ctype.h, math.h, time.h, numeric parsing, strtol, qsort, bsearch, memory safety, errno, signals, monotonic clock, POSIX, checked arithmetic
+#+filetags: :programming:systems:c:standard-library:
 
+#+startup: showall
 * The C Standard Library
 ** 1. Headers at a glance
-| Header                                          | Provides                                                              |
-|-------------------------------------------------+-----------------------------------------------------------------------|
-| =<stddef.h>=                                    | =size_t=, =ptrdiff_t=, =NULL=, =offsetof=, =max_align_t=              |
-| =<stdint.h>=                                    | Fixed-width integers, =SIZE_MAX=, =INTPTR_MAX=                        |
-| =<inttypes.h>=                                  | =PRId64=, =strtoimax=                                                 |
-| =<limits.h>=                                    | =INT_MAX=, =CHAR_BIT=, ...                                            |
-| =<float.h>=                                     | =DBL_EPSILON=, =FLT_MAX=, ...                                         |
-| =<stdbool.h>=                                   | =bool=, =true=, =false=                                               |
-| =<stdlib.h>=                                    | Allocation, conversions, =qsort=, =bsearch=, =exit=, =getenv=, =rand= |
-| =<string.h>=                                    | Memory and string functions                                           |
-| =<stdio.h>=                                     | Streams and formatted I/O (see =07_io-and-errors.org=)                |
-| =<ctype.h>=                                     | Character classification                                              |
-| =<math.h>=                                      | Math functions (link with =-lm= on Linux)                             |
-| =<time.h>=                                      | Time and date                                                         |
-| =<errno.h>=                                     | =errno=, =EINVAL=, ...                                                |
-| =<assert.h>=                                    | =assert=, =static_assert=                                             |
-| =<stdarg.h>=                                    | Variadic argument access                                              |
-| =<setjmp.h>=                                    | Non-local jumps                                                       |
-| =<signal.h>=                                    | Signal handling                                                       |
-| =<locale.h>=                                    | Locale (affects =printf=, =ctype=, =strtod=)                          |
-| =<stdatomic.h>=, =<threads.h>=                  | Atomics and threads (see =11_concurrency.org=)                        |
-| =<stdckdint.h>=                                 | C23: checked integer arithmetic (=ckd_add= ...)                       |
-| =<wchar.h>=, =<uchar.h>=, =<wctype.h>=          | Wide and Unicode characters                                           |
-| =<complex.h>=, =<tgmath.h>=, =<fenv.h>=         | Complex numbers, generic math, floating-point environment             |
-| =<iso646.h>=, =<stdalign.h>=, =<stdnoreturn.h>= | Spelling aliases, alignment, =noreturn=                               |
+| Header                                    | Provides                                                    |
+|-------------------------------------------+-------------------------------------------------------------|
+| =<stddef.h>=                                | =size_t=, =ptrdiff_t=, =NULL=, =offsetof=, =max_align_t=              |
+| =<stdint.h>=                                | Fixed-width integers, =SIZE_MAX=, =INTPTR_MAX=                  |
+| =<inttypes.h>=                              | =PRId64=, =strtoimax=                                           |
+| =<limits.h>=                                | =INT_MAX=, =CHAR_BIT=, ...                                      |
+| =<float.h>=                                 | =DBL_EPSILON=, =FLT_MAX=, ...                                   |
+| =<stdbool.h>=                               | =bool=, =true=, =false=                                           |
+| =<stdlib.h>=                                | Allocation, conversions, =qsort=, =bsearch=, =exit=, =getenv=, =rand= |
+| =<string.h>=                                | Memory and string functions                                 |
+| =<stdio.h>=                                 | Streams and formatted I/O (see =07_io-and-errors.org=)        |
+| =<ctype.h>=                                 | Character classification                                    |
+| =<math.h>=                                  | Math functions (link with =-lm= on Linux)                     |
+| =<time.h>=                                  | Time and date                                               |
+| =<errno.h>=                                 | =errno=, =EINVAL=, ...                                          |
+| =<assert.h>=                                | =assert=, =static_assert=                                       |
+| =<stdarg.h>=                                | Variadic argument access                                    |
+| =<setjmp.h>=                                | Non-local jumps                                             |
+| =<signal.h>=                                | Signal handling                                             |
+| =<locale.h>=                                | Locale (affects =printf=, =ctype=, =strtod=)                      |
+| =<stdatomic.h>=, =<threads.h>=                | Atomics and threads (see =11_concurrency.org=)                |
+| =<stdckdint.h>=                             | C23: checked integer arithmetic (=ckd_add= ...)               |
+| =<wchar.h>=, =<uchar.h>=, =<wctype.h>=          | Wide and Unicode characters                                 |
+| =<complex.h>=, =<tgmath.h>=, =<fenv.h>=         | Complex numbers, generic math, floating-point environment   |
+| =<iso646.h>=, =<stdalign.h>=, =<stdnoreturn.h>= | Spelling aliases, alignment, =noreturn=                       |
 
 POSIX adds more (=<unistd.h>=, =<fcntl.h>=, =<pthread.h>=, =<sys/stat.h>=, =<dirent.h>=, ...), which are not part of ISO C.
 
@@ -44,13 +50,13 @@ memchr(p, c, n);
 
 Functions to be careful with:
 
-| Function           | Problem                                                                                                               |
-|--------------------+-----------------------------------------------------------------------------------------------------------------------|
-| =strcpy=, =strcat= | No bounds check: overflows if the destination is too small                                                            |
-| =strncpy=          | Does not NUL-terminate if the source is =n= or longer; pads with zeros up to =n= otherwise. It is not a "safe strcpy" |
-| =strncat=          | Appends at most =n= characters /plus/ a NUL; =n= is not the buffer size                                               |
-| =strtok=           | Modifies its input and keeps hidden static state; not reentrant. Use =strtok_r= (POSIX) or =strsep=                   |
-| =strdup=           | POSIX, standard in C23; the result must be =free=d                                                                    |
+| Function       | Problem                                                                                                           |
+|----------------+-------------------------------------------------------------------------------------------------------------------|
+| =strcpy=, =strcat= | No bounds check: overflows if the destination is too small                                                        |
+| =strncpy=        | Does not NUL-terminate if the source is =n= or longer; pads with zeros up to =n= otherwise. It is not a "safe strcpy" |
+| =strncat=        | Appends at most =n= characters /plus/ a NUL; =n= is not the buffer size                                                 |
+| =strtok=         | Modifies its input and keeps hidden static state; not reentrant. Use =strtok_r= (POSIX) or =strsep=                   |
+| =strdup=         | POSIX, standard in C23; the result must be =free=d                                                                |
 
 A bounded copy that always terminates:
 

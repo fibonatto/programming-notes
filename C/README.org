@@ -1,4 +1,11 @@
 #+title: C Study Guide
+#+subtitle: Reading Order, Practical Exercises, and Cross-Referenced Language Topics
+#+author: Sergio Bonatto
+#+date: <2026-10-23>
+#+description: A structured study plan for C programming organized into eleven topic-specific references, from language semantics and type conversions to memory management, data structures, standard-library APIs, I/O, macros, preprocessing, toolchains, and concurrency. Defines the reading sequence, highlights essential sections, provides hands-on exercises for each topic, tracks progress with checklists, and includes a cross-reference table for quickly locating important rules and techniques. Covers compiler diagnostics, sanitizers, debugging, POSIX interfaces, and practical verification against the C standard.
+#+keywords: C, C17, C23, study guide, learning roadmap, programming exercises, language semantics, type system, memory management, data structures, standard library, file I/O, error handling, macros, preprocessor, compiler toolchain, debugging, concurrency, POSIX, GCC, Clang, sanitizers, reference guide
+#+filetags: :programming:systems:c:study-guide:learning:reference:
+
 #+startup: showall
 
 * C Study Guide
@@ -8,55 +15,6 @@ Twelve files on C. This page gives the reading order, what to do with each file,
 - [[file:00_learn.org][00_learn]] is a quick reference for syntax. Use it for lookups; it is not part of the study sequence.
 - Files 01 to 11 are the study sequence. Each file ends with a *What to remember* checklist.
 - Each file refers to the others by name (for example =02_types.org=). Keep them in one directory.
-
-** Method for each file
-1. Skim the headings (=S-TAB= cycles the whole outline), then read the sections in order.
-2. Type the examples instead of pasting them. Compile with the flags from the next section and read every warning.
-3. Before running an example, predict its output; when the prediction is wrong, find out why.
-4. Break each example on purpose (overflow it, free it twice, drop the mutex) and read what the tools report.
-5. Do the practice items, then reread *What to remember* and tick the file off below.
-
-** Setup
-*** Naming
-The files are meant to carry a numeric prefix so they sort in reading order. If they still have their original names, run this once from the C directory:
-
-#+begin_src sh
-mv learn.org 00_learn.org
-mv language.org 01_language.org
-mv types.org 02_types.org
-mv functions.org 03_functions.org
-mv memory.org 04_memory.org
-mv data-structures.org 05_data-structures.org
-mv standard-library.org 06_standard-library.org
-mv io-and-errors.org 07_io-and-errors.org
-mv macros.org 08_macros.org
-mv preprocessor.org 09_preprocessor.org
-mv toolchain.org 10_toolchain.org
-mv concurrency.org 11_concurrency.org
-
-# update the textual cross-references inside the files (types.org becomes 02_types.org)
-perl -pi -e 'BEGIN { %n = (language=>"01_language", types=>"02_types", functions=>"03_functions", memory=>"04_memory", "data-structures"=>"05_data-structures", "standard-library"=>"06_standard-library", "io-and-errors"=>"07_io-and-errors", macros=>"08_macros", preprocessor=>"09_preprocessor", toolchain=>"10_toolchain", concurrency=>"11_concurrency") } s/(?<![\w-])([a-z-]+)\.org/exists $n{$1} ? "$n{$1}.org" : "$1.org"/ge' [0-9][0-9]_*.org
-#+end_src
-
-The perl command rewrites only names that have no prefix yet, so running it twice does no harm. The glob =[0-9][0-9]_*.org= leaves this README untouched.
-
-*** A scratch directory and a compile-and-run helper
-#+begin_src sh
-mkdir -p ~/scratch/c && cd ~/scratch/c
-
-# add to your shell config (zsh/bash)
-cx() {
-    cc -std=c17 -Wall -Wextra -Wpedantic -g -fsanitize=address,undefined "$1" -o "${1%.c}" -lm \
-        && "./${1%.c}"
-}
-
-cx hello.c
-#+end_src
-
-This compiles with warnings and with AddressSanitizer and UndefinedBehaviorSanitizer on, which is the right default while learning. Some examples need extra flags (for example =-pthread= in step 11); the file says so.
-
-*** Step 0: the toolchain minimum
-Before step 01, read three short sections of [[file:10_toolchain.org][10_toolchain]]: [[file:10_toolchain.org::*1. The pipeline][§1 The pipeline]], [[file:10_toolchain.org::*2. Warnings][§2 Warnings]], and [[file:10_toolchain.org::*4. Sanitizers and hardening][§4 Sanitizers and hardening]]. They explain the flags used by =cx= above. The remaining sections of the file come back in step 10.
 
 ** Progress [0/11]
 - [ ] [[file:01_language.org][01_language]]
@@ -254,28 +212,28 @@ Practice:
 - Replace the mutex counter with an atomic one; implement the release/acquire flag.
 
 ** Find it fast
-| I want...                                  | Go to                  |
-|--------------------------------------------+------------------------|
-| Integer overflow rules                     | [[file:02_types.org::*2. Signed overflow and unsigned wrap][02_types §2]]            |
+| I want...                                | Go to                  |
+|------------------------------------------+------------------------|
+| Integer overflow rules                   | [[file:02_types.org::*2. Signed overflow and unsigned wrap][02_types §2]]            |
 | Why =-1 < 1u= is false                     | [[file:02_types.org::*3. Integer promotions and the usual arithmetic conversions][02_types §3]]            |
-| =printf= format for =size_t=, =int64_t=    | [[file:02_types.org::*13. printf and scanf format specifiers][02_types §13]]           |
-| What counts as undefined behavior          | [[file:01_language.org::*2. Categories of behavior][01_language §2]]         |
+| =printf= format for =size_t=, =int64_t=        | [[file:02_types.org::*13. printf and scanf format specifiers][02_types §13]]           |
+| What counts as undefined behavior        | [[file:01_language.org::*2. Categories of behavior][01_language §2]]         |
 | Reading =int (*f)(int)= style declarations | [[file:01_language.org::*5. Reading declarations][01_language §5]]         |
 | The safe =realloc= pattern                 | [[file:04_memory.org::*2. The malloc family][04_memory §2]]           |
-| Strict aliasing and type punning           | [[file:04_memory.org::*7. Strict aliasing and effective type][04_memory §7]]           |
-| Finding memory bugs with sanitizers        | [[file:04_memory.org::*11. Finding memory bugs][04_memory §11]]          |
+| Strict aliasing and type punning         | [[file:04_memory.org::*7. Strict aliasing and effective type][04_memory §7]]           |
+| Finding memory bugs with sanitizers      | [[file:04_memory.org::*11. Finding memory bugs][04_memory §11]]          |
 | Why =strncpy= is not safe                  | [[file:06_standard-library.org::*2. <string.h>][06_standard-library §2]] |
 | Parsing numbers with =strtol=              | [[file:06_standard-library.org::*3. <stdlib.h>][06_standard-library §3]] |
 | =errno= rules                              | [[file:07_io-and-errors.org::*6. errno][07_io-and-errors §6]]    |
 | =goto cleanup= and error codes             | [[file:07_io-and-errors.org::*7. Error-handling patterns][07_io-and-errors §7]]    |
-| X-macros                                   | [[file:08_macros.org::*10. X-macros][08_macros §10]]          |
-| Name capture in macros                     | [[file:08_macros.org::*11. Hygiene][08_macros §11]]          |
+| X-macros                                 | [[file:08_macros.org::*10. X-macros][08_macros §10]]          |
+| Name capture in macros                   | [[file:08_macros.org::*11. Hygiene][08_macros §11]]          |
 | Feature-test macros (=_POSIX_C_SOURCE=)    | [[file:09_preprocessor.org::*6. Feature-test macros][09_preprocessor §6]]     |
-| How macro arguments expand                 | [[file:09_preprocessor.org::*7. How macro expansion works][09_preprocessor §7]]     |
-| Compiler warning flags                     | [[file:10_toolchain.org::*2. Warnings][10_toolchain §2]]        |
-| Debugging with gdb                         | [[file:10_toolchain.org::*8. Debugging with gdb][10_toolchain §8]]        |
-| Condition variables                        | [[file:11_concurrency.org::*4. Condition variables][11_concurrency §4]]      |
-| Memory orders                              | [[file:11_concurrency.org::*6. Memory ordering][11_concurrency §6]]      |
+| How macro arguments expand               | [[file:09_preprocessor.org::*7. How macro expansion works][09_preprocessor §7]]     |
+| Compiler warning flags                   | [[file:10_toolchain.org::*2. Warnings][10_toolchain §2]]        |
+| Debugging with gdb                       | [[file:10_toolchain.org::*8. Debugging with gdb][10_toolchain §8]]        |
+| Condition variables                      | [[file:11_concurrency.org::*4. Condition variables][11_concurrency §4]]      |
+| Memory orders                            | [[file:11_concurrency.org::*6. Memory ordering][11_concurrency §6]]      |
 
 ** Reading notes
 - Code blocks are =#+begin_src c= (or =sh=, =make=, ...). Many are fragments, not complete programs: wrap them in a =main= and add the headers they use.
